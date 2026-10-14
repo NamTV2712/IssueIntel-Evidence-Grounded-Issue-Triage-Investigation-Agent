@@ -37,7 +37,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 
 | Mã | Trạng thái hiện tại |
 |---|---|
-| F01 | Nhận mô tả issue và repo/revision qua CLI/workbench; public input boundary. Phân loại intent nâng cao còn roadmap. |
+| F01 | Nhận mô tả issue, GitHub issue URL và repo/revision qua CLI/workbench; public input boundary. Phân loại intent nâng cao còn roadmap. |
 | F02 | Tìm kiếm và duplicate có bằng chứng còn roadmap. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
@@ -51,8 +51,8 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
 | F14 | Lịch sử và mở lại pack local; so sánh đa phiên có kiểm rebinding còn roadmap. |
-| F15 | GitHub bot thuộc giai đoạn sau. |
-| F16 | Workbench chỉ đọc; GitHub write cần preview và approval riêng. |
+| F15 | Nhận issue URL và webhook `issue_comment` HMAC-signed, collaborator command, delivery dedup; GitHub App chưa được cài/triển khai. |
+| F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown. |
 | F18 | Provider bounds, reservation/usage USD, lỗi và trace hiện có; output model vẫn unverified. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
@@ -69,8 +69,33 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
+- `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
+- `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.
+- `POST /api/github/webhook`: GitHub signature/event/delivery guards riêng; không tự gọi model hay đăng comment.
 
 Mọi job/pack và repository ví dụ ở ignored `artifacts/demo/`. Không commit data,
 token, review bundle hoặc kết quả thật. CI dùng fixture tổng hợp. Evaluation,
 metrics và thí nghiệm Holdout vẫn cần capability/ủy quyền riêng theo proposal.
 
+## Tích hợp GitHub
+
+Chọn **GitHub issue URL**, nhập URL và revision. `HEAD` lấy snapshot hiện tại;
+không biến mô tả REST hiện tại thành opening-query strict. Tab **GitHub** tạo bản
+nháp có code links theo commit đã đọc. Sau khi xem đúng issue đích và nội dung,
+người dùng đánh dấu duyệt và bấm đăng. Token local cần quyền comment trên issue
+đích. Thay nội dung/hash/target bị từ chối; một intent đã bắt đầu không retry ngầm
+khi lỗi hoặc restart. Không có comment thật nào được đăng trong kiểm thử phát triển.
+
+Adapter webhook hỗ trợ `/issueintel investigate [revision]` từ OWNER, MEMBER hoặc
+COLLABORATOR trên issue của repo public. Nó tạo một job evidence-only; không tự
+chi Groq hoặc gửi comment. Delivery lặp lại dùng cùng job. Cần đặt riêng
+`GITHUB_WEBHOOK_SECRET` trong `.env` và cấu hình GitHub App webhook `issue_comment`.
+Secrets không đặt trong repo/config mẫu hoặc chat. Endpoint local là
+`/api/github/webhook`; server mặc định chỉ bind localhost. GitHub không thể gọi
+localhost trực tiếp: triển khai endpoint/gateway HTTPS và cài App vẫn là bước
+cấu hình tiếp theo, chưa được làm tự động hoặc coi đã hoàn thành.
+
+Write adapter pin API version `2026-03-10`, kiểm HTTP 201, exact body và comment
+URL/ID từ response. Nguồn đã đối chiếu ngày 14/10/2026:
+[Create issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
+và [Webhook validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).

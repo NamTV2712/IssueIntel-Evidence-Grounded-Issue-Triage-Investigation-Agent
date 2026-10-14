@@ -28,6 +28,11 @@ có snapshot, graph và code evidence. Bật Groq để sinh giả thuyết và 
 riêng theo cấu hình/ngân sách hiện có. Quick/Deep thay độ rộng evidence; export
 JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
 
+Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
+cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook
+nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTTPS được
+ghi riêng trong [docs/PRODUCT.md](docs/PRODUCT.md), chưa triển khai tự động.
+
 Ngày 14/10 tác giả chọn bắt đầu sản phẩm với Main Dev đã đạt, giữ Holdout để đánh
 giá cuối và không chờ đủ 400 strict. [Quyết định](configs/development_start_decision_2026-10-14.json)
 không tự mở evaluation, đóng băng cohort mới hay khởi động lại bulk LLM.

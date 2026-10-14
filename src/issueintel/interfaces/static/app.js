@@ -10,7 +10,7 @@ async function api(path, body) {
 }
 function node(tag, text, className) { const el = document.createElement(tag); if(text !== undefined) el.textContent = text; if(className) el.className = className; return el; }
 function message(text, error=false) { $('message').textContent=text; $('message').className=error?'error':''; }
-function switchMode() { const mode=$('mode').value; $('main-dev-fields').hidden=mode!=='main_dev'; $('local-fields').hidden=mode!=='local'; $('example-note').hidden=mode!=='example'; }
+function switchMode() { const mode=$('mode').value; $('main-dev-fields').hidden=mode!=='main_dev'; $('github-fields').hidden=mode!=='github'; $('local-fields').hidden=mode!=='local'; $('example-note').hidden=mode!=='example'; }
 function filterCases() {
   const query=$('case-search').value.toLowerCase(); const rows=catalog.filter(c => (c.repository+' '+c.case_id+' '+c.summary).toLowerCase().includes(query));
   $('case-id').replaceChildren(...rows.map(c=>{const opt=node('option',c.case_id.replace('verified:','')+' · '+c.summary.slice(0,52));opt.value=c.case_id;return opt;}));
@@ -19,6 +19,7 @@ function filterCases() {
 function requestInput() {
   const mode=$('mode').value;const request={mode,provider:$('use-groq').checked?'groq':'none',depth:$('depth').value};
   if(mode==='main_dev') request.case_id=$('case-id').value;
+  if(mode==='github') Object.assign(request,{issue_url:$('github-url').value,revision:$('github-revision').value});
   if(mode==='local') Object.assign(request,{repository:$('repository').value,revision:$('revision').value,issue_text:$('issue-text').value});
   return request;
 }
@@ -80,6 +81,26 @@ function renderTab() {
   }
   if(activeTab==='trace') {
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,leakage_audit:pack.leakage_audit},null,2)));
+  }
+  if(activeTab==='github') {
+    const button=node('button','Tạo bản nháp comment để duyệt');
+    content.append(node('p','Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue.','notice'),button);
+    button.onclick=async()=>{
+      try {
+        const reviewedJob=currentJob;const draft=await api('/api/jobs/'+reviewedJob+'/github-preview',{});
+        const target=node('p','Issue đích: '+draft.issue_url,'notice');const preview=node('pre',draft.body);
+        const label=node('label',undefined,'checkbox');const check=node('input');check.type='checkbox';
+        label.append(check,node('span','Tôi đã duyệt nội dung này và đồng ý đăng lên issue đích.'));
+        const publish=node('button','Đăng comment đã duyệt');publish.disabled=true;
+        check.onchange=()=>publish.disabled=!check.checked;
+        publish.onclick=async()=>{
+          if(!check.checked)return;publish.disabled=true;
+          try {const receipt=await api('/api/jobs/'+reviewedJob+'/github-publish',{approved_sha256:draft.body_sha256,confirmation:'publish_reviewed_comment'});content.append(node('p','Đã đăng: '+receipt.comment_url,'notice'));}
+          catch(error){message(error.message,true);}
+        };
+        content.replaceChildren(target,preview,label,publish);
+      }catch(error){message('Cần một lần điều tra bằng GitHub issue URL đã hoàn tất để tạo bản nháp.',true);}
+    };
   }
 }
 async function history() {

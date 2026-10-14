@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 import hmac
 import json
 import secrets
+import os
 
 from issueintel.investigation.workbench import Workbench
 
@@ -85,7 +86,7 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
 
         def do_POST(self):
             route = urlsplit(self.path).path
-            if not self._guard(api=True):
+            if not self._guard(api=route != '/api/github/webhook'):
                 return
             lengths = self.headers.get_all('Content-Length') or []
             if (self.headers.get('Transfer-Encoding') is not None or len(lengths) != 1
@@ -95,6 +96,15 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 return
             try:
                 raw = self.rfile.read(int(lengths[0]))
+                if route == '/api/github/webhook':
+                    if not os.environ.get('GITHUB_WEBHOOK_SECRET'):
+                        self._json(503, {'error':'GitHub webhook is not configured'})
+                        return
+                    job = workbench.receive_webhook(raw, signature=self.headers.get('X-Hub-Signature-256'),
+                        event=self.headers.get('X-GitHub-Event'), delivery=self.headers.get('X-GitHub-Delivery'),
+                        secret=os.environ['GITHUB_WEBHOOK_SECRET'])
+                    self._json(202, job)
+                    return
                 request = json.loads(raw)
                 if route == '/api/investigations':
                     self._json(202, workbench.submit(request))
@@ -102,6 +112,14 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid cancellation request')
                     self._json(200, workbench.cancel(route.split('/')[3]))
+                elif route.startswith('/api/jobs/') and route.endswith('/github-preview'):
+                    if request != {} or len(route.split('/')) != 5:
+                        raise ValueError('Invalid preview request')
+                    self._json(200, workbench.preview_comment(route.split('/')[3]))
+                elif route.startswith('/api/jobs/') and route.endswith('/github-publish'):
+                    if len(route.split('/')) != 5:
+                        raise ValueError('Invalid publication request')
+                    self._json(200, workbench.publish_comment(route.split('/')[3], request))
                 else:
                     self._json(404, {'error': 'Route not found'})
             except (ValueError, UnicodeError):

@@ -4,13 +4,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
 import uuid
 
 from issueintel.benchmarks.dev_context import accepted_context, public_catalog
-from issueintel.repository.acquire import acquire_repository
+from issueintel.repository.acquire import acquire_repository, fetch_github_issue
+from issueintel.integrations.github import github_input, comment_preview, post_reviewed_comment, signed_command
 from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest, write_json
 from .pipeline import investigate, export_pack
@@ -23,24 +25,34 @@ def now():
 
 
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
     if request.get('depth', 'quick') not in {'quick', 'deep'}:
         raise ValueError('Choose quick or deep investigation')
-    if mode not in {'local', 'main_dev', 'example'} or provider not in {'none', 'groq'}:
+    if mode not in {'local', 'main_dev', 'example', 'github'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
     if mode == 'main_dev':
-        if set(request) & {'repository', 'revision', 'issue_text'}:
+        if set(request) & {'repository', 'revision', 'issue_text', 'issue_url'}:
             raise ValueError('A Main Dev query and revision cannot be overridden')
         if not isinstance(request.get('case_id'), str) or len(request['case_id']) > 200:
             raise ValueError('Select a Main Dev case')
     elif mode == 'example':
-        if set(request) & {'repository', 'revision', 'issue_text', 'case_id'}:
+        if set(request) & {'repository', 'revision', 'issue_text', 'case_id', 'issue_url'}:
             raise ValueError('The example has fixed synthetic input')
+    elif mode == 'github':
+        if set(request) & {'repository', 'issue_text', 'case_id'}:
+            raise ValueError('GitHub input cannot override issue identity or text')
+        github_input(request.get('issue_url', ''))
+        revision = request.get('revision', 'HEAD')
+        if not isinstance(revision, str) or not revision.strip() or len(revision) > 200 or any(ord(c) < 32 for c in revision):
+            raise ValueError('Choose a concrete Git revision or HEAD')
+        request = dict(request, revision=revision)
     else:
+        if 'issue_url' in request:
+            raise ValueError('A local issue cannot impersonate a GitHub target')
         if 'case_id' in request:
             raise ValueError('Custom input cannot impersonate a benchmark case')
         for key, maximum in [('repository', 2000), ('revision', 200), ('issue_text', 100000)]:
@@ -153,6 +165,12 @@ class Workbench:
                 extra = dict(snapshot=snapshot, query_receipt=query, protocol='issue_time')
             elif request['mode'] == 'example':
                 case, local = self._example()
+            elif request['mode'] == 'github':
+                issue = fetch_github_issue(request['issue_url'])
+                case = {'case_id':issue['url'], 'issue_url':issue['url'], 'repository':issue['repository'],
+                        'revision':request['revision'], 'problem_statement':issue['problem_statement'],
+                        'issue_created_at':issue['created_at']}
+                local = acquire_repository(issue['repository'], case['revision'], self.root/'data/repos').path
             else:
                 repository = request['repository'].strip()
                 case = {'case_id': 'local:'+digest(request)[:16], 'repository': repository,
@@ -222,6 +240,68 @@ class Workbench:
         if hashlib.sha256(raw).hexdigest() != ref['sha256']:
             raise ValueError('Export integrity changed')
         return raw
+
+    def preview_comment(self, identifier):
+        if self.job(identifier)['mode'] != 'github':
+            raise ValueError('Only an explicit GitHub investigation can prepare a comment')
+        pack = json.loads(self.result_bytes(identifier))
+        preview = dict(comment_preview(pack), job_id=identifier,
+                       pack_sha256=hashlib.sha256(self.result_bytes(identifier)).hexdigest())
+        path = self.directory/'runs'/identifier/'github_preview.json'
+        with self.lock:
+            write_json(path, preview)
+        return preview
+
+    def publish_comment(self, identifier, approval):
+        if not isinstance(approval, dict) or set(approval) != {'approved_sha256', 'confirmation'} or approval['confirmation'] != 'publish_reviewed_comment':
+            raise ValueError('Exact reviewed comment approval is required')
+        if self.job(identifier)['mode'] != 'github':
+            raise ValueError('Only an explicit GitHub investigation can publish')
+        key = os.environ.get('GITHUB_TOKEN', '')
+        if not key or any(ord(c) < 32 for c in key):
+            raise ValueError('A local GitHub token is required')
+        directory = self.directory/'runs'/identifier
+        with self.lock:
+            preview = json.loads((directory/'github_preview.json').read_bytes())
+            if preview.get('job_id') != identifier or preview.get('pack_sha256') != hashlib.sha256(self.result_bytes(identifier)).hexdigest():
+                raise ValueError('Reviewed source pack changed')
+            actual = hashlib.sha256(preview['body'].encode()).hexdigest()
+            if actual != approval['approved_sha256'] or actual != preview['body_sha256']:
+                raise ValueError('Reviewed comment changed')
+            intent_path = directory/'github_publish_intent.json'
+            if intent_path.exists():
+                raise ValueError('Publication already attempted; inspect the receipt before any retry')
+            write_json(intent_path, {'job_id':identifier, 'body_sha256':actual, 'issue_url':preview['issue_url'],
+                                     'started_at':now(), 'automatic_retry':False})
+        try:
+            receipt = post_reviewed_comment(preview, approved_sha256=approval['approved_sha256'])
+        except Exception as error:
+            write_json(directory/'github_publish_failure.json', {'error_type':type(error).__name__,
+                'recorded_at':now(), 'publication_outcome':'unknown', 'automatic_retry':False})
+            raise ValueError('Publication did not complete; inspect GitHub and the intent before retrying') from None
+        write_json(directory/'github_publish_receipt.json', receipt)
+        return receipt
+
+    def receive_webhook(self, raw, *, signature, event, delivery, secret):
+        request = signed_command(raw, signature=signature, event=event, delivery=delivery, secret=secret)
+        directory = self.directory/'github_deliveries'; directory.mkdir(exist_ok=True)
+        path = directory/(delivery+'.json')
+        fingerprint = hashlib.sha256(raw).hexdigest()
+        with self.lock:
+            if path.exists():
+                previous = json.loads(path.read_bytes())
+                if previous['payload_sha256'] != fingerprint or not previous.get('job_id'):
+                    raise ValueError('Delivery identity changed or needs recovery')
+                identifier = previous['job_id']
+            else:
+                write_json(path, {'payload_sha256':fingerprint, 'recorded_at':now(), 'job_id':None})
+                identifier = None
+        if identifier:
+            return self.job(identifier)
+        job = self.submit(request)
+        with self.lock:
+            write_json(path, {'payload_sha256':fingerprint, 'recorded_at':now(), 'job_id':job['id']})
+        return job
 
     def close(self):
         self.executor.shutdown(wait=True)
