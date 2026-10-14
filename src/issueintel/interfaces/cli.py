@@ -16,6 +16,9 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="Counts, integrity, pending layers and budget")
     commands.add_parser("bootstrap", help="Download pinned SWE-bench sources and import cases")
+    web = commands.add_parser("serve", help="Run the read-only local investigation workbench")
+    web.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8787)
     strict_dev = commands.add_parser("build-strict-dev", help="DEV-only deterministic eligibility; no LLM or evaluation")
     strict_dev.add_argument("--namespace", choices=("main-dev-strict-v1",), default="main-dev-strict-v1")
     strict_dev.add_argument("--target", type=int, choices=(400,), default=400)
@@ -136,6 +139,9 @@ def main(argv=None) -> int:
             else:
                 result["dataset"] = "not_imported"
             print(json.dumps(result, indent=2))
+        elif args.command == "serve":
+            from issueintel.interfaces.web import serve
+            serve(args.root, host=args.host, port=args.port)
         elif args.command == "investigate":
             _investigate(args)
         elif args.command == "build-assets":

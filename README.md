@@ -15,7 +15,25 @@ python -m venv .venv
 
 Lõi dùng thư viện chuẩn Python. `data` để nhập Parquet; `dev` để kiểm thử; `llm` thêm tokenizer gốc cho các input lớn trên Groq. Không cần PostgreSQL, Docker, Torch hoặc GPU để chạy lõi.
 
-## Phase hiện hành: 400 Main Dev gốc
+## Workbench chạy local
+
+```powershell
+.\.venv\Scripts\python.exe -m issueintel serve
+# Mở http://127.0.0.1:8787
+```
+
+Chọn một Main Dev accepted hoặc nhập issue cùng repository/revision. Nút **Thử ví
+dụ tổng hợp** chạy được khi chưa có dataset/token. Mặc định không gọi API: kết quả
+có snapshot, graph và code evidence. Bật Groq để sinh giả thuyết và chạy verifier
+riêng theo cấu hình/ngân sách hiện có. Quick/Deep thay độ rộng evidence; export
+JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
+
+Ngày 14/10 tác giả chọn bắt đầu sản phẩm với Main Dev đã đạt, giữ Holdout để đánh
+giá cuối và không chờ đủ 400 strict. [Quyết định](configs/development_start_decision_2026-10-14.json)
+không tự mở evaluation, đóng băng cohort mới hay khởi động lại bulk LLM.
+Trạng thái implementation theo proposal nằm trong [docs/PRODUCT.md](docs/PRODUCT.md).
+
+## Dữ liệu: 400 Main Dev gốc
 
 **Phục hồi proof được giữ riêng: [107 pending ban đầu](docs/STRICT_RECOVERY.md).** Bulk LLM đã
 tạm dừng theo tác giả; giữ 69 pack đã hoàn tất và mọi receipt. Không kết thúc

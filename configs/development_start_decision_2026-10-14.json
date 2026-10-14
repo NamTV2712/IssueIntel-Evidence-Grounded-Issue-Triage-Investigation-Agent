@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-14",
+  "author_confirmation": "Bắt đầu với Main Dev; giữ Holdout (khuyên dùng)",
+  "implementation_request": "bắt đầu vô project và xây dựng luôn, nhớ push lên github (main vì project này ít người nên cứ main thôi)",
+  "product_specification": "proposal.md",
+  "development_need_not_wait_for_400_strict_cases": true,
+  "original_main_dev_only": true,
+  "holdout_reserved_for_final_evaluation": true,
+  "holdout_access_or_evaluation_authorized": false,
+  "strict_contract_relaxation_authorized": false,
+  "recovery_phase_complete": false,
+  "new_cohort_automatically_frozen": false,
+  "bulk_llm_generation_automatically_resumed": false,
+  "github_target_branch": "main",
+  "data_and_tokens_published": false
+}
