@@ -135,7 +135,9 @@ def test_http_comparison_requires_session_and_two_complete_jobs(tmp_path):
         headers={'X-IssueIntel-Token':server.session_token,'Content-Type':'application/json'}
         ids=[completed(server.workbench,server.workbench.submit({'mode':'example'})['id'])['id'] for _ in range(2)]
         body=json.dumps({'before_id':ids[0],'after_id':ids[1]})
-        assert http(server,'POST','/api/comparisons',body,{'Content-Type':'application/json'})[0]==403
+        # Authentication precedes body parsing. No unread body avoids a Windows
+        # socket reset after the handler closes an unauthenticated connection.
+        assert http(server,'POST','/api/comparisons',headers={'Content-Type':'application/json'})[0]==403
         status,_,raw=http(server,'POST','/api/comparisons',body,headers)
         assert status==200 and json.loads(raw)['same_context']
         assert http(server,'POST','/api/comparisons',json.dumps({'before_id':ids[0],'after_id':None}),headers)[0]==400

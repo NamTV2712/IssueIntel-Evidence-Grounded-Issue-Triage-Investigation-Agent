@@ -13,6 +13,8 @@ STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
           '/style.css': ('style.css', 'text/css; charset=utf-8')}
 STATIC['/comparison.css'] = ('comparison.css', 'text/css; charset=utf-8')
+STATIC['/locales.js'] = ('locales.js', 'text/javascript; charset=utf-8')
+STATIC['/preferences.js'] = ('preferences.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):

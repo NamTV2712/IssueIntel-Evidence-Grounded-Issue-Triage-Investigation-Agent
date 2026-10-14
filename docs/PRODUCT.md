@@ -60,6 +60,23 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 
 ## API và dữ liệu local
 
+Giao diện hỗ trợ **Tiếng Việt / English** và **Light / Dark / System** từ thanh
+đầu trang. Theo hệ thống phản ứng với đổi theme của OS; lựa chọn rõ ràng giữ
+nguyên. Preferences được lưu bằng `issueintel.preferences.v1` trong browser,
+chỉ gồm language/theme, không chứa issue, token hoặc kết quả. Storage bị chặn
+vẫn dùng được. Đổi ngôn ngữ render lại dữ liệu đã có, không gửi lại job/call.
+Issue/code/model output và JSON/Markdown export giữ nguyên nguồn và hash;
+không tự dịch evidence hay thay prompt. Ngôn ngữ mặc định theo browser, fallback
+English. Chuyển ngôn ngữ khi đang xem draft GitHub bỏ phần duyệt cũ; cần xem
+và duyệt lại nội dung trước khi đăng.
+
+Màu dùng semantic tokens chung giữa hai theme, có focus bàn phím và hỗ trợ
+reduced motion. Đã đo 22 cặp màu text/control: text thấp nhất 5.43:1, control/
+focus thấp nhất 3.83:1; helper light trước sửa `#778780` trên trắng chưa đạt
+4.5:1. Đây là kiểm palette và các trạng thái được thử, chưa phải audit WCAG đầy
+đủ. Ngưỡng đối chiếu [text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+và [non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
+
 API cần session token của trang trong `X-IssueIntel-Token`. Origin/Host phải đúng
 localhost; server không cung cấp CORS hay duyệt filesystem. Source excerpts được
 render bằng `textContent`, không thực thi HTML/Markdown từ repository hoặc issue.
