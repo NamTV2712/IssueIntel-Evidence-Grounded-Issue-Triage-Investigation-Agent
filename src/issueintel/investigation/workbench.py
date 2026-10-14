@@ -16,6 +16,7 @@ from issueintel.integrations.github import github_input, comment_preview, post_r
 from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest, write_json
 from .pipeline import investigate, export_pack
+from .comparison import compare_packs
 from .providers import GroqProvider, ProviderError
 from issueintel.runtime.budget import BudgetDenied
 
@@ -240,6 +241,18 @@ class Workbench:
         if hashlib.sha256(raw).hexdigest() != ref['sha256']:
             raise ValueError('Export integrity changed')
         return raw
+
+    def compare(self, request):
+        if not isinstance(request, dict) or set(request) != {'before_id', 'after_id'}:
+            raise ValueError('Choose two completed investigations')
+        if request['before_id'] == request['after_id']:
+            raise ValueError('Choose two different investigations')
+        raw = [self.result_bytes(request[key]) for key in ('before_id', 'after_id')]
+        result = compare_packs(*(json.loads(value) for value in raw))
+        result['sources'] = {side: {'job_id': request[side+'_id'],
+                                  'pack_sha256': hashlib.sha256(value).hexdigest()}
+                             for side, value in zip(('before', 'after'), raw)}
+        return result
 
     def preview_comment(self, identifier):
         if self.job(identifier)['mode'] != 'github':

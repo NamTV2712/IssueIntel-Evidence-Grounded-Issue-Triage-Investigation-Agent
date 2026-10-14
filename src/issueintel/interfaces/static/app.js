@@ -104,12 +104,55 @@ function renderTab() {
   }
 }
 async function history() {
-  try {const rows=await api('/api/jobs');$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?'Ví dụ tổng hợp':row.mode==='main_dev'?'Main Dev':'Issue của bạn')),node('span',row.status),node('small',new Date(row.created_at).toLocaleString('vi-VN')));el.disabled=row.status!=='completed';el.onclick=()=>openJob(row.id).catch(error=>message(error.message,true));return el;}));if(!rows.length)$('history-list').append(node('p','Chưa có lần điều tra nào.','muted'));}catch(error){message(error.message,true);}
+  try {const rows=await api('/api/jobs');comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?'Ví dụ tổng hợp':row.mode==='main_dev'?'Main Dev':'Issue của bạn')),node('span',row.status),node('small',new Date(row.created_at).toLocaleString('vi-VN')));el.disabled=row.status!=='completed';el.onclick=()=>openJob(row.id).catch(error=>message(error.message,true));return el;}));if(!rows.length)$('history-list').append(node('p','Chưa có lần điều tra nào.','muted'));}catch(error){message(error.message,true);}
+}
+function comparisonChoices(rows) {
+  const completed=rows.filter(row=>row.status==='completed');
+  for(const side of ['before','after']) {
+    const select=$('compare-'+side), previous=select.value;
+    select.replaceChildren(...completed.map(row=>{const option=node('option',(row.case_id || row.mode)+' · '+row.depth+' / '+row.provider+' · '+new Date(row.created_at).toLocaleString('vi-VN')+' · '+row.id.slice(0,8));option.value=row.id;return option;}));
+    if(completed.some(row=>row.id===previous))select.value=previous;
+    else if(side==='before' && completed.length>1)select.selectedIndex=1;
+  }
+  if(completed.length>1 && $('compare-before').value===$('compare-after').value) {
+    $('compare-after').value=completed.find(row=>row.id!==$('compare-before').value).id;
+  }
+  $('compare-button').disabled=completed.length<2;
+  if(completed.length<2)$('compare-message').textContent='Cần ít nhất hai phiên đã hoàn tất.';
+  else $('compare-message').textContent='';
+}
+async function compareRuns(event) {
+  event.preventDefault();const button=$('compare-button');button.disabled=true;
+  $('comparison-result').replaceChildren();$('compare-message').textContent='Đang kiểm báo cáo và đối chiếu…';
+  try {
+    const comparison=await api('/api/comparisons',{before_id:$('compare-before').value,after_id:$('compare-after').value});
+    const content=$('comparison-result');
+    $('compare-message').textContent='Đã so sánh hai báo cáo đã lưu.';
+    const scope=node('article',undefined,'hypothesis-card');
+    scope.append(node('h3',comparison.same_context?'Cùng query và snapshot':'Context đã thay đổi · cần gắn lại citation'),
+      node('p','Trước: '+comparison.before.commit_sha+' · '+comparison.before.protocol),
+      node('p','Sau: '+comparison.after.commit_sha+' · '+comparison.after.protocol));
+    if(comparison.changed_bindings.length)scope.append(node('p','Thay đổi: '+comparison.changed_bindings.join(', ')));
+    scope.append(node('p','Khác biệt giữa đầu ra không chứng minh cải thiện chất lượng hoặc đã sửa lỗi.','notice'));
+    content.append(scope);
+    const labels={unchanged:'Giữ nguyên',added:'Thêm',removed:'Bỏ',content_changed:'Nội dung đổi',rebinding_required:'Cùng nội dung · cần gắn lại citation'};
+    const table=node('table');table.className='comparison-table';const head=node('thead'),header=node('tr');
+    for(const title of ['Nguồn','Khác biệt','SHA256 trước → sau'])header.append(node('th',title));head.append(header);
+    const body=node('tbody');
+    for(const evidence of comparison.evidence){const row=node('tr');row.append(node('td',evidence.kind+' · '+evidence.locator),node('td',labels[evidence.status]),node('td',(evidence.before?.sha256 || '—')+' → '+(evidence.after?.sha256 || '—'),'hash-note'));body.append(row);}
+    table.append(head,body);const wrapper=node('div',undefined,'comparison-scroll');wrapper.append(table);content.append(wrapper);
+    const hypotheses=comparison.hypotheses;
+    content.append(node('h3','Giả thuyết: '+hypotheses.unchanged.length+' giữ nguyên · '+hypotheses.added.length+' thêm · '+hypotheses.removed.length+' bỏ'));
+    for(const [label,rows] of [['Thêm',hypotheses.added],['Bỏ',hypotheses.removed]])for(const row of rows)content.append(node('p',label+': '+row.statement,'notice'));
+    const source=node('details');source.append(node('summary','Nguồn báo cáo và giới hạn'),node('pre',JSON.stringify({sources:comparison.sources,before:comparison.before,after:comparison.after,evidence_counts:comparison.evidence_counts,limitations:comparison.limitations},null,2)));content.append(source);
+  }catch(error){$('compare-message').textContent='Không thể so sánh: chọn hai phiên hoàn tất của cùng issue và repository, với file còn nguyên vẹn.';}
+  finally{button.disabled=false;}
 }
 async function download(name) {
   try {const response=await fetch('/api/jobs/'+currentJob+'/'+name,{headers:{'X-IssueIntel-Token':token}});if(!response.ok)throw new Error('Không xuất được báo cáo.');const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download='issueintel-'+currentJob+'-'+name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){message(error.message,true);}
 }
 $('mode').onchange=switchMode;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
+$('compare-form').onsubmit=compareRuns;
 $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
 $('cancel-button').onclick=async()=>{try{if(!activeJob)return;await api('/api/jobs/'+activeJob+'/cancel',{});message('Đã yêu cầu hủy; lời gọi API đang xử lý có thể vẫn tính phí.');}catch(error){message(error.message,true);}};
 $('export-md').onclick=()=>download('report.md');$('export-json').onclick=()=>download('pack.json');

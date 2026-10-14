@@ -12,6 +12,7 @@ from issueintel.investigation.workbench import Workbench
 STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
           '/style.css': ('style.css', 'text/css; charset=utf-8')}
+STATIC['/comparison.css'] = ('comparison.css', 'text/css; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -108,6 +109,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 request = json.loads(raw)
                 if route == '/api/investigations':
                     self._json(202, workbench.submit(request))
+                elif route == '/api/comparisons':
+                    self._json(200, workbench.compare(request))
                 elif route.startswith('/api/jobs/') and route.endswith('/cancel'):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid cancellation request')

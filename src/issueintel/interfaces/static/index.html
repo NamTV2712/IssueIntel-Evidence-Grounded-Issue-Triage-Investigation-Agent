@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="vi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="issueintel-session" content="__SESSION_TOKEN__"><title>IssueIntel · Điều tra issue</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="issueintel-session" content="__SESSION_TOKEN__"><title>IssueIntel · Điều tra issue</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/comparison.css"><script src="/app.js" defer></script></head>
 <body>
 <header><a class="brand" href="/">i<span>IssueIntel</span></a><span class="local-pill"><i></i> Local workspace</span></header>
 <main>
@@ -23,5 +23,6 @@
 <div id="result" hidden><div id="summary" class="summary-grid"></div><nav class="tabs" aria-label="Nội dung báo cáo"><button class="active" data-tab="evidence">Bằng chứng</button><button data-tab="hypotheses">Giả thuyết</button><button data-tab="verification">Kiểm chứng</button><button data-tab="trace">Tiến trình</button><button data-tab="github">GitHub</button></nav><div id="tab-content"></div></div>
 </section></div>
 <section class="history-section"><div><h2>Lịch sử điều tra</h2><p class="muted">Kết quả lưu cục bộ. Mở lại báo cáo không gọi model.</p></div><div id="history-list"></div></section>
+<section class="history-section" aria-labelledby="compare-title"><h2 id="compare-title">So sánh hai phiên điều tra</h2><p class="muted">Chọn hai kết quả của cùng issue. So sánh không gọi model và không xác nhận chất lượng hay bản sửa.</p><form id="compare-form" class="comparison-controls"><div><label for="compare-before">Phiên trước</label><select id="compare-before"></select></div><div><label for="compare-after">Phiên sau</label><select id="compare-after"></select></div><button id="compare-button" type="submit">So sánh</button></form><div id="compare-message" role="status" aria-live="polite"></div><div id="comparison-result"></div></section>
 </main><footer>IssueIntel · Snapshot Git chỉ đọc · Nhãn tự động chưa được người kiểm độc lập</footer>
 </body></html>

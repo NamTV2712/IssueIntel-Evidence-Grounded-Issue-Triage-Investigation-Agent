@@ -50,7 +50,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F11 | Cache Git/snapshot/graph đã có; kiến trúc memory nhiều phiên còn roadmap. |
 | F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
-| F14 | Lịch sử và mở lại pack local; so sánh đa phiên có kiểm rebinding còn roadmap. |
+| F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Nhận issue URL và webhook `issue_comment` HMAC-signed, collaborator command, delivery dedup; GitHub App chưa được cài/triển khai. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown. |
@@ -66,6 +66,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
+- `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
@@ -76,6 +77,22 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 Mọi job/pack và repository ví dụ ở ignored `artifacts/demo/`. Không commit data,
 token, review bundle hoặc kết quả thật. CI dùng fixture tổng hợp. Evaluation,
 metrics và thí nghiệm Holdout vẫn cần capability/ủy quyền riêng theo proposal.
+
+## So sánh hai phiên
+
+Phần dưới lịch sử cho chọn phiên trước/sau. So sánh là mô tả các đầu ra đã lưu,
+không phải evaluation, điểm chất lượng hoặc xác nhận bản sửa. Query, commit,
+snapshot, protocol, cutoff, availability và query provenance được báo riêng.
+Khi một binding thay đổi, excerpt giống nhau vẫn cần gắn lại citation; hypotheses
+không được coi giữ nguyên qua context mới. Không copy evidence sang job khác.
+
+Evidence đối chiếu theo loại và locator, kèm hash/revision của từng phía. Đổi
+range dòng được báo thêm/bỏ; chưa có semantic line alignment. Hypotheses giữ
+nguyên cần cùng nội dung, bước kiểm, support/counter nguồn và context; đổi ID
+cục bộ hoặc thứ tự không tự tạo khác biệt. Đầu vào local có ID phụ thuộc request,
+nên chỉ ghép khi repository và query giống hệt. GitHub/Main Dev dùng identity
+issue cố định và báo riêng khi query đổi. File hỏng, citation thiếu hoặc nguồn
+khác snapshot bị từ chối. Kết quả giữ private trên máy, không đọc Holdout/gold.
 
 ## Tích hợp GitHub
 

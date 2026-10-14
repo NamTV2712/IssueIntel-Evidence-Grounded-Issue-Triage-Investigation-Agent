@@ -27,6 +27,9 @@ dụ tổng hợp** chạy được khi chưa có dataset/token. Mặc định k
 có snapshot, graph và code evidence. Bật Groq để sinh giả thuyết và chạy verifier
 riêng theo cấu hình/ngân sách hiện có. Quick/Deep thay độ rộng evidence; export
 JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
+Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
+query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
+khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.
 
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook

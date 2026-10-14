@@ -1,0 +1,12 @@
+.comparison-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:16px;align-items:end;margin-bottom:18px}
+.comparison-controls label{margin-top:0}
+.comparison-controls button{min-height:39px}
+#compare-message{font-size:12px;line-height:1.8;color:#506e61}
+.comparison-scroll{overflow-x:auto}
+.comparison-table{border-collapse:collapse;width:100%;background:#fff;font-size:12px;line-height:1.7}
+.comparison-table th,.comparison-table td{border:1px solid var(--border);padding:12px;text-align:left;overflow-wrap:anywhere}
+.comparison-table th{background:#e8f0eb;font-weight:600}
+.comparison-table td:last-child{max-width:260px;color:#506e61}
+#comparison-result details{margin-top:20px;font-size:12px}
+#comparison-result summary{cursor:pointer;margin-bottom:12px}
+@media(max-width:740px){.comparison-controls{grid-template-columns:1fr}.comparison-table td{min-width:160px}}
