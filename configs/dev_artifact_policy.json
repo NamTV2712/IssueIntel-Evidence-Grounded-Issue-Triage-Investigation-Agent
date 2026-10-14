@@ -1,0 +1,22 @@
+{
+  "schema": "main_dev_stage_policy_v1",
+  "cohort_sha256": "cbb62d3f6e9fed9488cdc6e4a301790a28d633d9583d7c29e40935f0c669216a",
+  "pilot_sha256": "8d73a0b006129199dbca321c770710a5fa2989d1a6588ad5f98c83a60d4d5965",
+  "scope": "accepted_original_Main_Dev_only",
+  "stage_models": {
+    "generation": {"model": "openai/gpt-oss-20b", "reasoning_effort": "high", "max_output_tokens": 16384,
+      "strategy": "small_then_large_on_structured_failure", "fallback_model": "openai/gpt-oss-120b",
+      "reason": "20B is mandatory first attempt. Pilot validity 24/30 (20B), 30/30 (120B) supports bounded fallback only after this case records a structured-output failure."},
+    "critique": {"model": "openai/gpt-oss-20b", "reasoning_effort": "high", "max_output_tokens": 16384,
+      "strategy": "small_then_large_on_structured_failure", "fallback_model": "openai/gpt-oss-120b",
+      "reason": "20B is mandatory first attempt. Pilot validity 19/30 (20B), 30/30 (120B) supports bounded fallback only after this case records a structured-output failure."},
+    "simple_semantic": {"model": "openai/gpt-oss-20b", "reasoning_effort": "medium", "enabled_for_bulk": false,
+      "reason": "Reserved route; no stage-specific pilot yet."},
+    "judge": {"enabled_for_bulk": false, "reason": "Separate reference-relative DEV stage; not covered by paired pilot."},
+    "variants": {"model": null, "reason": "Current controlled variants are deterministic; no fabricated semantic contradictions."}
+  },
+  "semantic_equivalence_proven": false,
+  "human_validated": false,
+  "evaluation_authorized": false,
+  "note": "20B remains the default as requested. Fallback requires the current case's structured-output failure, never another pilot case's failure. Diagnostic outputs are not production labels; model agreement is not semantic equivalence."
+}

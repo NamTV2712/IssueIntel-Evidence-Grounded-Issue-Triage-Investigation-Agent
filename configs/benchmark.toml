@@ -1,0 +1,6 @@
+target_live = 300
+split_seed = 42
+model_cutoff = "2024-07-01T00:00:00Z"
+# Card specifies June 2024, not an exact day. July 1 is conservative.
+cutoff_source = "https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf"
+temporal_selection = "candidate_only_until_issue_date_and_snapshot_availability_audited"

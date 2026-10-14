@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-13",
+  "scope": "necessary_issueintel_strict_dev_work",
+  "request_attachment_sha256": "f96859c90a88c0b9b35a4ab20f6cb4d8706b0a8d52323e3bc88a2bb7bf7c4415",
+  "provider": "groq",
+  "models": [
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b"
+  ],
+  "model_routing_version": "main_dev_artifact_routing_v1",
+  "target": 400,
+  "namespace": "main-dev-strict-v1",
+  "eligibility_llm_calls": 0,
+  "artifact_calls_require_frozen_dev_cohort": true,
+  "bulk_calls_require_stage_pilot": true,
+  "tokens_unlimited_authorized": true,
+  "usd_unlimited_authorized": true,
+  "budget_authorization_parent": "configs/author_decisions.json",
+  "evaluation_authorized": false,
+  "note": "Latest author request replaces target 500 expansion with exactly 400 original Main Dev. Freeze N <= 400 actual strict cases. Existing cap removal and Groq routing authorization remain; no evaluation.",
+  "candidate_scope": "original_400_main_dev_only",
+  "supersedes_request_sha256": "5717df563800f8326cf893e54743b5f4f8c555d2d945adfb1d5f5fc7c7d52085"
+}

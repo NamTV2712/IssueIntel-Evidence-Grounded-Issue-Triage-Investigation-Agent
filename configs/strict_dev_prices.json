@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-13",
+  "source": "https://console.groq.com/docs/models",
+  "currency": "USD",
+  "models": {
+    "openai/gpt-oss-20b": {
+      "input_per_million": "0.075",
+      "output_per_million": "0.30",
+      "context_tokens": 131072,
+      "max_output_tokens": 65536,
+      "source": "https://console.groq.com/docs/model/openai/gpt-oss-20b"
+    },
+    "openai/gpt-oss-120b": {
+      "input_per_million": "0.15",
+      "output_per_million": "0.60",
+      "context_tokens": 131072,
+      "max_output_tokens": 65536,
+      "source": "https://console.groq.com/docs/model/openai/gpt-oss-120b"
+    }
+  },
+  "note": "Uncached input bounds. Cached input discounts do not reduce advance reservation. Official model pages read on the checked date."
+}

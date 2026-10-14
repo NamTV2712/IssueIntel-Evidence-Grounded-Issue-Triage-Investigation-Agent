@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-13",
+  "scope": "original_main_dev_pending_proof_recovery_only",
+  "parent_cohort_sha256": "cbb62d3f6e9fed9488cdc6e4a301790a28d633d9583d7c29e40935f0c669216a",
+  "original_main_dev_total": 400,
+  "additional_benchmark_cases_authorized": false,
+  "replace_original_cases_authorized": false,
+  "strict_contract_relaxation_authorized": false,
+  "bigquery_authorized": false,
+  "bigquery_cancelled_before_any_query_job": true,
+  "acceptance_requires_valid_replayed_proof": true,
+  "holdout_or_live_access_authorized": false,
+  "evaluation_authorized": false,
+  "llm_calls_authorized_for_eligibility": false,
+  "preserve_all_existing_artifacts_and_receipts": true,
+  "author_answer": "Giữ đúng 400 ca gốc, chỉ nhận ca có proof hợp lệ",
+  "author_bigquery_answer": "ko cần xài BigQuery",
+  "scope_change_draft_accepted": false
+}

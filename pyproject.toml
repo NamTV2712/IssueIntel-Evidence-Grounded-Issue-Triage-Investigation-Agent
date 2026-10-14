@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "issueintel"
+version = "0.1.0"
+description = "Evidence-grounded repository investigation and SWE-bench annotation"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+data = ["pyarrow>=17,<24"]
+llm = ["tiktoken>=0.12,<1"]
+
+[project.scripts]
+issueintel = "issueintel.interfaces.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

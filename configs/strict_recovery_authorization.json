@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-13",
+  "scope": "original_main_dev_pending_proof_recovery_only",
+  "original_main_dev_total": 400,
+  "parent_cohort_sha256": "cbb62d3f6e9fed9488cdc6e4a301790a28d633d9583d7c29e40935f0c669216a",
+  "original_pending_count": 107,
+  "tiers": ["A", "B", "C"],
+  "llm_calls_authorized_for_eligibility": false,
+  "bulk_artifact_generation_paused": true,
+  "preserve_all_existing_artifacts_and_receipts": true,
+  "additional_benchmark_cases_authorized": false,
+  "holdout_or_live_access_authorized": false,
+  "evaluation_authorized": false,
+  "strict_contract_relaxation_authorized": false,
+  "new_cohort_freeze_allowed_before_search_completion": false,
+  "below_400_phase_completion_requires": [
+    "all_admissible_proof_paths_exhausted",
+    "per_case_machine_readable_constraint_or_exhaustion_evidence",
+    "no_access_or_resource_cap_failure_treated_as_absence"
+  ],
+  "author_request": "Ưu tiên duy nhất hiện tại là xử lý 107 Main Dev đang pending để cố đạt 400/400 strict Main Dev. Tạm dừng mở rộng bulk LLM artifact generation. Giữ nguyên mọi artifact/receipt đã tạo và reuse sau. Không lấy thêm case ngoài 400 Main Dev, không đụng Holdout/Live, không mở evaluation và không nới strict contract."
+}

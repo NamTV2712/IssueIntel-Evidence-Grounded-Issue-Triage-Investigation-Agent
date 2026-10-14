@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-12",
+  "historical_query_note": "Preserve pinned SWE-bench source and restricted gold; original opening text is a separate parent-linked overlay. Source human clarity labels apply to upstream query only.",
+  "historical_query_policy": "original_opening_query",
+  "historical_query_user_statement": "Dùng mô tả ban đầu, lưu overlay riêng (khuyên dùng)",
+  "model": "openai/gpt-oss-120b",
+  "note": "Only necessary work on this requested rebuild. Per-call/model limits, dated prices and durable usage receipts remain required.",
+  "schema_version": 1,
+  "scope": "necessary_issueintel_rebuild_work",
+  "supersedes": {
+    "daily_total_tokens": 200000,
+    "monthly_usd": "2.00"
+  },
+  "tokens_unlimited_authorized": true,
+  "usd_unlimited_authorized": true,
+  "user_token_statement": "cứ gọi vì token sẽ cung cấp thêm nên ko có limit",
+  "user_usd_statement": "cứ xài đủ để dùng chứ không giới hạn vì đây là bước cần thiết"
+}

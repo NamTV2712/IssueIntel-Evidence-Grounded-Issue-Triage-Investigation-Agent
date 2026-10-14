@@ -1,0 +1,10 @@
+provider = "groq"
+model = "openai/gpt-oss-120b"
+max_output_tokens = 4096
+price_file = "configs/prices.json"
+ledger = "data/runtime/budget.sqlite"
+# Author explicitly removed both caps for necessary rebuild work on 2026-10-12.
+# Missing numeric limits alone NEVER enable unlimited usage.
+tokens_unlimited_authorized = true
+usd_unlimited_authorized = true
+# The matching source decision is configs/author_decisions.json.
