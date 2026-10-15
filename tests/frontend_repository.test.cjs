@@ -76,6 +76,17 @@ test('code links preserve the searched repository and exact commit when controls
   assert.ok(!app.calls.some(c=>c[0].includes('investigations') || c[0].includes('/sync')));
 });
 
+test('choosing an issue uses the updated snapshot after a push',async()=>{
+  const record={repository:'owner/repo',key:'issue:1',kind:'issue',url:'https://github.com/owner/repo/issues/1',title:'Parser',body:'Failure'};
+  const app=boot(route=>route.endsWith('/search')?{repository:'owner/repo',index_status:{...report,current_snapshot:{commit_sha:'b'.repeat(40)}},results:[{
+    key:record.key,kind:'issue',number:1,title:record.title,url:record.url,snippet:{text:record.body},last_seen_run:'scan'}]}:
+    route.endsWith('/item')?{record}:[]);
+  await app.settle();await app.get('repository-search-form').onsubmit({preventDefault(){}});
+  await app.all(app.get('index-results')).find(e=>e.tag==='button').onclick();
+  app.all(app.get('index-detail')).find(e=>e.tag==='button').onclick();
+  assert.equal(app.get('github-revision').value,'b'.repeat(40));
+});
+
 test('connect requests automatic lifecycle once without manual page submissions or model calls',async()=>{
   const app=boot(route=>route==='/api/repositories/connect'?{repository:'owner/repo'}:
     route==='/api/repositories/connection'?{connection:{repository:'owner/repo',phase:'ready',paused:false,next_attempt:0},index:{...report,scan_complete:true},webhook_configured:false}:[]);

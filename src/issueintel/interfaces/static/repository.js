@@ -94,7 +94,7 @@
       use.onclick=()=>{
         get('mode').value='github';get('mode').dispatchEvent(new Event('change'));
         get('github-url').value=record.url;
-        get('github-revision').value=results?.index_status.run?.snapshot?.commit_sha || 'HEAD';
+        get('github-revision').value=results?.index_status.current_snapshot?.commit_sha || results?.index_status.run?.snapshot?.commit_sha || 'HEAD';
         get('use-groq').checked=false;get('github-url').focus();
       };box.append(document.createTextNode(' '),use);
     }
