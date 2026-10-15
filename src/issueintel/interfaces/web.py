@@ -21,6 +21,7 @@ STATIC['/versions.js'] = ('versions.js', 'text/javascript; charset=utf-8')
 STATIC['/evidence-graph.js'] = ('evidence-graph.js', 'text/javascript; charset=utf-8')
 STATIC['/evidence-graph.css'] = ('evidence-graph.css', 'text/css; charset=utf-8')
 STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
+STATIC['/resume.js'] = ('resume.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -89,6 +90,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.evidence_graph(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'usage':
                         self._json(200, workbench.usage(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'resume':
+                        self._json(200, workbench.resume_preview(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'plan':
                         self._json(200, workbench.plan(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'versions':
@@ -163,6 +166,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid cancellation request')
                     self._json(200, workbench.cancel(route.split('/')[3]))
+                elif route.startswith('/api/jobs/') and route.endswith('/resume'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid continuation route')
+                    self._json(202, workbench.submit_resume(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/github-preview'):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid preview request')

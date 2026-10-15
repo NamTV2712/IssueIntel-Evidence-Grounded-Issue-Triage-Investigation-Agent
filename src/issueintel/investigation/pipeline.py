@@ -52,8 +52,11 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 controller=None, protocol="benchmark_base", availability=None, top_k=8,
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
-                repository_context=None) -> dict:
+                repository_context=None, resumable=False) -> dict:
     case = public_case(case)
+    if resumable:
+        from .resume import validate_product_case
+        validate_product_case(case,protocol)
     context_records=[]
     if repository_context is not None:
         from issueintel.retrieval.repository_context import context_evidence
@@ -136,6 +139,41 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                     'provider':provider,'model':model,'refinement_rounds':refinement_rounds,
                     'payload':deepcopy(payload),'evaluation_performed':False,'automatic_retry':False}
             checkpoints[stage] = on_stage(stage,record)
+    def assemble(stop_reason, verification):
+        leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
+            "strict_issue_time_verified": query_verified and snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
+            "snapshot_issue_time_verified": snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
+            "original_query_verified": query_verified,
+            "issue_edit_history": "opening_event_matched" if query_verified else "unknown", "snapshot_hash_verified": True,
+            "limitations": ["Base commit is not proof of issue-time availability"] if snapshot.protocol != "issue_time" else
+                (["Original issue text edit history may be unavailable"] if not query_verified else
+                 ["Historical receipt acquisition is a trusted caller boundary; no contamination-free guarantee."])}
+        snapshot_descriptor = snapshot.to_dict()
+        snapshot_descriptor["files"] = [{key: value for key, value in file.to_dict().items() if key != "text"} for file in snapshot.files]
+        evidence_paths = {record["locator"].rsplit(":", 1)[0] for record in evidence if record["kind"] == "code"}
+        relevant_nodes = [node for node in graph.nodes if node.path in evidence_paths]
+        relevant_ids = {node.id for node in relevant_nodes}
+        graph_descriptor = {"snapshot_sha256": graph.snapshot_sha256, "commit_sha": graph.commit_sha,
+            "total_nodes": len(graph.nodes), "total_edges": len(graph.edges), "parser_version": graph.parser_version,
+            "nodes": [{key: value for key, value in node.to_dict().items() if key != "text"} for node in relevant_nodes],
+            "edges": [edge.to_dict() for edge in graph.edges if edge.source in relevant_ids and edge.target in relevant_ids],
+            "parse_errors": list(graph.parse_errors), "limitations": list(graph.limitations)}
+        pack = {"schema_version": 1, "case": case, "intake": intake, "snapshot": snapshot_descriptor, "graph": graph_descriptor,
+            "evidence": evidence, "annotation": annotation, "verification": verification,
+            "leakage_audit": leakage, "trace": trace, "stop_reason": stop_reason,
+            "recommended_steps": [h["falsification_test"] for h in annotation["hypotheses"]] if annotation else ["Provide a traceback, relevant component or reproducible example"],
+            "confidence": {"level": "unverified", "probability": None}}
+        if repository_context is not None:
+            pack['repository_context']=deepcopy(repository_context)
+            pack['leakage_audit']['limitations'].append('Current repository history may include later edits; it is product context, not strict historical proof.')
+        if refinement_rounds:
+            pack['refinement'] = refinement
+        if checkpoints:
+            pack['stage_checkpoints'] = checkpoints
+        pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
+                                 **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {}),
+                                 **({'repository_context':repository_context['sha256']} if repository_context is not None else {})})[:24]
+        return pack
     code_count = sum(e["kind"] == "code" for e in evidence)
     if code_count == 0:
         stop_reason = "insufficient_evidence"
@@ -180,43 +218,14 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if not isinstance(decision,Action) or decision not in (Action.VERIFY,Action.STOP):
             decision=Action.STOP
         trace.append({"stage": "decision", "controller": controller.name, "action": decision.value})
+        if resumable and independent_critic and decision == Action.VERIFY and on_stage is not None:
+            from .resume import resume_policy
+            checkpoint('verification_input',{'prepared':assemble('verification_pending',None),
+                'policy_sha256':resume_policy(),'max_output_tokens':max_output_tokens})
         verification = verify_hypotheses(annotation, evidence, complete_json if independent_critic and decision == Action.VERIFY else None,max_output_tokens=max_output_tokens)
         checkpoint('verification',{'verification':verification})
         stop_reason = "controller_stopped" if decision==Action.STOP else "bounded_workflow_complete"
-    leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
-        "strict_issue_time_verified": query_verified and snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
-        "snapshot_issue_time_verified": snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
-        "original_query_verified": query_verified,
-        "issue_edit_history": "opening_event_matched" if query_verified else "unknown", "snapshot_hash_verified": True,
-        "limitations": ["Base commit is not proof of issue-time availability"] if snapshot.protocol != "issue_time" else
-            (["Original issue text edit history may be unavailable"] if not query_verified else
-             ["Historical receipt acquisition is a trusted caller boundary; no contamination-free guarantee."])}
-    snapshot_descriptor = snapshot.to_dict()
-    snapshot_descriptor["files"] = [{key: value for key, value in file.to_dict().items() if key != "text"} for file in snapshot.files]
-    evidence_paths = {record["locator"].rsplit(":", 1)[0] for record in evidence if record["kind"] == "code"}
-    relevant_nodes = [node for node in graph.nodes if node.path in evidence_paths]
-    relevant_ids = {node.id for node in relevant_nodes}
-    graph_descriptor = {"snapshot_sha256": graph.snapshot_sha256, "commit_sha": graph.commit_sha,
-        "total_nodes": len(graph.nodes), "total_edges": len(graph.edges), "parser_version": graph.parser_version,
-        "nodes": [{key: value for key, value in node.to_dict().items() if key != "text"} for node in relevant_nodes],
-        "edges": [edge.to_dict() for edge in graph.edges if edge.source in relevant_ids and edge.target in relevant_ids],
-        "parse_errors": list(graph.parse_errors), "limitations": list(graph.limitations)}
-    pack = {"schema_version": 1, "case": case, "intake": intake, "snapshot": snapshot_descriptor, "graph": graph_descriptor,
-        "evidence": evidence, "annotation": annotation, "verification": verification,
-        "leakage_audit": leakage, "trace": trace, "stop_reason": stop_reason,
-        "recommended_steps": [h["falsification_test"] for h in annotation["hypotheses"]] if annotation else ["Provide a traceback, relevant component or reproducible example"],
-        "confidence": {"level": "unverified", "probability": None}}
-    if repository_context is not None:
-        pack['repository_context']=deepcopy(repository_context)
-        pack['leakage_audit']['limitations'].append('Current repository history may include later edits; it is product context, not strict historical proof.')
-    if refinement_rounds:
-        pack['refinement'] = refinement
-    if checkpoints:
-        pack['stage_checkpoints'] = checkpoints
-    pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
-                             **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {}),
-                             **({'repository_context':repository_context['sha256']} if repository_context is not None else {})})[:24]
-    return pack
+    return assemble(stop_reason, verification)
 
 
 def validate_prepared_evidence(case, evidence, snapshot):
@@ -308,6 +317,11 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
         lines += ['', '## Follow-up provenance', '', f"Parent job: `{link['parent_job_id']}`",
                   f"Parent pack SHA256: `{link['parent_pack_sha256']}`",
                   'User context is unverified and does not inherit historical query certification.']
+    if pack.get('resumed_from'):
+        link=pack['resumed_from']
+        lines += ['', '## Explicit verifier continuation', '',
+                  f"Source job: `{link['source_job_id']}`; checkpoint SHA256 `{link['checkpoint_sha256']}`.",
+                  'Generation was reused after replay. Only verification continued; this was not an automatic retry.']
     if pack["annotation"]:
         lines += ["", "## Competing hypotheses (automatic, correctness unverified)", ""]
         for h in pack["annotation"]["hypotheses"]:

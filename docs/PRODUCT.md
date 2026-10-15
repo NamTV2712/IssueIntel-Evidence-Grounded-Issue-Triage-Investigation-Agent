@@ -213,8 +213,23 @@ verification có checkpoint riêng trong ignored artifacts. Workbench lưu dư�
 `artifacts/demo/runs/<job>/stages/`; CLI dưới thư mục output/stages/<random-id>/.
 Failed/interrupted job chỉ có những stage đã hoàn tất; không được coi là pack
 hoàn thành. UI có tải checkpoint ở lịch sử job lỗi và báo job ID đang xem. CLI
-in refs đã lưu khi lỗi. Đây là audit/review, chưa có tự động resume hoặc tự tái
-sử dụng paid output. Mở/tải không gọi model và không đổi bytes/hash checkpoint.
+in refs đã lưu khi lỗi. Mở/tải không gọi model và không đổi bytes/hash checkpoint.
+
+Product Quick/Deep lưu thêm `verification_input` ngay trước verifier. Với phiên
+GitHub/local/synthetic bị failed/interrupted/cancelled và chưa có verification
+hoàn tất, người dùng có thể kiểm tra checkpoint rồi duyệt một lần gọi verifier
+có chi phí. Generation và evidence cuối được dùng lại, kể cả refinement đã xong.
+Không tự retry. Phiên mới giữ liên kết/hash về phiên nguồn; receipt mới chỉ thuộc
+call mới, chi phí cũ có thể vẫn đã tính. Intent SQLite giữ một lần tiếp tục cho
+mỗi nguồn qua gửi đồng thời/restart; gửi lại trả cùng job, kể cả job đó đã lỗi.
+
+Trước preview và trước provider, replay snapshot Git local, query, evidence,
+citation, annotation và dấu vân tay policy/code. Thiếu repo/commit, hash lệch,
+policy đổi hoặc model/max-output không tương thích thì từ chối, không sửa hash.
+Checkpoint cũ thiếu payload này không được suy diễn thành đầu vào hợp lệ. Không
+áp dụng Main Dev/strict, follow-up, generation lỗi hoặc verifier đã hoàn tất;
+không kế thừa quyền đăng comment của phiên GitHub. Đây là phần tiếp tục verifier
+của F10, chưa phải resume tùy ý tại mọi stage hoặc phục hồi bulk benchmark.
 
 ## Tích hợp GitHub
 

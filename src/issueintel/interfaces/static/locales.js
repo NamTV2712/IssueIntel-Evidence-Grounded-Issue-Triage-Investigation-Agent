@@ -903,5 +903,18 @@ window.IssueIntelMessages = {
   "failed_bound": {"vi": "Lỗi, giữ cận trên", "en": "Failed, bound retained"},
   "missing_usage_bound": {"vi": "Thiếu usage, giữ cận trên", "en": "Missing usage, bound retained"},
   "breach": {"vi": "Usage bất thường, ledger bị khóa", "en": "Usage anomaly, ledger locked"},
-  "Usage vượt cận hoặc bất nhất; ledger đã khóa lời gọi tiếp theo để kiểm tra.": {"vi": "Usage vượt cận hoặc bất nhất; ledger đã khóa lời gọi tiếp theo để kiểm tra.", "en": "Usage exceeded bounds or was inconsistent; the ledger blocked further calls for review."}
+  "Usage vượt cận hoặc bất nhất; ledger đã khóa lời gọi tiếp theo để kiểm tra.": {"vi": "Usage vượt cận hoặc bất nhất; ledger đã khóa lời gọi tiếp theo để kiểm tra.", "en": "Usage exceeded bounds or was inconsistent; the ledger blocked further calls for review."},
+  "Tiếp tục verifier từ checkpoint": {"vi": "Tiếp tục verifier từ checkpoint", "en": "Continue verifier from checkpoint"},
+  "Kiểm tra checkpoint để tiếp tục": {"vi": "Kiểm tra checkpoint để tiếp tục", "en": "Check checkpoint to continue"},
+  "Chưa có checkpoint verifier hợp lệ cho phiên này.": {"vi": "Chưa có checkpoint verifier hợp lệ cho phiên này.", "en": "No valid verifier checkpoint is available for this run."},
+  "Dùng lại {count} giả thuyết đã lưu; chỉ tiếp tục verifier.": {"vi": "Dùng lại {count} giả thuyết đã lưu; chỉ tiếp tục verifier.", "en": "Reuse {count} saved hypotheses; continue only the verifier."},
+  "Cận output: {tokens} token": {"vi": "Cận output: {tokens} token", "en": "Output bound: {tokens} tokens"},
+  "Bước tiếp theo gọi API và có thể tính phí. Lượt trước bị lỗi hoặc gián đoạn vẫn có thể đã bị tính phí.": {"vi": "Bước tiếp theo gọi API và có thể tính phí. Lượt trước bị lỗi hoặc gián đoạn vẫn có thể đã bị tính phí.", "en": "The next step calls the API and may incur charges. A prior failed or interrupted call may already have been charged."},
+  "Tôi đồng ý tiếp tục verifier với chi phí API theo cấu hình hiện tại.": {"vi": "Tôi đồng ý tiếp tục verifier với chi phí API theo cấu hình hiện tại.", "en": "I agree to continue the verifier with API costs under the current configuration."},
+  "Tiếp tục verifier": {"vi": "Tiếp tục verifier", "en": "Continue verifier"},
+  "Đang theo dõi tác vụ khác; kiểm tra lịch sử trước khi tiếp tục.": {"vi": "Đang theo dõi tác vụ khác; kiểm tra lịch sử trước khi tiếp tục.", "en": "Another job is being monitored; inspect history before continuing."},
+  "Đã mở tác vụ tiếp tục; không sinh lại giả thuyết.": {"vi": "Đã mở tác vụ tiếp tục; không sinh lại giả thuyết.", "en": "Opened continuation job; hypotheses are reused."},
+  "Chưa tiếp tục được; kiểm tra checkpoint, model hoặc hàng đợi.": {"vi": "Chưa tiếp tục được; kiểm tra checkpoint, model hoặc hàng đợi.", "en": "Cannot continue; inspect the checkpoint, model or queue."},
+  "verification_input": {"vi": "Đầu vào verifier đã lưu", "en": "Ready for verification"},
+  "generation_reused": {"vi": "Tái sử dụng giả thuyết", "en": "Reused hypotheses"}
 };

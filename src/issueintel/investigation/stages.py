@@ -5,7 +5,7 @@ import hashlib
 from issueintel.runtime.io import write_json
 
 
-STAGES = {'prepared_input','seed_generation','focused_retrieval','refined_generation','verification'}
+STAGES = {'prepared_input','seed_generation','focused_retrieval','refined_generation','verification_input','verification'}
 
 
 class StageCheckpoints:

@@ -208,10 +208,10 @@ class Workbench:
         request = validate_request(request)
         return self._enqueue(request, self._run)
 
-    def _enqueue(self, request, callback):
+    def _enqueue(self, request, callback, *, identifier=None):
         if not self.capacity.acquire(blocking=False):
             raise RuntimeError('The investigation queue is full')
-        identifier = uuid.uuid4().hex[:24]
+        identifier = identifier or uuid.uuid4().hex[:24]
         row = {'id': identifier, 'status': 'queued', 'stage': 'queued', 'created_at': now(),
                'mode': request['mode'], 'provider': request['provider'], 'depth': request['depth'], 'request': request}
         if request['mode'] == 'repository':
@@ -230,6 +230,123 @@ class Workbench:
 
     def repository_history(self):
         return self._history_mode(True, 20)
+
+    def _resume_record(self, identifier):
+        row=self.job(identifier)
+        if (row['mode'] not in {'github','local','example'} or row['provider']!='groq'
+                or row['status'] not in {'failed','interrupted','cancelled'}
+                or 'verification_input' not in row.get('stage_checkpoints',{})
+                or 'verification' in row.get('stage_checkpoints',{})):
+            raise ValueError('No verifier continuation is available for this product job')
+        raw=self.stage_bytes(identifier,'verification_input')
+        return json.loads(raw),hashlib.sha256(raw).hexdigest()
+
+    def resume_preview(self, identifier):
+        from .resume import replay_verification_input
+        try:
+            record,sha=self._resume_record(identifier)
+            prepared,maximum=replay_verification_input(record)
+        except (ValueError,KeyError,TypeError,OSError):
+            return {'available':False,'source_job_id':identifier,'reason':'no_valid_product_verification_checkpoint'}
+        return {'available':True,'source_job_id':identifier,'checkpoint_sha256':sha,
+                'commit_sha':record['commit_sha'],'model':record['model'],
+                'hypotheses':len(prepared['annotation']['hypotheses']),'max_output_tokens':maximum,
+                'resumes':'verification_only','generation_reused':True,'automatic_retry':False,
+                'prior_usage_may_remain_charged':True}
+
+    def _resume_db(self):
+        path=self.directory/'resumes.sqlite'
+        if path.resolve().parent!=self.directory.resolve():
+            raise ValueError('Unsafe resume registry path')
+        db=sqlite3.connect(path,timeout=30)
+        db.execute('CREATE TABLE IF NOT EXISTS intents (source_job TEXT PRIMARY KEY, checkpoint_sha256 TEXT NOT NULL, target_job TEXT NOT NULL)')
+        return db
+
+    def submit_resume(self, identifier, request):
+        if (not isinstance(request,dict) or set(request)!={'checkpoint_sha256','confirmation'}
+                or request['confirmation']!='resume_verification_with_api_cost'):
+            raise ValueError('Explicit checkpoint-bound continuation is required')
+        preview=self.resume_preview(identifier)
+        if not preview['available'] or request['checkpoint_sha256']!=preview['checkpoint_sha256']:
+            raise ValueError('Resume source changed or is unavailable')
+        db=self._resume_db()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            existing=db.execute('SELECT checkpoint_sha256,target_job FROM intents WHERE source_job=?',(identifier,)).fetchone()
+            if existing:
+                if existing[0]!=preview['checkpoint_sha256']:raise ValueError('Resume checkpoint changed')
+                return self.job(existing[1])
+            target=uuid.uuid4().hex[:24]
+            db.execute('INSERT INTO intents VALUES (?,?,?)',(identifier,preview['checkpoint_sha256'],target))
+            job=self._enqueue({'mode':'resume','provider':'groq','depth':'verification',
+                              'source_job_id':identifier,'checkpoint_sha256':preview['checkpoint_sha256']},
+                              self._run_resume,identifier=target)
+            db.commit()
+            return job
+        except BaseException:
+            db.rollback();raise
+        finally:db.close()
+
+    def _run_resume(self, row):
+        from .resume import replay_verification_input, continue_verification
+        try:
+            self._check_cancelled(row['id'])
+            # Wait for the dispatch transaction: no provider before durable intent.
+            db=self._resume_db()
+            try:
+                db.execute('BEGIN IMMEDIATE')
+                intent=db.execute('SELECT target_job,checkpoint_sha256 FROM intents WHERE source_job=?',(row['request']['source_job_id'],)).fetchone()
+                db.commit()
+            finally:db.close()
+            if intent!=(row['id'],row['request']['checkpoint_sha256']):raise ValueError('Missing durable resume intent')
+            self._save(row,status='running',stage='replay_checkpoint')
+            record,sha=self._resume_record(row['request']['source_job_id'])
+            if sha!=row['request']['checkpoint_sha256']:raise ValueError('Queued resume source changed')
+            prepared,maximum=replay_verification_input(record)
+            config=RuntimeConfig.load(self.root)
+            if config.model!=record['model'] or maximum>config.max_output_tokens:raise ValueError('Resume provider or output bound changed')
+            context=({'category':'ARTIFACT_GENERATION_COST','reasoning_effort':config.reasoning_effort,
+                      'stage':'local_demo_verification_resume','diagnostic':False}
+                     if config.reasoning_effort in {'medium','high'} else None)
+            provider=self.provider_factory(config,call_context=context)
+            if provider.model!=record['model']:raise ValueError('Resume model differs from generation')
+            if hasattr(provider,'on_receipt'):
+                def capture(receipt):
+                    row.setdefault('usage_receipts',{})[receipt['reservation_id']]=dict(receipt,stage='verification')
+                    self._save(row,usage_tracking=True,usage_receipts=row['usage_receipts'])
+                provider.on_receipt=capture
+                self._save(row,usage_tracking=True,usage_receipts={})
+            def complete(messages,max_output_tokens):
+                self._check_cancelled(row['id']);answer=provider(messages,max_output_tokens)
+                self._check_cancelled(row['id']);return answer
+            if hasattr(provider,'complete_structured'):
+                def structured(messages,*,max_output_tokens,schema):
+                    self._check_cancelled(row['id']);answer=provider.complete_structured(messages,max_output_tokens=max_output_tokens,schema=schema)
+                    self._check_cancelled(row['id']);return answer
+                complete.complete_structured=structured
+            stages=StageCheckpoints(self.root,self.directory/'runs'/row['id']/'stages')
+            def save_stage(stage,payload):
+                saved={k:v for k,v in record.items() if k not in {'stage','payload'}}
+                saved.update(stage=stage,payload=payload)
+                ref=stages(stage,saved);self._save(row,stage_checkpoints=dict(stages.receipts));return ref
+            self._save(row,stage='verification')
+            pack=continue_verification(record,complete,on_stage=save_stage)
+            self._check_cancelled(row['id'])
+            pack['resumed_from']={'schema':'product_verification_resume_v1','source_job_id':row['request']['source_job_id'],
+                'checkpoint_sha256':sha,'prepared_sha256':digest(prepared),'policy_sha256':record['payload']['policy_sha256'],
+                'generation_reused':True,'automatic_retry':False}
+            pack['stage_checkpoints']=dict(stages.receipts)
+            directory=self.directory/'runs'/row['id'];export_pack(pack,directory)
+            refs={name:{'path':(directory/name).relative_to(self.root).as_posix(),
+                        'sha256':hashlib.sha256((directory/name).read_bytes()).hexdigest()} for name in ('pack.json','report.md')}
+            self._save(row,status='completed',stage='completed',result=refs,run_id=pack['run_id'],case_id=pack['case']['case_id'],
+                       strict_issue_time_verified=False,stop_reason=pack['stop_reason'])
+        except InterruptedError:self._save(row,status='cancelled',stage='cancelled')
+        except (BudgetDenied,ProviderError) as error:self._save(row,status='failed',stage='failed',error=str(error)+'; no automatic retry.')
+        except Exception as error:self._save(row,status='failed',stage='failed',error=f'Verifier continuation failed ({type(error).__name__}).')
+        finally:
+            with self.lock:self.active.discard(row['id']);self.cancelled.discard(row['id'])
+            self.capacity.release()
 
     def submit_versions(self, request):
         from issueintel.investigation.versions import product_version_source
@@ -289,6 +406,8 @@ class Workbench:
             self._check_cancelled(row['id'])
             # Only the original explicitly remote input may fetch a named ref.
             source_request = json.loads(self._job_path(request['source_job_id']).read_bytes())['request']
+            if source_request['mode']=='resume':
+                source_request=json.loads(self._job_path(source_request['source_job_id']).read_bytes())['request']
             if source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir()):
                 acquired = acquire_repository(pack['case']['repository'], request['revision'], self.root/'data/repos')
                 if acquired.path.resolve() != local.resolve():
@@ -510,7 +629,8 @@ class Workbench:
                 model=provider.model if provider else 'none',
                 max_output_tokens=provider.config.max_output_tokens if provider else 2048,
                 top_k=4 if request['depth'] == 'quick' else 12,
-                refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,**extra)
+                refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
+                resumable=request['mode'] in {'github','local','example'},**extra)
             self._check_cancelled(row['id'])
             if followup:
                 pack['followup'] = followup
@@ -580,6 +700,18 @@ class Workbench:
         seen.add(identifier)
         raw = self._export_bytes(identifier)
         pack = json.loads(raw)
+        resume=pack.get('resumed_from')
+        if resume:
+            if pack.get('followup') or resume.get('schema')!='product_verification_resume_v1':
+                raise ValueError('Invalid continuation lineage')
+            source_raw=self.stage_bytes(resume['source_job_id'],'verification_input')
+            source=json.loads(source_raw);prepared=source['payload']['prepared']
+            if (hashlib.sha256(source_raw).hexdigest()!=resume['checkpoint_sha256']
+                    or digest(prepared)!=resume['prepared_sha256']
+                    or source['payload']['policy_sha256']!=resume['policy_sha256']
+                    or any(digest(prepared[key])!=digest(pack[key]) for key in ('case','snapshot','evidence','annotation'))
+                    or pack['leakage_audit']['strict_issue_time_verified'] is not False):
+                raise ValueError('Saved continuation source changed')
         link = pack.get('followup')
         if not link:
             return pack, raw, 0

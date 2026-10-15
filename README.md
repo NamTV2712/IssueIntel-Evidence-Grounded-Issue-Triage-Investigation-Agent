@@ -37,6 +37,11 @@ JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
 Khi bật Groq, Deep có thêm tối đa một vòng truy xuất theo giả thuyết trong cùng
 snapshot; chỉ sinh lại nếu có evidence mới. Checkpoint từng bước được giữ để
 xem/tải khi call sau lỗi. Kết quả tìm thêm chưa phải counter-evidence đã xác nhận.
+Nếu generation đã lưu nhưng verifier lỗi hoặc bị ngắt, mở phiên lỗi trong lịch
+sử rồi chọn **Tiếp tục verifier từ checkpoint**. Sau khi kiểm snapshot/citation/
+hash và xác nhận chi phí, hệ thống tạo phiên mới chỉ chạy verifier, giữ output
+generation cùng receipt cũ. Mỗi phiên nguồn chỉ có một intent tiếp tục; gửi lặp
+không tạo thêm call. Chỉ áp dụng checkpoint product mới đủ proof, không Main Dev.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

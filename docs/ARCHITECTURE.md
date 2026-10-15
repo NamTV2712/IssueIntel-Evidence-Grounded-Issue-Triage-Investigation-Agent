@@ -149,6 +149,15 @@ seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid
 WorkBench/CLI cung cấp callback lưu, pipeline chịu trách nhiệm nội dung và
 thứ tự. Các checkpoint này không phải benchmark receipts hay kết quả evaluation.
 
+`investigation.resume` replay `verification_input` của product Quick/Deep: khóa
+query/snapshot, replay bytes/citation và annotation, so policy SHA từ source code,
+rồi chỉ gọi verifier. Main Dev/strict/follow-up bị chặn. Workbench GET resume chỉ
+preview; POST yêu cầu exact checkpoint SHA và xác nhận chi phí. SQLite intent
+`BEGIN IMMEDIATE` khóa một child cho mỗi source; worker kiểm intent durable và
+source lại trước provider. Giữ nguyên source job/receipts, child có checkpoint
+verification và receipt riêng; export liên kết source bằng hash. Một verifier đã
+hoàn tất không được gọi lại theo luồng này. Không tự phục hồi hoặc retry API.
+
 ## Ngân sách và bảo mật
 
 Product provider có callback receipt tùy chọn: ghi reservation ownership vào job
