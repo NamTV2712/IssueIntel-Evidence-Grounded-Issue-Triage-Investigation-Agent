@@ -115,6 +115,15 @@ Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=`
 
 ## Controller và verifier
 
+`investigation.versions` đối chiếu hai snapshot trong cùng repository, replay
+descriptor/hash/excerpts của báo cáo nguồn trước khi đọc target. Chỉ original
+product case dùng benchmark_base ngoài mọi split; follow-up/strict/benchmark bị
+chặn. Workbench chạy job riêng trong cùng queue, có cancel và export hash-bound
+về source pack; không sửa pack/citation/eligibility. Đếm mọi tracked text được
+snapshot nhận, giữ skipped là unavailable; hiển thị tối đa 200 mục và bốn diff
+file evidence (2.000 dòng/40.000 ký tự input và 12.000 ký tự output mỗi diff).
+Không chạy test, gọi LLM, chứng minh ancestry/release hoặc xác nhận bản sửa.
+
 Rule workflow là baseline cố định. `JevController` nhận state cùng allowed actions, chỉ trả enum hợp lệ; hành động khác fallback về rules. Adapter chưa cấu hình remote transport. Code vẫn giữ quyền kiểm ngân sách và thực thi; decision model không tự chạy command.
 
 Verifier kiểm hash/ID trước. Pass LLM riêng kiểm support/counter và trả assessment có citation; đây là critique của cùng model khi dùng cùng provider, không được gọi là kiểm người độc lập. Semantic correctness và causal truth vẫn phân biệt. Khi citation sai, generator chỉ được sửa schema một lần với allowlist; lỗi budget/network không được tự retry.

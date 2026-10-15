@@ -12,4 +12,4 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -e '.[dev,data]'
       - run: python -m pytest -q
-      - run: node --test tests/frontend_preferences.test.cjs tests/frontend_repository.test.cjs
+      - run: node --test tests/frontend_preferences.test.cjs tests/frontend_repository.test.cjs tests/frontend_versions.test.cjs

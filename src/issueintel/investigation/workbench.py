@@ -195,6 +195,8 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
+            if row.get('mode') == 'version_comparison':
+                continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
                 if len(rows) >= limit:
@@ -227,6 +229,94 @@ class Workbench:
 
     def repository_history(self):
         return self._history_mode(True, 20)
+
+    def submit_versions(self, request):
+        from issueintel.investigation.versions import product_version_source
+        from issueintel.repository.acquire import _validate_revision
+        if not isinstance(request, dict) or set(request) != {'job_id', 'revision'}:
+            raise ValueError('Choose a product investigation and target revision')
+        revision = _validate_revision(request['revision'])
+        pack, raw, _ = self._load_pack(request['job_id'])
+        product_version_source(pack)  # Reject benchmark/follow-up before Git or queue.
+        return self._enqueue({'mode':'version_comparison', 'provider':'none', 'depth':'versions',
+                              'source_job_id':request['job_id'], 'source_pack_sha256':hashlib.sha256(raw).hexdigest(),
+                              'revision':revision}, self._run_versions)
+
+    def versions_history(self, identifier):
+        self._load_pack(identifier)
+        rows = []
+        for path in sorted(self.jobs.glob('*.json'), key=lambda p:p.stat().st_mtime, reverse=True):
+            row = json.loads(path.read_bytes())
+            if row.get('mode') == 'version_comparison' and row.get('request',{}).get('source_job_id') == identifier:
+                rows.append(self.job(row['id']))
+                if len(rows) == 20:
+                    break
+        return rows
+
+    def versions_bytes(self, identifier):
+        row = self.job(identifier)
+        if row['mode'] != 'version_comparison' or row['status'] != 'completed':
+            raise ValueError('Version comparison is not complete')
+        ref = row['result']['versions.json']
+        expected = (self.directory/'runs'/identifier/'versions.json').resolve()
+        path = (self.root/ref['path']).resolve()
+        if path != expected or not path.is_relative_to(self.directory.resolve()):
+            raise ValueError('Version export path changed')
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != ref['sha256']:
+            raise ValueError('Version export integrity changed')
+        result = json.loads(raw)
+        _, source_raw, _ = self._load_pack(result['source']['job_id'])
+        if hashlib.sha256(source_raw).hexdigest() != result['source']['pack_sha256']:
+            raise ValueError('Version comparison source changed')
+        return raw
+
+    def _run_versions(self, row):
+        from issueintel.investigation.versions import compare_versions, product_version_source
+        from issueintel.repository.snapshot import build_snapshot
+        try:
+            self._check_cancelled(row['id'])
+            self._save(row, status='running', stage='compare_versions')
+            request = row['request']
+            pack, raw, _ = self._load_pack(request['source_job_id'])
+            product_version_source(pack)
+            if hashlib.sha256(raw).hexdigest() != request['source_pack_sha256']:
+                raise ValueError('Source pack changed while queued')
+            local = Path(pack['snapshot']['repository'])
+            before = build_snapshot(local, pack['snapshot']['commit_sha'])
+            compare_versions(pack, before, before)  # Replay source bytes before any target fetch.
+            self._check_cancelled(row['id'])
+            # Only the original explicitly remote input may fetch a named ref.
+            source_request = json.loads(self._job_path(request['source_job_id']).read_bytes())['request']
+            if source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir()):
+                acquired = acquire_repository(pack['case']['repository'], request['revision'], self.root/'data/repos')
+                if acquired.path.resolve() != local.resolve():
+                    raise ValueError('Target acquisition differs from source repository')
+                revision = acquired.commit_sha
+            else:
+                revision = request['revision']
+            self._check_cancelled(row['id'])
+            after = build_snapshot(local, revision)
+            result = compare_versions(pack, before, after)
+            result['source'] = {'job_id':request['source_job_id'], 'pack_sha256':request['source_pack_sha256']}
+            result['requested_revision'] = request['revision']
+            result.pop('sha256')
+            result['sha256'] = digest(result)
+            self._check_cancelled(row['id'])
+            path = self.directory/'runs'/row['id']/'versions.json'
+            write_json(path, result)
+            self._save(row, status='completed', stage='completed',
+                       source_job_id=request['source_job_id'], target_commit=after.commit_sha,
+                       result={'versions.json':{'path':path.relative_to(self.root).as_posix(),
+                                               'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}})
+        except InterruptedError:
+            self._save(row, status='cancelled', stage='cancelled')
+        except Exception as error:
+            self._save(row, status='failed', stage='failed', error=f'Version comparison failed ({type(error).__name__}).')
+        finally:
+            with self.lock:
+                self.active.discard(row['id']); self.cancelled.discard(row['id'])
+            self.capacity.release()
 
     def repository_read(self, action, request):
         from issueintel.integrations.github_index import RepositoryIndex

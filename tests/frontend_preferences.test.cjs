@@ -51,7 +51,7 @@ test('blocked or malformed storage leaves preferences usable',()=>{
 test('all authored HTML and JS translation keys have complete matching templates',()=>{
   const messages=boot().context.window.IssueIntelMessages;
   const html=fs.readFileSync(path.join(base,'index.html'),'utf8');
-  const js=['app.js','repository.js'].map(file=>fs.readFileSync(path.join(base,file),'utf8')).join('\n');
+  const js=['app.js','repository.js','versions.js'].map(file=>fs.readFileSync(path.join(base,file),'utf8')).join('\n');
   const keys=[...html.matchAll(/data-i18n(?:-placeholder|-aria)?="([^"]+)"/g),...js.matchAll(/\bt\(['"]([^'"]+)['"]/g)].map(match=>match[1]);
   for(const key of keys)assert.ok(messages[key],`Missing message: ${key}`);
   for(const [key,value] of Object.entries(messages)){

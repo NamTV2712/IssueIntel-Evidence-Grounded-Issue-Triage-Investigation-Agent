@@ -71,6 +71,8 @@ async function openJob(id) {
 }
 function renderPack() {
   if(!pack)return;
+  document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
+    available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && !pack.case.case_id.startsWith('verified:') && !pack.case.case_id.startsWith('live:')}}));
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
   $('followup-panel').hidden=false;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
   $('result-title').textContent=pack.case.case_id;

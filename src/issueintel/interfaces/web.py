@@ -17,6 +17,7 @@ STATIC['/comparison.css'] = ('comparison.css', 'text/css; charset=utf-8')
 STATIC['/locales.js'] = ('locales.js', 'text/javascript; charset=utf-8')
 STATIC['/preferences.js'] = ('preferences.js', 'text/javascript; charset=utf-8')
 STATIC['/repository.js'] = ('repository.js', 'text/javascript; charset=utf-8')
+STATIC['/versions.js'] = ('versions.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -83,6 +84,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.intake(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'plan':
                         self._json(200, workbench.plan(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'versions':
+                        self._json(200, workbench.versions_history(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'versions.json':
+                        self._send(200, workbench.versions_bytes(parts[0]), download='versions.json')
                     elif len(parts) == 2 and parts[1] in {'pack.json', 'report.md'}:
                         raw = workbench.result_bytes(parts[0], parts[1])
                         self._send(200, raw, 'application/json; charset=utf-8' if parts[1] == 'pack.json' else 'text/markdown; charset=utf-8', download=parts[1])
@@ -139,6 +144,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.repository_read(route.rsplit('/',1)[1], request))
                 elif route == '/api/comparisons':
                     self._json(200, workbench.compare(request))
+                elif route == '/api/versions':
+                    self._json(202, workbench.submit_versions(request))
                 elif route == '/api/related':
                     self._json(200, workbench.related(request))
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):

@@ -52,6 +52,12 @@ Tab **Kế hoạch kiểm tra / Check plan** lưu trạng thái và ghi chú the
 mở lại sau restart và xuất JSON riêng. Trạng thái hoàn tất là tự báo cáo, chưa
 xác minh bản sửa; hệ thống không chạy code/test của repository đích.
 
+Mục **Đối chiếu phiên bản code** dưới báo cáo product nhận commit/tag khác, đọc
+snapshot và lưu riêng thay đổi code cùng hash nguồn/đích. Diff ưu tiên file trong
+evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. Không gọi model,
+chạy test hoặc xác nhận lỗi đã sửa. Main Dev/strict và follow-up không dùng luồng
+này; bản báo cáo gốc giữ nguyên.
+
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook
 nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTTPS được

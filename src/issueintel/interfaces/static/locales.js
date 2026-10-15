@@ -822,5 +822,27 @@ window.IssueIntelMessages = {
   "Checkpoint của phiên: {id}": {
     "vi": "Checkpoint của phiên: {id}",
     "en": "Checkpoints for run: {id}"
-  }
+  },
+  "Đối chiếu phiên bản code": {"vi": "Đối chiếu phiên bản code", "en": "Compare code revisions"},
+  "So sánh commit/tag khác với snapshot của báo cáo đang xem. Chưa xác minh bản sửa hoặc bản phát hành.": {"vi": "So sánh commit/tag khác với snapshot của báo cáo đang xem. Chưa xác minh bản sửa hoặc bản phát hành.", "en": "Compare another commit/tag with this report’s snapshot. Fix and release status remain unverified."},
+  "Commit hoặc tag đích": {"vi": "Commit hoặc tag đích", "en": "Target commit or tag"},
+  "Đối chiếu code": {"vi": "Đối chiếu code", "en": "Compare code"},
+  "Hủy đối chiếu": {"vi": "Hủy đối chiếu", "en": "Cancel comparison"},
+  "Thay đổi code chưa chứng minh lỗi đã được sửa. Không chạy code/test hoặc gọi LLM.": {"vi": "Thay đổi code chưa chứng minh lỗi đã được sửa. Không chạy code/test hoặc gọi LLM.", "en": "Code changes do not prove a fix. No target code/tests or LLM calls are run."},
+  "Ngoài phạm vi: {before} file nguồn, {after} file đích. Bỏ bớt {omitted} mục do giới hạn hiển thị.": {"vi": "Ngoài phạm vi: {before} file nguồn, {after} file đích. Bỏ bớt {omitted} mục do giới hạn hiển thị.", "en": "Outside scope: {before} source files, {after} target files. {omitted} entries omitted by display bounds."},
+  "Xuất đối chiếu JSON": {"vi": "Xuất đối chiếu JSON", "en": "Export comparison JSON"},
+  "Trong bằng chứng nguồn": {"vi": "Trong bằng chứng nguồn", "en": "In source evidence"},
+  "File ngoài phạm vi đọc; không kết luận đã xóa.": {"vi": "File ngoài phạm vi đọc; không kết luận đã xóa.", "en": "File unavailable within read bounds; deletion is not established."},
+  "Diff bị giới hạn; xem metadata trước khi kết luận.": {"vi": "Diff bị giới hạn; xem metadata trước khi kết luận.", "en": "Diff is bounded; inspect metadata before drawing conclusions."},
+  "Mở đối chiếu: {id} · {status}": {"vi": "Mở đối chiếu: {id} · {status}", "en": "Open comparison: {id} · {status}"},
+  "Không đọc được đối chiếu; kiểm tra nguồn và hash.": {"vi": "Không đọc được đối chiếu; kiểm tra nguồn và hash.", "en": "Cannot read comparison; check sources and hashes."},
+  "Đang đọc hai snapshot; không gọi LLM.": {"vi": "Đang đọc hai snapshot; không gọi LLM.", "en": "Reading two snapshots; no LLM calls."},
+  "Đã lưu đối chiếu phiên bản; tình trạng bản sửa chưa xác minh.": {"vi": "Đã lưu đối chiếu phiên bản; tình trạng bản sửa chưa xác minh.", "en": "Saved revision comparison; fix status remains unverified."},
+  "Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.": {"vi": "Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.", "en": "Comparison did not complete; check the revision and source data."},
+  "added": {"vi": "Thêm", "en": "Added"},
+  "removed": {"vi": "Xóa", "en": "Removed"},
+  "modified": {"vi": "Thay đổi", "en": "Modified"},
+  "unchanged": {"vi": "Giữ nguyên", "en": "Unchanged"},
+  "unavailable": {"vi": "Ngoài phạm vi", "en": "Unavailable"},
+  "compare_versions": {"vi": "Đối chiếu phiên bản", "en": "Compare revisions"}
 };

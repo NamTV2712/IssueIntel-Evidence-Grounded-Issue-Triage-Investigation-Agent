@@ -56,7 +56,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown. |
 | F18 | Provider bounds, reservation/usage USD, lỗi và trace hiện có; output model vẫn unverified. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
-| F20 | Revision/provenance rõ ràng; đối chiếu bản phát hành và xác nhận bản sửa còn roadmap. |
+| F20 | Đối chiếu commit/tag với snapshot của báo cáo product: thêm/xóa/đổi/ngoài phạm vi, diff file có evidence và export riêng. Chưa xác minh fix, ancestry hoặc bản phát hành chứa fix. |
 
 ## API và dữ liệu local
 
@@ -84,6 +84,9 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
+- `POST /api/versions`: `job_id`, `revision`; job đối chiếu code dùng chung queue/worker, không model hoặc thực thi code/test.
+- `GET /api/jobs/<source>/versions`: tối đa 20 lượt đối chiếu của báo cáo nguồn.
+- `GET /api/jobs/<comparison>/versions.json`: export riêng có hash và binding về pack nguồn.
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
