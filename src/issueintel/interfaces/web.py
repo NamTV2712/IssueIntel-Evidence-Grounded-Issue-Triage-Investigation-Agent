@@ -95,6 +95,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(404, {'error': 'Route not found'})
             except FileNotFoundError:
                 self._json(404, {'error': 'Local data or job not found'})
+            except ModuleNotFoundError as error:
+                if error.name not in {'pyarrow', 'pyarrow.parquet'}:
+                    raise
+                self._json(503, {'error': 'Optional benchmark reader unavailable; install the data extra to open local Main Dev.'})
             except (ValueError, KeyError, OSError, sqlite3.DatabaseError):
                 self._json(409, {'error': 'Local data integrity check failed'})
 

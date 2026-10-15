@@ -6,6 +6,8 @@ Entry point `run.py` chạy trực tiếp từ clean checkout bằng Python 3.11
 không cần pip, virtualenv, Node, PostgreSQL hay dữ liệu benchmark. `--check` chỉ
 kiểm runtime và không gọi API. Các extras bên dưới dành cho development, Parquet
 và tokenizer tối ưu; lõi vẫn có token upper-bound bảo thủ khi thiếu tokenizer.
+Nếu máy đã có dữ liệu benchmark Parquet, cần extra `data` để mở Main Dev;
+thiếu reader không ảnh hưởng điều tra repository hoặc ví dụ tổng hợp.
 
 ## Môi trường phát triển trên Windows
 

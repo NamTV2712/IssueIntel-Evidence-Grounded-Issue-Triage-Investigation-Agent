@@ -223,6 +223,21 @@ def test_http_example_api_export_and_invalid_inputs(tmp_path):
         assert json.loads(raw)['leakage_audit']['gold_in_inference'] is False
 
 
+def test_missing_optional_benchmark_reader_does_not_break_product_routes(tmp_path, monkeypatch):
+    def missing_reader(_):
+        raise ModuleNotFoundError("No module named 'pyarrow'", name='pyarrow')
+    monkeypatch.setattr('issueintel.investigation.workbench.public_catalog', missing_reader)
+    with local_server(tmp_path) as server:
+        headers = {'X-IssueIntel-Token': server.session_token, 'Content-Type': 'application/json'}
+        status, _, raw = http(server, 'GET', '/api/catalog', headers=headers)
+        assert status == 503 and 'data extra' in json.loads(raw)['error']
+        assert 'accepted' not in json.loads(raw)
+        assert http(server, 'GET', '/api/repositories/jobs', headers=headers)[0] == 200
+        status, _, raw = http(server, 'POST', '/api/investigations', json.dumps({'mode':'example'}), headers)
+        assert status == 202
+        assert completed(server.workbench, json.loads(raw)['id'])['status'] == 'completed'
+
+
 def test_remote_binding_rejected(tmp_path):
     with pytest.raises(ValueError, match='localhost'):
         make_server(tmp_path, host='0.0.0.0')
