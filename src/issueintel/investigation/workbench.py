@@ -15,6 +15,7 @@ from issueintel.repository.acquire import acquire_repository, fetch_github_issue
 from issueintel.integrations.github import github_input, comment_preview, post_reviewed_comment, signed_command
 from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest, write_json
+from issueintel.retrieval.related import rank_related
 from .pipeline import investigate, export_pack
 from .comparison import compare_packs
 from .intake import inspect_issue
@@ -309,6 +310,61 @@ class Workbench:
         pack, raw, _ = self._load_pack(identifier)
         return dict(inspect_issue(pack['case']['problem_statement']),
                     source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
+
+    def _source_case(self, pack):
+        # The entire chain was replayed by _load_pack before this traversal.
+        while pack.get('followup'):
+            pack = json.loads(self._export_bytes(pack['followup']['parent_job_id']))
+        return pack['case']
+
+    @staticmethod
+    def _issue_identity(case):
+        return (case['repository'], hashlib.sha256(case['problem_statement'].encode()).hexdigest()
+                if case['case_id'].startswith('local:') else case['case_id'])
+
+    def related(self, request):
+        if not isinstance(request,dict) or set(request)!={'job_id'}:
+            raise ValueError('Choose a saved investigation')
+        selected, raw, _ = self._load_pack(request['job_id'])
+        source = self._source_case(selected)
+        seen = {self._issue_identity(source)}
+        documents=[]; scanned=0; skipped=0
+        for row in self.history():
+            if row['status']!='completed' or row['id']==request['job_id']:
+                continue
+            scanned+=1
+            try:
+                candidate, candidate_raw, _ = self._load_pack(row['id'])
+                original = self._source_case(candidate)
+                identity = self._issue_identity(original)
+                if original['repository'] != source['repository'] or identity in seen:
+                    continue
+                # Use the original issue query, never appended follow-up context
+                # as if it were another independently reported issue.
+                root_pack = candidate
+                root_raw = candidate_raw
+                root_id = row['id']
+                while root_pack.get('followup'):
+                    root_id = root_pack['followup']['parent_job_id']
+                    root_raw = self._export_bytes(root_id)
+                    root_pack = json.loads(root_raw)
+                text=original['problem_statement']
+                documents.append({'job_id':root_id,'case_id':original['case_id'],
+                    'repository':original['repository'],'text':text,
+                    'query_sha256':hashlib.sha256(text.encode()).hexdigest(),
+                    'pack_sha256':hashlib.sha256(root_raw).hexdigest()})
+                seen.add(identity)
+            except (ValueError,KeyError,TypeError,OSError):
+                skipped+=1
+        return {'schema':'local_related_issues_v1','job_id':request['job_id'],
+                'source_pack_sha256':hashlib.sha256(raw).hexdigest(),
+                'repository':source['repository'],
+                'scope':'recent_50_local_jobs_same_repository',
+                'scanned_completed':scanned,'distinct_other_issues':len(documents),
+                'skipped_integrity':skipped,'minimum_shared_terms':2,
+                'results':rank_related(selected['case']['problem_statement'],documents),
+                'included_in_inference':False,'historical_availability_for_cutoff':'unverified',
+                'duplicate_confirmed':False,'evaluation_performed':False}
 
     def compare(self, request):
         if not isinstance(request, dict) or set(request) != {'before_id', 'after_id'}:

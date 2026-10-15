@@ -5,6 +5,7 @@ const token = document.querySelector('meta[name="issueintel-session"]').content;
 let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 'evidence';
 let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
 let intake=null;
+let relatedResult=null;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -57,6 +58,7 @@ async function runJob(request) {
 async function openJob(id) {
   const [loaded, inspected]=await Promise.all([api('/api/jobs/'+id+'/pack.json'),api('/api/jobs/'+id+'/intake')]);
   pack=loaded;intake=inspected;currentJob=id;
+  relatedResult=null;
   renderPack();
 }
 function renderPack() {
@@ -81,6 +83,30 @@ function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();if(!pack)return;
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
+  if(activeTab==='related') {
+    const search=node('button',t('Tìm issue liên quan trong lịch sử local'));
+    content.append(node('p',t('Chỉ tìm trong 50 phiên local gần nhất, cùng repository. Tương đồng chưa chứng minh duplicate; không đưa vào inference strict.'),'notice'),search);
+    search.onclick=async()=>{
+      const selected=currentJob;search.disabled=true;
+      try {
+        const result=await api('/api/related',{job_id:selected});
+        if(currentJob===selected){relatedResult=result;renderTab();}
+      }catch(error){message(error.message,true);search.disabled=false;}
+    };
+    if(relatedResult?.job_id===currentJob){
+      content.append(node('p',t('Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.',{scanned:relatedResult.scanned_completed,issues:relatedResult.distinct_other_issues,skipped:relatedResult.skipped_integrity}),'notice'));
+      if(!relatedResult.results.length)content.append(node('p',t('Chưa tìm thấy ứng viên phù hợp trong phạm vi này.'),'notice'));
+      for(const result of relatedResult.results){
+        const card=node('article',undefined,'hypothesis-card');
+        card.append(node('h3',result.case_id),node('span',t('Ứng viên liên quan · chưa xác nhận duplicate'),'badge'),
+          node('p',t('Điểm lexical: {score}; không phải xác suất.',{score:result.score})),
+          node('p',t('Từ khớp: ')+result.matched_terms.join(', ')),node('pre',result.snippet.text),
+          node('p','Query SHA256 '+result.query_sha256,'hash-note'),node('p','Pack SHA256 '+result.pack_sha256,'hash-note'));
+        const open=node('button',t('Mở báo cáo nguồn'));open.onclick=()=>{activeTab='evidence';openJob(result.job_id).catch(error=>message(error.message,true));};
+        card.append(open);content.append(card);
+      }
+    }
+  }
   if(activeTab==='intake' && intake) {
     content.append(node('h3',t('Loại issue: ')+t(intake.intent)),node('p',t('Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.'),'notice'));
     for(const [field,details] of Object.entries(intake.fields)){

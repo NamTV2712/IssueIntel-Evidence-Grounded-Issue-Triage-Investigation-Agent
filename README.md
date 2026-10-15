@@ -35,6 +35,9 @@ nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc d
 Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form
 **Bổ sung dữ kiện / Add context** tạo phiên mới cùng commit, giữ nguồn dẫn và
 hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict lịch sử.
+Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
+repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
+kết quả không tự đi vào inference strict.
 
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook

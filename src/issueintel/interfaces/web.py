@@ -115,6 +115,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202, workbench.submit(request))
                 elif route == '/api/comparisons':
                     self._json(200, workbench.compare(request))
+                elif route == '/api/related':
+                    self._json(200, workbench.related(request))
                 elif route.startswith('/api/jobs/') and route.endswith('/cancel'):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid cancellation request')

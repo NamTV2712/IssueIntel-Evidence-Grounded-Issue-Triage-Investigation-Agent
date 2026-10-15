@@ -614,5 +614,41 @@ window.IssueIntelMessages = {
   "mentioned": {
     "vi": "Có nhắc",
     "en": "Mentioned"
+  },
+  "Issue liên quan": {
+    "vi": "Issue liên quan",
+    "en": "Related issues"
+  },
+  "Tìm issue liên quan trong lịch sử local": {
+    "vi": "Tìm issue liên quan trong lịch sử local",
+    "en": "Find related issues in local history"
+  },
+  "Chỉ tìm trong 50 phiên local gần nhất, cùng repository. Tương đồng chưa chứng minh duplicate; không đưa vào inference strict.": {
+    "vi": "Chỉ tìm trong 50 phiên local gần nhất, cùng repository. Tương đồng chưa chứng minh duplicate; không đưa vào inference strict.",
+    "en": "Search only the latest 50 local runs in the same repository. Similarity does not establish duplication; results do not enter strict inference."
+  },
+  "Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.": {
+    "vi": "Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.",
+    "en": "Read {scanned} runs; {issues} other issues; skipped {skipped} invalid sources."
+  },
+  "Chưa tìm thấy ứng viên phù hợp trong phạm vi này.": {
+    "vi": "Chưa tìm thấy ứng viên phù hợp trong phạm vi này.",
+    "en": "No matching candidates found within this scope."
+  },
+  "Ứng viên liên quan · chưa xác nhận duplicate": {
+    "vi": "Ứng viên liên quan · chưa xác nhận duplicate",
+    "en": "Related candidate · duplicate status unverified"
+  },
+  "Điểm lexical: {score}; không phải xác suất.": {
+    "vi": "Điểm lexical: {score}; không phải xác suất.",
+    "en": "Lexical score: {score}; not a probability."
+  },
+  "Từ khớp: ": {
+    "vi": "Từ khớp: ",
+    "en": "Matched terms: "
+  },
+  "Mở báo cáo nguồn": {
+    "vi": "Mở báo cáo nguồn",
+    "en": "Open source report"
   }
 };

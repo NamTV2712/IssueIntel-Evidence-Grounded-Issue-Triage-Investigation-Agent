@@ -38,7 +38,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | Mã | Trạng thái hiện tại |
 |---|---|
 | F01 | Nhận issue/repo/revision; intake gợi ý bug/feature/question/unknown bằng lexical cues, nguồn dòng/hash và thông tin cần xem lại; không coi cue là phân loại đã xác minh. |
-| F02 | Tìm kiếm và duplicate có bằng chứng còn roadmap. |
+| F02 | Tìm ứng viên liên quan bằng lexical trên lịch sử local cùng repo, có snippet/hash và source report. Chưa xác nhận duplicate; tìm issue ngoài lịch sử còn roadmap. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
 | F05 | Trạng thái job và trace; kế hoạch kiểm tra lấy từ hypotheses. Planner nhiều vòng còn roadmap. |
@@ -47,7 +47,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F08 | Kiểm citation/hash, critique riêng và abstention. Counter evidence có thể `not_found`; không bịa quan sát. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts; mở lại kết quả; lỗi/interrupt không retry API ngầm. |
-| F11 | Cache Git/snapshot/graph đã có; kiến trúc memory nhiều phiên còn roadmap. |
+| F11 | Cache Git/snapshot/graph, follow-up lineage và truy xuất các phiên đã lưu; repository memory tự động có as-of proof còn roadmap. |
 | F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
@@ -84,6 +84,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
+- `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
@@ -132,6 +133,24 @@ một ca strict mới. Không tự gọi Groq; người dùng bật riêng ở f
 cần. Không kế thừa quyền đăng GitHub của job cha: follow-up không tạo/publish
 comment. So sánh với parent nhận identity từ chuỗi nguồn đã replay và báo query/
 context đổi, không tái sử dụng citation qua context mới.
+
+## Issue liên quan trong lịch sử
+
+Tab Related issues/Issue liên quan tìm thủ công trong tối đa 50 job local gần
+nhất, chỉ cùng repository đã khai báo. Parent gốc của follow-up có thể cũ hơn cửa
+sổ 50 job: lineage được replay và mở về query nguồn. Không đọc dataset/holdout,
+gọi GitHub, embeddings hoặc LLM; không đưa kết quả vào inference hoặc pack strict.
+
+Mỗi issue nguồn chỉ xuất hiện một lần; loại chính issue đang xem và follow-up của
+nó. Với input local, query gốc + repository xác định một issue thay vì ID phụ
+thuộc provider/depth. Nguồn hỏng bị bỏ và báo số lượng. Patch/test/rationale/review bundle/gold
+không được dùng để tính tương đồng. Query trong pack local có hash kiểm lại.
+
+Ranking BM25 dùng token Unicode, loại stopwords và cần ít nhất hai token chung.
+Score không phải xác suất. Mỗi kết quả có matched terms, đoạn nguồn với hash,
+query/pack SHA256 và nút mở báo cáo. Quan hệ luôn `candidate_unverified`, không
+coi giống triệu chứng là duplicate. Chưa xác minh nguồn này có trước cutoff của
+issue đích; chưa có semantic duplicate judgment hoặc đồng bộ toàn GitHub history.
 
 ## Tích hợp GitHub
 
