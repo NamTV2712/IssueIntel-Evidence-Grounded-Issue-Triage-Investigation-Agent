@@ -534,5 +534,85 @@ window.IssueIntelMessages = {
   "Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.": {
     "vi": "Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.",
     "en": "The job did not complete. Check inputs, data, or provider configuration; it will not retry automatically."
+  },
+  "Thông tin đầu vào": {
+    "vi": "Thông tin đầu vào",
+    "en": "Intake"
+  },
+  "Bổ sung dữ kiện": {
+    "vi": "Bổ sung dữ kiện",
+    "en": "Add context"
+  },
+  "Phiên nguồn: ": {
+    "vi": "Phiên nguồn: ",
+    "en": "Source run: "
+  },
+  "Tạo phiên mới ở cùng commit. Dữ kiện bổ sung chưa xác minh và không kế thừa chứng nhận lịch sử.": {
+    "vi": "Tạo phiên mới ở cùng commit. Dữ kiện bổ sung chưa xác minh và không kế thừa chứng nhận lịch sử.",
+    "en": "Create a new run at the same commit. Added context is unverified and does not inherit historical certification."
+  },
+  "Dữ kiện mới hoặc trả lời thông tin còn thiếu": {
+    "vi": "Dữ kiện mới hoặc trả lời thông tin còn thiếu",
+    "en": "New context or answers to missing information"
+  },
+  "Điều tra với dữ kiện mới": {
+    "vi": "Điều tra với dữ kiện mới",
+    "en": "Investigate with new context"
+  },
+  "Loại issue: ": {
+    "vi": "Loại issue: ",
+    "en": "Issue type: "
+  },
+  "Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.": {
+    "vi": "Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.",
+    "en": "Keyword-based classification is unverified. Mentioning information does not establish completeness."
+  },
+  "Dòng {line}: ": {
+    "vi": "Dòng {line}: ",
+    "en": "Line {line}: "
+  },
+  "Cần xem lại hoặc bổ sung mục này.": {
+    "vi": "Cần xem lại hoặc bổ sung mục này.",
+    "en": "Review or provide this information."
+  },
+  "Dữ kiện bổ sung chưa xác minh; không kế thừa chứng nhận query lịch sử.": {
+    "vi": "Dữ kiện bổ sung chưa xác minh; không kế thừa chứng nhận query lịch sử.",
+    "en": "Added context is unverified; it does not inherit historical query certification."
+  },
+  "observed_behavior": {
+    "vi": "Hành vi thực tế",
+    "en": "Observed behavior"
+  },
+  "expected_behavior": {
+    "vi": "Hành vi mong đợi",
+    "en": "Expected behavior"
+  },
+  "reproduction": {
+    "vi": "Cách tái hiện",
+    "en": "Reproduction"
+  },
+  "environment": {
+    "vi": "Môi trường và phiên bản",
+    "en": "Environment and version"
+  },
+  "bug_report": {
+    "vi": "Báo lỗi",
+    "en": "Bug report"
+  },
+  "feature_request": {
+    "vi": "Đề nghị tính năng",
+    "en": "Feature request"
+  },
+  "question": {
+    "vi": "Câu hỏi sử dụng",
+    "en": "Usage question"
+  },
+  "unknown": {
+    "vi": "Chưa xác định",
+    "en": "Unknown"
+  },
+  "mentioned": {
+    "vi": "Có nhắc",
+    "en": "Mentioned"
   }
 };

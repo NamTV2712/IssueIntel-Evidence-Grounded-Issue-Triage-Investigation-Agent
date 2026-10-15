@@ -32,6 +32,9 @@ query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citati
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.
 Thanh đầu trang hỗ trợ **Tiếng Việt / English** và **sáng / tối / theo hệ thống**,
 nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc dịch nội dung nguồn.
+Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form
+**Bổ sung dữ kiện / Add context** tạo phiên mới cùng commit, giữ nguồn dẫn và
+hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict lịch sử.
 
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook

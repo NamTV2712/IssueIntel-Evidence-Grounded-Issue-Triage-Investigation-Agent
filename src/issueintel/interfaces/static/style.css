@@ -27,3 +27,5 @@ header{gap:24px}.brand{flex-shrink:0}
 .history-row small,.summary-box small,.data-card small,footer{font-size:12px}
 @media(max-width:740px){header{height:auto;min-height:78px;padding:18px 22px;flex-wrap:wrap}.local-pill{margin-right:0}.preferences{width:100%;flex-wrap:wrap;justify-content:flex-end}.summary-grid{grid-template-columns:1fr}.preferences label{flex-shrink:0}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+#followup-panel{border-top:1px solid var(--border);margin-top:28px;padding-top:20px}#followup-panel h3{font-size:16px}#followup-button{margin-top:16px}

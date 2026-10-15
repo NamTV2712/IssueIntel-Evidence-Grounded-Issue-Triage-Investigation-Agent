@@ -16,6 +16,7 @@ from issueintel.retrieval import retrieve_evidence
 from issueintel.runtime.io import digest, write_json
 from .controller import Action, DecisionState, RuleController
 from .verifier import verify_hypotheses, validate_critique
+from .intake import inspect_issue
 
 
 PUBLIC_KEYS = {"case_id", "instance_id", "repository", "revision", "problem_statement", "issue_url",
@@ -91,6 +92,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     evidence = (deepcopy(prepared_evidence) if prepared_evidence is not None
                 else retrieve_evidence(case["problem_statement"], snapshot, graph, top_k=top_k))
     statement = case["problem_statement"]
+    intake = inspect_issue(statement)
     if prepared_evidence is not None:
         validate_prepared_evidence(case, evidence, snapshot)
         evidence = [record for record in evidence if record["kind"] != "issue"]
@@ -133,7 +135,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         "nodes": [{key: value for key, value in node.to_dict().items() if key != "text"} for node in relevant_nodes],
         "edges": [edge.to_dict() for edge in graph.edges if edge.source in relevant_ids and edge.target in relevant_ids],
         "parse_errors": list(graph.parse_errors), "limitations": list(graph.limitations)}
-    pack = {"schema_version": 1, "case": case, "snapshot": snapshot_descriptor, "graph": graph_descriptor,
+    pack = {"schema_version": 1, "case": case, "intake": intake, "snapshot": snapshot_descriptor, "graph": graph_descriptor,
         "evidence": evidence, "annotation": annotation, "verification": verification,
         "leakage_audit": leakage, "trace": trace, "stop_reason": stop_reason,
         "recommended_steps": [h["falsification_test"] for h in annotation["hypotheses"]] if annotation else ["Provide a traceback, relevant component or reproducible example"],
@@ -209,6 +211,15 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
              "## Issue", "", pack["case"]["problem_statement"], "", "## Evidence", ""]
     for record in pack["evidence"]:
         lines.append(f"- `{record['id']}` — `{record['locator']}` ({record['kind']}, SHA256 `{record['sha256']}`)")
+    if pack.get('intake'):
+        lines += ['', '## Intake (lexical hints, unverified)', '',
+                  'Intent: '+pack['intake']['intent'],
+                  'Review missing cues: '+(', '.join(pack['intake']['missing_information']) or 'none')]
+    if pack.get('followup'):
+        link=pack['followup']
+        lines += ['', '## Follow-up provenance', '', f"Parent job: `{link['parent_job_id']}`",
+                  f"Parent pack SHA256: `{link['parent_pack_sha256']}`",
+                  'User context is unverified and does not inherit historical query certification.']
     if pack["annotation"]:
         lines += ["", "## Competing hypotheses (automatic, correctness unverified)", ""]
         for h in pack["annotation"]["hypotheses"]:

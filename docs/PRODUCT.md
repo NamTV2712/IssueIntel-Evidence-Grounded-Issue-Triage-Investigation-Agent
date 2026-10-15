@@ -37,7 +37,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 
 | Mã | Trạng thái hiện tại |
 |---|---|
-| F01 | Nhận mô tả issue, GitHub issue URL và repo/revision qua CLI/workbench; public input boundary. Phân loại intent nâng cao còn roadmap. |
+| F01 | Nhận issue/repo/revision; intake gợi ý bug/feature/question/unknown bằng lexical cues, nguồn dòng/hash và thông tin cần xem lại; không coi cue là phân loại đã xác minh. |
 | F02 | Tìm kiếm và duplicate có bằng chứng còn roadmap. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
@@ -45,7 +45,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
 | F08 | Kiểm citation/hash, critique riêng và abstention. Counter evidence có thể `not_found`; không bịa quan sát. |
-| F09 | Báo bước kiểm tra/thông tin còn thiếu; hội thoại follow-up có provenance còn roadmap. |
+| F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts; mở lại kết quả; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph đã có; kiến trúc memory nhiều phiên còn roadmap. |
 | F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
@@ -85,6 +85,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
+- `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
@@ -110,6 +111,27 @@ cục bộ hoặc thứ tự không tự tạo khác biệt. Đầu vào local c
 nên chỉ ghép khi repository và query giống hệt. GitHub/Main Dev dùng identity
 issue cố định và báo riêng khi query đổi. File hỏng, citation thiếu hoặc nguồn
 khác snapshot bị từ chối. Kết quả giữ private trên máy, không đọc Holdout/gold.
+
+## Intake và dữ kiện tiếp nối
+
+Tab Intake/Thông tin đầu vào chỉ trích lexical cues trong query: hành vi thực tế,
+mong đợi, cách tái hiện, môi trường/phiên bản. Các tín hiệu intent mâu thuẫn hoặc
+không có giữ `unknown`. `mentioned` không xác nhận đủ thông tin; `not_found`
+không chứng minh thông tin vắng mặt. Nguồn dài có hash cho dòng đầy đủ và excerpt
+riêng, kèm dấu truncated. Không gọi model, tra gold hoặc gán nhãn người.
+
+Form bổ sung tạo `mode=followup` với parent job ID và context tối đa 20.000 ký tự.
+Repository/commit lấy từ parent đã kiểm hash; client không được ghi đè. Pack cha
+giữ nguyên, pack mới có parent pack SHA256, context SHA256, thời điểm và depth.
+Mỗi lần mở/so sánh/tiếp nối replay mọi parent, giới hạn tám thế hệ và query tổng
+100.000 ký tự. Parent bị hỏng hoặc lineage có vòng bị từ chối trước provider.
+
+Mọi follow-up dùng `benchmark_base`, có case ID `followup:` riêng và context chưa
+xác minh. Bổ sung vào Main Dev không thay cohort/query/proof gốc hoặc trở thành
+một ca strict mới. Không tự gọi Groq; người dùng bật riêng ở form follow-up nếu
+cần. Không kế thừa quyền đăng GitHub của job cha: follow-up không tạo/publish
+comment. So sánh với parent nhận identity từ chuỗi nguồn đã replay và báo query/
+context đổi, không tái sử dụng citation qua context mới.
 
 ## Tích hợp GitHub
 

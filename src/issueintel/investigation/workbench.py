@@ -17,6 +17,7 @@ from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest, write_json
 from .pipeline import investigate, export_pack
 from .comparison import compare_packs
+from .intake import inspect_issue
 from .providers import GroqProvider, ProviderError
 from issueintel.runtime.budget import BudgetDenied
 
@@ -26,16 +27,26 @@ def now():
 
 
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
     if request.get('depth', 'quick') not in {'quick', 'deep'}:
         raise ValueError('Choose quick or deep investigation')
-    if mode not in {'local', 'main_dev', 'example', 'github'} or provider not in {'none', 'groq'}:
+    if mode not in {'local', 'main_dev', 'example', 'github', 'followup'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
-    if mode == 'main_dev':
+    if mode != 'followup' and set(request) & {'parent_job_id', 'additional_context'}:
+        raise ValueError('Follow-up fields require a follow-up job')
+    if mode == 'followup':
+        if set(request)-{'mode', 'provider', 'depth', 'parent_job_id', 'additional_context'}:
+            raise ValueError('A follow-up cannot override its source or revision')
+        if not isinstance(request.get('parent_job_id'), str) or not re.fullmatch(r'[a-f0-9]{24}', request['parent_job_id']):
+            raise ValueError('Choose a completed parent investigation')
+        text = request.get('additional_context')
+        if not isinstance(text, str) or not text.strip() or len(text)>20000 or '\x00' in text:
+            raise ValueError('Provide bounded additional context')
+    elif mode == 'main_dev':
         if set(request) & {'repository', 'revision', 'issue_text', 'issue_url'}:
             raise ValueError('A Main Dev query and revision cannot be overridden')
         if not isinstance(request.get('case_id'), str) or len(request['case_id']) > 200:
@@ -160,7 +171,27 @@ class Workbench:
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
             extra = {}
-            if request['mode'] == 'main_dev':
+            followup = None
+            if request['mode'] == 'followup':
+                parent, raw, depth = self._load_pack(request['parent_job_id'])
+                if depth >= 8:
+                    raise ValueError('Follow-up depth is bounded to eight generations')
+                additional = request['additional_context']
+                text = parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
+                if len(text)>100000:
+                    raise ValueError('Combined query exceeds the public input bound')
+                case = {'case_id':'followup:'+row['id'], 'repository':parent['case']['repository'],
+                        'revision':parent['snapshot']['commit_sha'], 'problem_statement':text,
+                        'issue_created_at':None}
+                if parent['case'].get('issue_url'):
+                    case['issue_url'] = parent['case']['issue_url']
+                local = Path(parent['snapshot']['repository'])
+                followup = {'schema':'investigation_followup_v1', 'parent_job_id':request['parent_job_id'],
+                            'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),
+                            'source_case_id':(parent.get('followup') or {}).get('source_case_id',parent['case']['case_id']),
+                            'additional_context':additional, 'context_sha256':hashlib.sha256(additional.encode()).hexdigest(),
+                            'created_at':now(), 'historical_query_verified':False, 'depth':depth+1}
+            elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
                 extra = dict(snapshot=snapshot, query_receipt=query, protocol='issue_time')
@@ -205,6 +236,8 @@ class Workbench:
                 max_output_tokens=provider.config.max_output_tokens if provider else 2048,
                 top_k=4 if request['depth'] == 'quick' else 12, **extra)
             self._check_cancelled(row['id'])
+            if followup:
+                pack['followup'] = followup
             directory = self.directory/'runs'/row['id']
             export_pack(pack, directory)
             refs = {name: {'path': (directory/name).relative_to(self.root).as_posix(),
@@ -229,6 +262,12 @@ class Workbench:
     def result_bytes(self, identifier, name='pack.json'):
         if name not in {'pack.json', 'report.md'}:
             raise ValueError('Unsupported export')
+        _, raw, _ = self._load_pack(identifier)
+        return raw if name == 'pack.json' else self._export_bytes(identifier, name)
+
+    def _export_bytes(self, identifier, name='pack.json'):
+        if name not in {'pack.json', 'report.md'}:
+            raise ValueError('Unsupported export')
         row = self.job(identifier)
         if row['status'] != 'completed':
             raise ValueError('Investigation is not complete')
@@ -242,13 +281,48 @@ class Workbench:
             raise ValueError('Export integrity changed')
         return raw
 
+    def _load_pack(self, identifier, seen=None):
+        seen = set() if seen is None else seen
+        if identifier in seen or len(seen)>8:
+            raise ValueError('Invalid follow-up lineage')
+        seen.add(identifier)
+        raw = self._export_bytes(identifier)
+        pack = json.loads(raw)
+        link = pack.get('followup')
+        if not link:
+            return pack, raw, 0
+        parent, parent_raw, depth = self._load_pack(link['parent_job_id'], seen)
+        additional = link['additional_context']
+        if (link.get('schema') != 'investigation_followup_v1' or link['depth'] != depth+1
+                or hashlib.sha256(parent_raw).hexdigest() != link['parent_pack_sha256']
+                or hashlib.sha256(additional.encode()).hexdigest() != link['context_sha256']
+                or link['source_case_id'] != (parent.get('followup') or {}).get('source_case_id',parent['case']['case_id'])
+                or pack['case']['problem_statement'] != parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
+                or pack['case']['repository'] != parent['case']['repository']
+                or pack['snapshot']['commit_sha'] != parent['snapshot']['commit_sha']
+                or pack['snapshot']['protocol'] != 'benchmark_base'
+                or pack['leakage_audit']['strict_issue_time_verified'] is not False):
+            raise ValueError('Follow-up source binding changed')
+        return pack, raw, depth+1
+
+    def intake(self, identifier):
+        pack, raw, _ = self._load_pack(identifier)
+        return dict(inspect_issue(pack['case']['problem_statement']),
+                    source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
+
     def compare(self, request):
         if not isinstance(request, dict) or set(request) != {'before_id', 'after_id'}:
             raise ValueError('Choose two completed investigations')
         if request['before_id'] == request['after_id']:
             raise ValueError('Choose two different investigations')
-        raw = [self.result_bytes(request[key]) for key in ('before_id', 'after_id')]
-        result = compare_packs(*(json.loads(value) for value in raw))
+        loaded = [self._load_pack(request[key]) for key in ('before_id', 'after_id')]
+        raw = [value[1] for value in loaded]
+        views = [json.loads(value) for value in raw]
+        # Identity comes only from replayed local lineage, not a client override.
+        for view in views:
+            if view.get('followup'):
+                view['case']['case_id'] = view['followup']['source_case_id']
+        result = compare_packs(*views)
         result['sources'] = {side: {'job_id': request[side+'_id'],
                                   'pack_sha256': hashlib.sha256(value).hexdigest()}
                              for side, value in zip(('before', 'after'), raw)}

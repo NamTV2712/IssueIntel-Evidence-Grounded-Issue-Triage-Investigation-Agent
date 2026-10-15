@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="issueintel-session"]').content;
 let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 'evidence';
 let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
+let intake=null;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -30,14 +31,20 @@ function requestInput() {
   return request;
 }
 async function submit(event) {
-  event?.preventDefault(); if($('run-button').disabled) return;
+  event?.preventDefault();await runJob(requestInput());
+}
+async function runJob(request) {
+  if($('run-button').disabled)return;
   try {
-    $('run-button').disabled=true; message(t("Đang chuẩn bị snapshot và bằng chứng…"));
-    const job=await api('/api/investigations',requestInput()); currentJob=job.id;activeJob=job.id;$('cancel-button').hidden=false;
+    $('run-button').disabled=true;$('followup-button').disabled=true;message(t("Đang chuẩn bị snapshot và bằng chứng…"));
+    const job=await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
       const state=await api('/api/jobs/'+job.id);
       if(['completed','failed','cancelled','interrupted'].includes(state.status)) {
-        if(state.status==='completed') {await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));}
+        if(state.status==='completed') {
+          await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));
+          if(request.mode==='followup' && $('additional-context').value===request.additional_context)$('additional-context').value='';
+        }
         else message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);
         break;
       }
@@ -45,15 +52,17 @@ async function submit(event) {
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
   } catch(error) {message(error.message,true);}
-  finally {activeJob=null;$('run-button').disabled=false;$('cancel-button').hidden=true;await history();}
+  finally {activeJob=null;$('run-button').disabled=false;$('followup-button').disabled=false;$('cancel-button').hidden=true;await history();}
 }
 async function openJob(id) {
-  pack=await api('/api/jobs/'+id+'/pack.json'); currentJob=id;
+  const [loaded, inspected]=await Promise.all([api('/api/jobs/'+id+'/pack.json'),api('/api/jobs/'+id+'/intake')]);
+  pack=loaded;intake=inspected;currentJob=id;
   renderPack();
 }
 function renderPack() {
   if(!pack)return;
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
+  $('followup-panel').hidden=false;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
   $('result-title').textContent=pack.case.case_id;
   const strict=pack.leakage_audit.strict_issue_time_verified;
   const boxes=[[t("Snapshot"),pack.snapshot.commit_sha.slice(0,12)],[t("Bằng chứng"),t("{count} nguồn",{count:pack.evidence.length})],[t("Thời gian"),strict?t("Strict issue-time"):t("Chưa xác minh lịch sử")]];
@@ -72,6 +81,15 @@ function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();if(!pack)return;
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
+  if(activeTab==='intake' && intake) {
+    content.append(node('h3',t('Loại issue: ')+t(intake.intent)),node('p',t('Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.'),'notice'));
+    for(const [field,details] of Object.entries(intake.fields)){
+      const card=node('article',undefined,'hypothesis-card');card.append(node('h3',t(field)+' · '+t(details.status)));
+      for(const source of details.sources)card.append(node('pre',t('Dòng {line}: ',{line:source.line})+source.text),node('p','SHA256 '+source.text_sha256,'hash-note'));
+      if(details.status==='not_found')card.append(node('p',t('Cần xem lại hoặc bổ sung mục này.'),'notice'));content.append(card);
+    }
+    if(pack.followup)content.append(node('p',t('Dữ kiện bổ sung chưa xác minh; không kế thừa chứng nhận query lịch sử.'),'notice'),node('pre',JSON.stringify({parent_job_id:pack.followup.parent_job_id,parent_pack_sha256:pack.followup.parent_pack_sha256,depth:pack.followup.depth},null,2)));
+  }
   if(activeTab==='hypotheses') {
     if(!pack.annotation) content.append(node('p',t("Chưa gọi model để sinh giả thuyết. Bạn có thể đọc bằng chứng hiện có hoặc bật Groq khi điều tra."),'notice'));
     for(const h of pack.annotation?.hypotheses || []) {
@@ -170,6 +188,7 @@ async function download(name) {
 }
 $('mode').onchange=switchMode;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;
+$('followup-form').onsubmit=event=>{event.preventDefault();if(!currentJob)return;runJob({mode:'followup',parent_job_id:currentJob,additional_context:$('additional-context').value,provider:$('followup-groq').checked?'groq':'none',depth:$('followup-depth').value});};
 $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
 $('cancel-button').onclick=async()=>{try{if(!activeJob)return;await api('/api/jobs/'+activeJob+'/cancel',{});message(t("Đã yêu cầu hủy; lời gọi API đang xử lý có thể vẫn tính phí."));}catch(error){message(error.message,true);}};
 $('export-md').onclick=()=>download('report.md');$('export-json').onclick=()=>download('pack.json');

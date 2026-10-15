@@ -75,6 +75,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     parts = route.split('/')[3:]
                     if len(parts) == 1:
                         self._json(200, workbench.job(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'intake':
+                        self._json(200, workbench.intake(parts[0]))
                     elif len(parts) == 2 and parts[1] in {'pack.json', 'report.md'}:
                         raw = workbench.result_bytes(parts[0], parts[1])
                         self._send(200, raw, 'application/json; charset=utf-8' if parts[1] == 'pack.json' else 'text/markdown; charset=utf-8', download=parts[1])
@@ -127,7 +129,7 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.publish_comment(route.split('/')[3], request))
                 else:
                     self._json(404, {'error': 'Route not found'})
-            except (ValueError, UnicodeError):
+            except (ValueError, UnicodeError, KeyError, TypeError):
                 self._json(400, {'error': 'Invalid investigation input'})
             except FileNotFoundError:
                 self._json(404, {'error': 'Job not found'})
