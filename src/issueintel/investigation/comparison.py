@@ -29,6 +29,11 @@ def _binding(pack):
                'availability_sha256': digest(snapshot.get('availability', {})),
                'query_provenance_sha256': None}
     evidence = pack['evidence']
+    context_records={}
+    if pack.get('repository_context') is not None:
+        from issueintel.retrieval.repository_context import context_evidence
+        context_records={record['id']:record for record in context_evidence(pack['repository_context'],case,protocol=snapshot['protocol'])}
+    binding['repository_context_sha256']=(pack.get('repository_context') or {}).get('sha256')
     model_evidence(evidence)
     ids, locators = set(), set()
     issues = []
@@ -45,10 +50,15 @@ def _binding(pack):
             issues.append(record)
             if record['text'] != case['problem_statement'] or record['revision'] is not None:
                 raise ValueError('Issue evidence differs from query')
+        elif record['kind']=='repository_context':
+            if context_records.get(record['id'])!=record:
+                raise ValueError('Saved repository context differs from its source proof')
         else:
             raise ValueError('Unsupported evidence kind')
     if len(issues) != 1:
         raise ValueError('Exactly one issue record is required')
+    if set(context_records)!={record['id'] for record in evidence if record['kind']=='repository_context'}:
+        raise ValueError('Saved repository context evidence is incomplete')
     binding['query_provenance_sha256'] = digest({
         'available_at': issues[0].get('available_at'), 'provenance': issues[0]['provenance'],
         'issue_created_at': case.get('issue_created_at')})

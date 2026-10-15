@@ -93,8 +93,11 @@ Search text dùng SQLite FTS5/BM25 local (1–20 kết quả), có snippet/hash,
 record/page receipt SHA và fetched_at. Tìm code dùng shared lexical/symbol
 retrieval tại đúng snapshot và replay graph/snapshot hash. Hai loại search đều
 không gọi mạng/model. Điểm search không phải xác suất đúng. Item đọc lại nguồn
-đã lưu và kiểm record/receipt binding trước khi trả nội dung. Không tự chuyển
-nguồn tìm được vào prompt hay strict inference.
+đã lưu và kiểm record/receipt binding trước khi trả nội dung. Product GitHub
+investigation trên connection đang bật dùng bounded retrieval tối đa 6 nguồn/
+7.200 ký tự, có source/query/receipt replay. Full source/receipt ở pack local;
+model chỉ nhận excerpt và locator. Benchmark/strict/prepared inputs không nhận
+memory hiện tại.
 
 ## Dữ liệu và phạm vi
 
@@ -113,8 +116,7 @@ Python runtime dự án); không thêm vector DB hay dependency mới.
 Chưa bao gồm review threads đầy đủ, timeline/closing events, reactions hoặc full
 Git history. App/HTTPS relay thật chưa được cấu hình trên máy. Installation
 payload giới hạn 100 repo public mỗi delivery; nguồn private được bỏ qua. HTTP
-webhook nhận tối đa 2 MB; payload vượt giới hạn cần đối soát lại. Hướng dẫn thiết
-lập cho tác giả được trao đổi trong chat, không xuất thành file riêng.
+webhook nhận tối đa 2 MB; payload vượt giới hạn cần đối soát lại.
 
 ## Local API
 

@@ -93,6 +93,14 @@ chạm cap. Push resolve tracked ref hiện tại, không dùng event cũ để 
 Network/rate-limit có cooldown qua restart; identity/integrity lỗi tạm dừng.
 Stop server giữ phase tự động; pause của người dùng giữ riêng và resume đối soát.
 
+`retrieval.repository_context` lấy tối đa 6 nguồn/7.200 ký tự excerpt từ repo đã
+kết nối, ưu tiên linked records rồi lexical hits. `record_links` phân biệt text
+mention chưa xác minh, comment membership và PR–file/commit do API trả về.
+Pipeline replay source/receipt/query bindings trước model; full source records
+chỉ ở pack private, model projection nhận excerpts. Context luôn current,
+`available_at=None`; bị chặn với split benchmark, strict và prepared evidence.
+Comparison và comment preview giữ nguồn/hash/links của context đã chọn.
+
 Hai protocol: `benchmark_base` đọc base_commit của upstream và khai báo thời gian chưa xác minh; `issue_time` từ chối nếu không có receipt xác minh đúng revision với `available_at < issue_created_at`. Hash đúng không chứng minh lịch sử đúng. Receipt authenticity thuộc trách nhiệm caller; audit lưu giới hạn này.
 
 Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=` cho original title/body. Nội dung API hiện tại và `updated_at` không đủ chứng minh body ban đầu. Human notes, patch, test_patch, test IDs, hints và metadata evaluation không đi vào prompt public. Gold localization chỉ trích file/dòng phía base/symbol từ unified diff; insertion có anchor riêng, added file không bịa pre-patch symbol.

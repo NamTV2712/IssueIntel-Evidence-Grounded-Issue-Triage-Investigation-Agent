@@ -288,6 +288,14 @@ def _investigate(args):
                 "repository": issue["repository"], "issue_url": issue["url"], "issue_created_at": issue["created_at"]}
     local = Path(args.repo)
     local = local if local.is_dir() else acquire_repository(case.get("repository", args.repo), case["revision"], args.root / "data/repos").path
+    context=None
+    if not args.case_id and case.get('issue_url'):
+        from issueintel.integrations.github_sync import GitHubSync
+        connection=GitHubSync(args.root).connection(case['repository'])
+        if connection and not connection['paused']:
+            from issueintel.integrations.github_index import RepositoryIndex
+            from issueintel.retrieval.repository_context import collect_context
+            context=collect_context(RepositoryIndex(args.root,case['repository']),case['issue_url'],case['problem_statement'])
     provider = GroqProvider(RuntimeConfig.load(args.root)) if args.provider == "groq" else None
     import uuid
     from issueintel.investigation.stages import StageCheckpoints
@@ -296,7 +304,7 @@ def _investigate(args):
         pack = investigate(case, local, complete_json=provider if provider else None,
             provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
             max_output_tokens=provider.config.max_output_tokens if provider else 2048,
-            refinement_rounds=args.refinement_rounds,on_stage=stages)
+            refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context)
     except Exception:
         if stages.receipts:
             print(json.dumps({'completed_stage_checkpoints':stages.receipts,'automatic_retry':False}),file=sys.stderr)

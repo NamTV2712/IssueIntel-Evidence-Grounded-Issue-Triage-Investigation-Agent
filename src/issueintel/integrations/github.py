@@ -25,6 +25,14 @@ def comment_preview(pack):
              f'Snapshot: `{revision}`. Automatic analysis; causal correctness is unverified.',
              '', '### Evidence']
     for evidence in pack['evidence']:
+        if evidence['kind'] == 'repository_context':
+            url=evidence['provenance']['source_url']
+            parsed=urlsplit(url)
+            if (parsed.scheme!='https' or parsed.netloc!='github.com' or parsed.username or parsed.password
+                    or not parsed.path.lower().startswith('/'+source.repository.lower()+'/')):
+                raise ValueError('Repository context link escaped the reviewed repository')
+            lines.append(f'- [{evidence["id"]}]({url}) — current repository context, historical availability unverified; SHA256 `{evidence["sha256"]}`')
+            continue
         if evidence['kind'] != 'code':
             continue
         match = re.fullmatch(r'(.+):(\d+)-(\d+)', evidence['locator'])

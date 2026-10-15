@@ -363,6 +363,12 @@ class Workbench:
                         'revision':request['revision'], 'problem_statement':issue['problem_statement'],
                         'issue_created_at':issue['created_at']}
                 local = acquire_repository(issue['repository'], case['revision'], self.root/'data/repos').path
+                connection=self.github_sync.connection(issue['repository'])
+                if connection and not connection['paused']:
+                    from issueintel.integrations.github_index import RepositoryIndex
+                    from issueintel.retrieval.repository_context import collect_context
+                    extra['repository_context']=collect_context(RepositoryIndex(self.root,issue['repository']),
+                                                                issue['url'],issue['problem_statement'])
             else:
                 repository = request['repository'].strip()
                 case = {'case_id': 'local:'+digest(request)[:16], 'repository': repository,

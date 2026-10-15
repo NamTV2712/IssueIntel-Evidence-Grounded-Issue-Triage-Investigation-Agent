@@ -155,9 +155,9 @@ window.IssueIntelMessages = {
     "vi": "Sinh giả thuyết và chạy verifier bằng Groq",
     "en": "Generate hypotheses and run a verifier with Groq"
   },
-  "Khi bật, issue và code excerpts được gửi đến Groq; chi phí theo cấu hình API của bạn. Khi tắt, chỉ truy xuất bằng chứng.": {
-    "vi": "Khi bật, issue và code excerpts được gửi đến Groq; chi phí theo cấu hình API của bạn. Khi tắt, chỉ truy xuất bằng chứng.",
-    "en": "When enabled, the issue and code excerpts are sent to Groq using your API configuration. Otherwise, only evidence is retrieved."
+  "Khi bật, issue, code excerpts và nguồn repository liên quan đã chọn được gửi đến Groq; chi phí theo cấu hình API của bạn. Khi tắt, chỉ truy xuất bằng chứng.": {
+    "vi": "Khi bật, issue, code excerpts và nguồn repository liên quan đã chọn được gửi đến Groq; chi phí theo cấu hình API của bạn. Khi tắt, chỉ truy xuất bằng chứng.",
+    "en": "When enabled, the issue, code excerpts and selected repository sources are sent to Groq using your API configuration. Otherwise, only evidence is retrieved."
   },
   "Điều tra issue": {
     "vi": "Điều tra issue",
@@ -763,6 +763,8 @@ window.IssueIntelMessages = {
     "vi": "Đang xem phiên: {id}",
     "en": "Viewing run: {id}"
   },
+  "Context repository hiện tại": {"vi":"Context repository hiện tại","en":"Current repository context"},
+  "Nguồn liên quan chưa xác nhận duplicate hay bản sửa; không phải proof lịch sử.": {"vi":"Nguồn liên quan chưa xác nhận duplicate hay bản sửa; không phải proof lịch sử.","en":"Related sources do not confirm duplicates or fixes and are not historical proof."},
   "Kết nối và tự đồng bộ": {"vi":"Kết nối và tự đồng bộ","en":"Connect and auto-sync"},
   "Tạm dừng tự động": {"vi":"Tạm dừng tự động","en":"Pause auto-sync"},
   "Kết nối tự chạy đến hết các trang và nhận webhook sau đó. Giới hạn GET ở trên chỉ áp dụng cho lượt đồng bộ thủ công.": {"vi":"Kết nối tự chạy đến hết các trang và nhận webhook sau đó. Giới hạn GET ở trên chỉ áp dụng cho lượt đồng bộ thủ công.","en":"Connect traverses all pages automatically, then receives webhooks. The GET limit above applies only to a manual sync run."},

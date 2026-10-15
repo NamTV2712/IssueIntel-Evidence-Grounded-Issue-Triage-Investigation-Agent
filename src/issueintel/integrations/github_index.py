@@ -68,6 +68,22 @@ def _sha(value):
     return value
 
 
+def record_links(record):
+    """Typed source relationships; a text mention never certifies a fix/duplicate."""
+    key, number, kind = record['key'], record['number'], record['kind']
+    edges = []
+    if kind in {'issue','pull','comments','review_comments','commits'}:
+        text = record['title']+'\n\n'+record['body']
+        numbers = {int(n) for n in re.findall(r'(?<![\w/])#([1-9][0-9]{0,9})\b', text)}
+        numbers.update(int(n) for n in re.findall(re.escape('https://github.com/'+record['repository'])+r'/(?:issues|pull)/([1-9][0-9]{0,9})\b',text))
+        edges += [(key, f'thread:{n}', 'text_mention_unverified') for n in sorted(numbers)[:100]]
+    if kind in {'comments','review_comments'}:
+        edges.append((key, f'thread:{number}', 'comment_on_thread'))
+    if kind in {'files','commits'}:
+        edges.append((f'pull:{number}',key,'api_pr_file' if kind=='files' else 'api_pr_commit'))
+    return [{'source':a,'target':b,'relation':c,'owner':key,'record_sha256':digest(record)} for a,b,c in edges]
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         raise ValueError('Repository redirect/transfer requires explicit reconnection')
@@ -211,6 +227,10 @@ class RepositoryIndex:
                 CREATE TABLE IF NOT EXISTS updates(id TEXT PRIMARY KEY, sha TEXT, value TEXT, done INTEGER DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS update_seen(delivery TEXT, kind TEXT, subject INTEGER, key TEXT,
                     PRIMARY KEY(delivery,kind,subject,key));
+                CREATE TABLE IF NOT EXISTS links(owner TEXT, source TEXT, target TEXT, relation TEXT, sha TEXT,
+                    PRIMARY KEY(owner,source,target,relation));
+                CREATE INDEX IF NOT EXISTS links_target ON links(target);
+                CREATE INDEX IF NOT EXISTS links_source ON links(source);
             ''')
             identity = self._meta(db, 'repository')
             if identity and identity != self.repository:
@@ -306,6 +326,10 @@ class RepositoryIndex:
         db.execute('DELETE FROM search WHERE key=?', (key,))
         db.execute('INSERT INTO search VALUES (?,?)', (key, record['title'] + '\n\n' + record['body']))
         db.execute('DELETE FROM unavailable WHERE key=?', (key,))
+        db.execute('DELETE FROM links WHERE owner=?', (key,))
+        for link in record_links(record):
+            db.execute('INSERT INTO links VALUES (?,?,?,?,?)',
+                       (key,link['source'],link['target'],link['relation'],sha))
 
     def _next_page(self, current, next_url, repository_id):
         if next_url is None:
@@ -542,7 +566,7 @@ class RepositoryIndex:
             mentions = sorted({int(m) for m in re.findall(r'(?<![\w/])#([1-9][0-9]{0,9})\b', text)})[:100]
             return {'record': record, 'record_sha256': row['sha'], 'receipt': receipt,
                     'availability': dict(unavailable) if unavailable else {'status': 'last_observed_available'},
-                    'receipt_sha256': row['receipt'], 'mentions': [
+                    'receipt_sha256': row['receipt'], 'links':record_links(record), 'mentions': [
                         {'repository': self.repository, 'number': number, 'relationship': 'text_mention_unverified'}
                         for number in mentions], 'limitations': LIMITATIONS}
 

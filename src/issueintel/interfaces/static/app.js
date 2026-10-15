@@ -82,8 +82,14 @@ function renderPack() {
 }
 function evidenceCard(e) {
   const card=node('article',undefined,'evidence-card');card.id='evidence-'+e.id;
-  const head=node('div',undefined,'card-head');head.append(node('span',e.locator,'locator'),node('span',e.kind==='code'?'CODE':'ISSUE','badge'));
-  card.append(head,node('pre',e.text),node('div','SHA256 '+e.sha256+' · '+e.id,'hash-note'));return card;
+  const head=node('div',undefined,'card-head');head.append(node('span',e.locator,'locator'),node('span',e.kind==='code'?'CODE':e.kind==='repository_context'?t('Context repository hiện tại'):'ISSUE','badge'));
+  card.append(head,node('pre',e.text),node('div','SHA256 '+e.sha256+' · '+e.id,'hash-note'));
+  if(e.kind==='repository_context'){
+    card.append(node('p',t('Nguồn liên quan chưa xác nhận duplicate hay bản sửa; không phải proof lịch sử.'),'notice'));
+    const url=new URL(e.provenance.source_url);
+    if(url.protocol==='https:' && url.hostname==='github.com' && !url.username && !url.password){const link=node('a',t('Mở nguồn GitHub'));link.href=url.href;link.target='_blank';link.rel='noreferrer noopener';card.append(link);}
+  }
+  return card;
 }
 function citation(id) {
   const button=node('button',id,'citation');button.onclick=()=>{activeTab='evidence';renderTab();document.getElementById('evidence-'+id)?.scrollIntoView({behavior:'smooth',block:'center'});};return button;

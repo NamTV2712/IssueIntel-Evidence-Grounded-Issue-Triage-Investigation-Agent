@@ -51,8 +51,16 @@ def public_case(case: dict) -> dict:
 def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provider="none", model="none",
                 controller=None, protocol="benchmark_base", availability=None, top_k=8,
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
-                query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None) -> dict:
+                query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
+                repository_context=None) -> dict:
     case = public_case(case)
+    context_records=[]
+    if repository_context is not None:
+        from issueintel.retrieval.repository_context import context_evidence
+        reject_hidden(repository_context)
+        if prepared_evidence is not None:
+            raise ValueError('Frozen prepared evidence cannot acquire current repository context')
+        context_records=context_evidence(repository_context,case,protocol=protocol)
     if type(refinement_rounds) is not int or refinement_rounds not in {0,1}:
         raise ValueError('Only zero or one additional retrieval round is supported')
     if on_stage is not None and not callable(on_stage):
@@ -103,6 +111,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     if prepared_evidence is not None:
         validate_prepared_evidence(case, evidence, snapshot)
         evidence = [record for record in evidence if record["kind"] != "issue"]
+    evidence.extend(context_records)
     evidence.insert(0, {"id": "issue_" + digest(statement)[:20], "kind": "issue", "locator": case.get("issue_url") or case["case_id"],
         "text": statement, "sha256": hashlib.sha256(statement.encode()).hexdigest(), "revision": None,
         "available_at": case.get("issue_created_at"), "provenance": {
@@ -112,6 +121,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     controller = controller or RuleController()
     trace = [{"stage": "snapshot", "protocol": snapshot.protocol, "sha256": snapshot.snapshot_sha256},
              {"stage": "retrieval", "evidence_ids": [e["id"] for e in evidence]}]
+    if repository_context is not None:
+        trace.append({'stage':'repository_context','sources':len(context_records),
+                      'sha256':repository_context['sha256'],'historical_verified':False})
     annotation, verification = None, None
     refinement = {'policy':FOCUSED_POLICY,'requested_rounds':refinement_rounds,
                   'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
@@ -194,12 +206,16 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         "leakage_audit": leakage, "trace": trace, "stop_reason": stop_reason,
         "recommended_steps": [h["falsification_test"] for h in annotation["hypotheses"]] if annotation else ["Provide a traceback, relevant component or reproducible example"],
         "confidence": {"level": "unverified", "probability": None}}
+    if repository_context is not None:
+        pack['repository_context']=deepcopy(repository_context)
+        pack['leakage_audit']['limitations'].append('Current repository history may include later edits; it is product context, not strict historical proof.')
     if refinement_rounds:
         pack['refinement'] = refinement
     if checkpoints:
         pack['stage_checkpoints'] = checkpoints
     pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
-                             **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {})})[:24]
+                             **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {}),
+                             **({'repository_context':repository_context['sha256']} if repository_context is not None else {})})[:24]
     return pack
 
 
@@ -270,6 +286,11 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
              "## Issue", "", pack["case"]["problem_statement"], "", "## Evidence", ""]
     for record in pack["evidence"]:
         lines.append(f"- `{record['id']}` — `{record['locator']}` ({record['kind']}, SHA256 `{record['sha256']}`)")
+    if pack.get('repository_context'):
+        context=pack['repository_context']
+        lines += ['', '## Current repository context', '',
+                  f"Selected sources: {len(context['sources'])}; SHA256 `{context['sha256']}`.",
+                  'Bounded local retrieval; text mentions are not confirmed duplicates/fixes. Historical availability is unverified.']
     if pack.get('refinement'):
         refined=pack['refinement']
         search=refined.get('search',{})

@@ -40,7 +40,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F01 | Nhận issue/repo/revision; intake gợi ý bug/feature/question/unknown bằng lexical cues, nguồn dòng/hash và thông tin cần xem lại; không coi cue là phân loại đã xác minh. |
 | F02 | Tìm ứng viên liên quan trong lịch sử local; repository memory ở UI/CLI thêm FTS trên issue/PR/comment đã đồng bộ. Chưa xác nhận duplicate, chưa tự đưa kết quả vào model. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
-| F04 | Code evidence và revision; UI/CLI đồng bộ issue/PR/comment, metadata PR–commit–file và đọc nguồn/hash. Điều tra tự động xuyên artifact còn roadmap. |
+| F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn issue/PR/comment/commit/file cho từng GitHub issue; typed links/source receipts, dùng trong generation/critique và export. Current context không phải temporal proof. |
 | F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng truy xuất theo giả thuyết rồi cập nhật đầu ra. Planner tổng quát nhiều tool/vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
