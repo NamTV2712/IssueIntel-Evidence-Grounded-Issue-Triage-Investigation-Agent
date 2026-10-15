@@ -115,6 +115,15 @@ Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=`
 
 ## Controller và verifier
 
+`investigation.evidence_graph` là view của báo cáo đã lưu, khác với AST graph.
+Replay query/hash/citation/context bindings và validate critique trước khi chiếu
+ra query, hypotheses, evidence và model reviews. Quan hệ truy xuất, asserted
+support/counter, assessment và critic citation giữ riêng; không nâng thành causal
+truth/human validation. Giao diện SVG có keyboard/inspector/filter và mở citation
+về đúng job. View tối đa 100 nút, 300 cạnh, 8.000 ký tự/nút, đếm phần lược bỏ và
+không giữ cạnh trỏ ra ngoài view. Workbench bind thêm job/pack SHA256; không sửa
+pack gốc, gọi model, xây code graph mới hoặc mở evaluation.
+
 `investigation.versions` đối chiếu hai snapshot trong cùng repository, replay
 descriptor/hash/excerpts của báo cáo nguồn trước khi đọc target. Chỉ original
 product case dùng benchmark_base ngoài mọi split; follow-up/strict/benchmark bị

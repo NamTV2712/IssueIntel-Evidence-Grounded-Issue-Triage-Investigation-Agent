@@ -589,6 +589,15 @@ class Workbench:
         return dict(inspect_issue(pack['case']['problem_statement']),
                     source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
 
+    def evidence_graph(self, identifier):
+        from .evidence_graph import evidence_graph
+        pack, raw, _ = self._load_pack(identifier)
+        result = evidence_graph(pack)
+        result['source'] = {'job_id':identifier,'pack_sha256':hashlib.sha256(raw).hexdigest()}
+        result.pop('sha256')
+        result['sha256'] = digest(result)
+        return result
+
     def plan(self,identifier,request=None):
         pack, raw, _ = self._load_pack(identifier)
         args=(identifier,hashlib.sha256(raw).hexdigest(),pack['recommended_steps'])

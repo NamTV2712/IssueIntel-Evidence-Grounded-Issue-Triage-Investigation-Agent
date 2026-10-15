@@ -43,7 +43,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn issue/PR/comment/commit/file cho từng GitHub issue; typed links/source receipts, dùng trong generation/critique và export. Current context không phải temporal proof. |
 | F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng truy xuất theo giả thuyết rồi cập nhật đầu ra. Planner tổng quát nhiều tool/vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
-| F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
+| F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác từ báo cáo lưu sẵn tách truy xuất/citation hỗ trợ/citation phản bác/critique, có inspector và export. |
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; đồng bộ tiếp tục chủ động sau trang đã commit, lỗi/interrupt không retry API ngầm. |
@@ -53,7 +53,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
-| F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown. |
+| F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
 | F18 | Provider bounds, reservation/usage USD, lỗi và trace hiện có; output model vẫn unverified. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag với snapshot của báo cáo product: thêm/xóa/đổi/ngoài phạm vi, diff file có evidence và export riêng. Chưa xác minh fix, ancestry hoặc bản phát hành chứa fix. |
@@ -90,6 +90,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
+- `GET /api/jobs/<id>/evidence-graph`: đồ thị từ citation đã replay, hash-bound về pack; không gọi model hoặc đọc nguồn mới.
 - `GET/POST /api/jobs/<id>/plan`: checklist theo pack; ghi cần expected SHA256, step ID, status và note.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.

@@ -126,7 +126,7 @@ function restorePlanDrafts(drafts) {
 }
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
-  const content=$('tab-content');content.replaceChildren();if(!pack)return;
+  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();if(!pack)return;
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
@@ -216,6 +216,7 @@ function renderTab() {
     if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,stage_checkpoints:pack.stage_checkpoints,leakage_audit:pack.leakage_audit},null,2)));
   }
+  if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
   if(activeTab==='github') {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
     content.append(node('p',t("Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue."),'notice'),button);
@@ -302,6 +303,10 @@ $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
 $('cancel-button').onclick=async()=>{try{if(!activeJob)return;await api('/api/jobs/'+activeJob+'/cancel',{});message(t("Đã yêu cầu hủy; lời gọi API đang xử lý có thể vẫn tính phí."));}catch(error){message(error.message,true);}};
 $('export-md').onclick=()=>download('report.md');$('export-json').onclick=()=>download('pack.json');
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{activeTab=button.dataset.tab;renderTab();});
+document.addEventListener('issueintel:showevidence',event=>{
+  if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;
+  activeTab='evidence';renderTab();document.getElementById('evidence-'+event.detail.evidence_id)?.scrollIntoView({behavior:'smooth',block:'center'});
+});
 (async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();
 
 function renderCatalog() {

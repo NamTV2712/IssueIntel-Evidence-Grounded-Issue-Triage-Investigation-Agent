@@ -18,6 +18,8 @@ STATIC['/locales.js'] = ('locales.js', 'text/javascript; charset=utf-8')
 STATIC['/preferences.js'] = ('preferences.js', 'text/javascript; charset=utf-8')
 STATIC['/repository.js'] = ('repository.js', 'text/javascript; charset=utf-8')
 STATIC['/versions.js'] = ('versions.js', 'text/javascript; charset=utf-8')
+STATIC['/evidence-graph.js'] = ('evidence-graph.js', 'text/javascript; charset=utf-8')
+STATIC['/evidence-graph.css'] = ('evidence-graph.css', 'text/css; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -82,6 +84,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.job(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'evidence-graph':
+                        self._json(200, workbench.evidence_graph(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'plan':
                         self._json(200, workbench.plan(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'versions':
