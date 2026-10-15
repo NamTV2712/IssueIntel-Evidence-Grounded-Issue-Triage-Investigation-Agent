@@ -2,7 +2,12 @@
 
 Trợ lý điều tra issue bằng snapshot Git, code graph, bằng chứng có nguồn và các giả thuyết cạnh tranh. Demo và IssueIntel-Bench dùng cùng một pipeline chỉ đọc. [proposal.md](proposal.md) là thiết kế sản phẩm; [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) mô tả các ranh giới code.
 
-## Chạy trên Windows
+Entry point `run.py` chạy trực tiếp từ clean checkout bằng Python 3.11+ và Git,
+không cần pip, virtualenv, Node, PostgreSQL hay dữ liệu benchmark. `--check` chỉ
+kiểm runtime và không gọi API. Các extras bên dưới dành cho development, Parquet
+và tokenizer tối ưu; lõi vẫn có token upper-bound bảo thủ khi thiếu tokenizer.
+
+## Môi trường phát triển trên Windows
 
 ```powershell
 python -m venv .venv
