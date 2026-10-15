@@ -49,12 +49,12 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; đồng bộ tiếp tục chủ động sau trang đã commit, lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
-| F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
+| F13 | Trạng thái/hủy, token và USD theo phiên từ receipt riêng; đang chạy/lỗi/interrupted vẫn xem được cận giữ chỗ. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
-| F18 | Provider bounds, reservation/usage USD, lỗi và trace hiện có; output model vẫn unverified. |
+| F18 | Reservation trước HTTP gắn về job, cập nhật usage/price date sau call; tab chi phí/export riêng, không nhận tổng ledger thành chi phí phiên. Phiên cũ thiếu receipt giữ unknown. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag với snapshot của báo cáo product: thêm/xóa/đổi/ngoài phạm vi, diff file có evidence và export riêng. Chưa xác minh fix, ancestry hoặc bản phát hành chứa fix. |
 
@@ -96,6 +96,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
 - `GET /api/jobs/<id>/evidence-graph`: đồ thị từ citation đã replay, hash-bound về pack; không gọi model hoặc đọc nguồn mới.
+- `GET /api/jobs/<id>/usage`: metadata receipt theo phiên, bao gồm job lỗi/interrupted; token/USD charged-or-reserved, không phải hóa đơn provider.
 - `GET/POST /api/jobs/<id>/plan`: checklist theo pack; ghi cần expected SHA256, step ID, status và note.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.

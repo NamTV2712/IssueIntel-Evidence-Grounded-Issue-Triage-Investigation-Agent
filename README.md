@@ -57,6 +57,11 @@ truy xuất, citation hỗ trợ/phản bác và nhận xét model. Chọn nút 
 bàn phím để xem trích đoạn/hash, lọc quan hệ, mở citation về báo cáo và xuất JSON.
 Không gọi lại LLM; đường nối không chứng minh nguyên nhân hay kiểm người.
 
+Tab **Token và chi phí** và mục chi phí bên dưới tiến độ hiển thị receipt của
+đúng phiên, cả khi job lỗi hoặc interrupted. Mỗi reservation được gắn về job
+trước HTTP; lỗi/thiếu usage giữ cận trên. Có export JSON riêng; phiên cũ không
+có receipt hiện unknown. Đây là số liệu ghi nhận/giữ chỗ, không phải hóa đơn.
+
 Mục **Đối chiếu phiên bản code** dưới báo cáo product nhận commit/tag khác, đọc
 snapshot và lưu riêng thay đổi code cùng hash nguồn/đích. Diff ưu tiên file trong
 evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. Không gọi model,

@@ -190,3 +190,16 @@ class BudgetLedger:
                 "daily_tokens_charged_or_reserved": sum(r[2] for r in rows if r[0] == now.date().isoformat()),
                 "monthly_usd_charged_or_reserved": str(Decimal(sum(r[3] for r in rows if r[1] == now.strftime("%Y-%m"))) / 1000000),
                 "calls": len(rows), "locked": any(r[4] == "breach" for r in rows)}
+
+    def receipt(self, reservation: str) -> dict:
+        """Public accounting fields for one reservation, never prompts or keys."""
+        if not isinstance(reservation,str) or len(reservation)!=32 or any(c not in '0123456789abcdef' for c in reservation):
+            raise BudgetDenied('Invalid reservation identity')
+        with self._connect() as connection:
+            row=connection.execute('SELECT c.created_at,c.model,c.input_bound,c.output_bound,c.charged_tokens,c.charged_micro_usd,c.status,c.price_date,x.input_tokens,x.output_tokens FROM calls c LEFT JOIN call_context x ON x.id=c.id WHERE c.id=?',(reservation,)).fetchone()
+        if row is None:
+            raise BudgetDenied('Reservation not found')
+        return {'reservation_id':reservation,'created_at':row[0],'model':row[1],
+                'input_bound':row[2],'output_bound':row[3],'tokens_charged_or_reserved':row[4],
+                'micro_usd_charged_or_reserved':row[5],'status':row[6],'price_date':row[7],
+                'observed_input_tokens':row[8],'observed_output_tokens':row[9]}

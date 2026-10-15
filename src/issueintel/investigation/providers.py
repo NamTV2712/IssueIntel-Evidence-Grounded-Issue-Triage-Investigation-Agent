@@ -39,10 +39,15 @@ def _input_token_bound(messages, schema=None):
 class GroqProvider:
     name = "groq"
 
-    def __init__(self, config: RuntimeConfig, *, transport=None, call_context=None):
+    def __init__(self, config: RuntimeConfig, *, transport=None, call_context=None, on_receipt=None):
         self.config, self.model = config, config.model
         self.transport = transport or _open_provider
         self.call_context = call_context
+        self.on_receipt = on_receipt
+
+    def _publish_receipt(self, ledger, reservation):
+        if self.on_receipt is not None:
+            self.on_receipt(ledger.receipt(reservation))
 
     def __call__(self, messages, max_output_tokens=2048):
         return self.complete_json(messages, max_output_tokens)
@@ -69,6 +74,7 @@ class GroqProvider:
         price, ledger = self.config.price(), self.config.ledger()
         reservation = ledger.reserve(price, input_bound, max_output_tokens, context=self.call_context)
         self.last_reservation = reservation
+        self._publish_receipt(ledger, reservation)  # Persist ownership before HTTP.
         body = {"model": self.model, "messages": messages, "max_completion_tokens": max_output_tokens,
                 "temperature": 0, "reasoning_effort": self.config.reasoning_effort, "include_reasoning": False,
                 "response_format": {"type": "json_object"}, "stream": False}
@@ -88,6 +94,7 @@ class GroqProvider:
             result = json.loads(payload)
         except Exception as error:
             ledger.reconcile(reservation, price, None, failed=True)
+            self._publish_receipt(ledger, reservation)
             # Do not expose response bodies, request headers, key or source text.
             status = error.code if isinstance(error, HTTPError) else type(error).__name__
             error_code = None
@@ -107,7 +114,10 @@ class GroqProvider:
             detail = f", {error_code}" if error_code else ""
             raise ProviderError(f"Groq call failed ({status}{detail}); bound retained, no automatic retry", status=status,retry_after=retry_after,code=error_code) from None
         self.last_usage = result.get("usage")
-        ledger.reconcile(reservation, price, self.last_usage)
+        try:
+            ledger.reconcile(reservation, price, self.last_usage)
+        finally:
+            self._publish_receipt(ledger, reservation)
         try:
             choice = result["choices"][0]
             if choice.get("finish_reason") != "stop":

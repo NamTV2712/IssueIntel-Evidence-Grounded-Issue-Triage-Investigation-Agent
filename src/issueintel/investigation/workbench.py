@@ -185,7 +185,8 @@ class Workbench:
             if row['status'] in {'queued', 'running'} and identifier not in self.active:
                 row = dict(row, status='interrupted', stage='interrupted',
                            error='Interrupted before completion; no automatic model retry.')
-            return {k: v for k, v in row.items() if k != 'request'}
+            from .usage import job_usage
+            return dict({k: v for k, v in row.items() if k not in {'request','usage_receipts'}},accounting=job_usage(row))
 
     def history(self):
         return self._history_mode(False, 50)
@@ -474,12 +475,24 @@ class Workbench:
                        if config and config.reasoning_effort in {'medium', 'high'} else None)
             provider = (self.provider_factory(config, call_context=context)
                 if request['provider'] == 'groq' else None)
+            call_stage='seed_generation'
+            if provider and hasattr(provider,'on_receipt'):
+                def capture_receipt(receipt):
+                    row.setdefault('usage_receipts',{})[receipt['reservation_id']]=dict(receipt,stage=call_stage)
+                    self._save(row,usage_tracking=True,usage_receipts=row['usage_receipts'])
+                provider.on_receipt=capture_receipt
+                self._save(row,usage_tracking=True,usage_receipts={})
             def complete(messages, max_output_tokens):
+                nonlocal call_stage
+                call_stage='refined_generation' if 'focused_retrieval' in stage_store.receipts else 'seed_generation'
                 self._check_cancelled(row['id'])
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
                 return answer
             def structured(messages, *, max_output_tokens, schema):
+                nonlocal call_stage
+                call_stage=('verification' if 'reviews' in schema.get('properties',{}) else
+                            'refined_generation' if 'focused_retrieval' in stage_store.receipts else 'seed_generation')
                 self._check_cancelled(row['id'])
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
@@ -597,6 +610,9 @@ class Workbench:
         result.pop('sha256')
         result['sha256'] = digest(result)
         return result
+
+    def usage(self, identifier):
+        return self.job(identifier)['accounting']
 
     def plan(self,identifier,request=None):
         pack, raw, _ = self._load_pack(identifier)

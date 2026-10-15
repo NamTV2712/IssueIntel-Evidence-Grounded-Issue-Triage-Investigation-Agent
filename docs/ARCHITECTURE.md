@@ -151,6 +151,15 @@ thứ tự. Các checkpoint này không phải benchmark receipts hay kết qu�
 
 ## Ngân sách và bảo mật
 
+Product provider có callback receipt tùy chọn: ghi reservation ownership vào job
+trước HTTP, cập nhật trạng thái sau reconcile (kể cả lỗi/usage breach). Ghi receipt
+không thành công thì không gửi HTTP. `investigation.usage` chỉ cộng receipt gắn
+về đúng job, không suy từ chênh lệch tổng ledger; USD dùng integer micro-USD và
+Decimal. Phiên cũ thiếu tracking giữ unknown; interrupted có thể giữ trạng thái
+receipt cuối cùng trước crash. API/lịch sử/UI đọc lại không gọi model. Số liệu
+charged-or-reserved khác hóa đơn provider; failed/missing usage giữ cận, breach
+báo riêng. Report chi phí không thay pack/benchmark receipts hoặc quyền chi.
+
 Reservation token/cost trước HTTP được ghi trong SQLite transaction `BEGIN IMMEDIATE`, chống các call đồng thời vượt tổng khi có cap. Tác giả đã cho phép bỏ token/USD cap cho công việc dựng lại cần thiết; explicit flags phải khớp author decision, không suy ra unlimited từ cấu hình thiếu. Usage hợp lệ mới giảm charge từ cận trên; call lỗi/usage thiếu giữ cận. Usage vượt bound hoặc bất nhất khóa ledger để review. Ledger không chứa prompt/secret. Giá có ngày và nguồn, decimal/round-up, giá cũ quá 30 ngày chặn.
 
 Authorization không đi qua redirect; chỉ endpoint Groq cố định. Không retry ngầm, built-in tool hoặc vòng server không kiểm soát. CI chỉ dùng synthetic fixture/mocked transport. PostgreSQL DSN cũ trong .env không được dùng. Artifact/data/secrets đều ignored; demo và review chỉ dùng cục bộ.

@@ -9,6 +9,7 @@ let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
 let stageView=null;
+let usageView=null,usageInfo=null;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -45,6 +46,7 @@ async function runJob(request) {
     const job=await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
       const state=await api('/api/jobs/'+job.id);
+      showUsage(state);
       if(['completed','failed','cancelled','interrupted'].includes(state.status)) {
         if(state.status==='completed') {
           await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));
@@ -62,10 +64,12 @@ async function runJob(request) {
 async function openJob(id) {
   const generation=++viewGeneration;
   const loaded=await api('/api/jobs/'+id+'/pack.json');
-  const [inspected,plan]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan')]);
+  const [inspected,plan,cost]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage')]);
   if(generation!==viewGeneration)return;
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   relatedResult=null;
+  usageInfo=cost.status==='fulfilled'?cost.value:null;
+  showUsage({id,accounting:usageInfo});
   showStageArtifacts({id,stage_checkpoints:pack.stage_checkpoints});
   renderPack();
 }
@@ -111,6 +115,11 @@ function showStageArtifacts(row) {
     button.type='button';button.onclick=()=>downloadPath('/api/jobs/'+row.id+'/stages/'+stage,'issueintel-'+row.id+'-'+stage+'.json');
     container.append(button,node('p','SHA256 '+ref.sha256,'hash-note'));
   }
+}
+function showUsage(row){
+  usageView=row;
+  $('usage-panel').hidden=false;
+  window.IssueIntelUsage.render($('usage-content'),row.accounting);
 }
 function planDrafts() {
   return [...document.querySelectorAll('[data-plan-step]')].map(form=>({id:form.dataset.planStep,
@@ -217,6 +226,7 @@ function renderTab() {
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,stage_checkpoints:pack.stage_checkpoints,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
+  if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo);
   if(activeTab==='github') {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
     content.append(node('p',t("Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue."),'notice'),button);
@@ -242,7 +252,7 @@ async function history() {
   try {jobRows=await api('/api/jobs');renderHistory();}catch(error){message(error.message,true);}
 }
 function renderHistory() {
-  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=row.status!=='completed'&&!Object.keys(row.stage_checkpoints || {}).length;el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):showStageArtifacts(row);return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
+  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=['queued','running'].includes(row.status);el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
 }
 function comparisonChoices(rows) {
   const completed=rows.filter(row=>row.status==='completed');
@@ -319,5 +329,6 @@ document.addEventListener('issueintel:languagechange',()=>{
   filterCases();renderCatalog();renderHistory();renderPack();renderComparison();
   restorePlanDrafts(drafts);
   if(stageView)showStageArtifacts(stageView);
+  if(usageView)showUsage(usageView);
   if(lastMessage)message(t(lastMessage.key),lastMessage.error);
 });
