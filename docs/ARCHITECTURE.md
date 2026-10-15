@@ -71,6 +71,14 @@ Cache giữ text theo SHA256 trong blob gzip dùng chung; index snapshot và gra
 
 ## Temporal và gold isolation
 
+Product repository memory nằm riêng trong `integrations.github_index`:
+`RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,
+global repository ID và OS writer lock; lưu private SQLite/FTS5, snapshot/graph
+theo hash. CLI gọi cùng service cho sync/status/search/item. Refresh đối soát
+thủ công; dữ liệu current REST không được đưa vào benchmark pipeline hoặc
+coi là historical proof. Không lưu patch/diff, không gọi model. Xem
+[REPOSITORY_INDEX.md](REPOSITORY_INDEX.md) về coverage/caps và replay.
+
 Hai protocol: `benchmark_base` đọc base_commit của upstream và khai báo thời gian chưa xác minh; `issue_time` từ chối nếu không có receipt xác minh đúng revision với `available_at < issue_created_at`. Hash đúng không chứng minh lịch sử đúng. Receipt authenticity thuộc trách nhiệm caller; audit lưu giới hạn này.
 
 Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=` cho original title/body. Nội dung API hiện tại và `updated_at` không đủ chứng minh body ban đầu. Human notes, patch, test_patch, test IDs, hints và metadata evaluation không đi vào prompt public. Gold localization chỉ trích file/dòng phía base/symbol từ unified diff; insertion có anchor riêng, added file không bịa pre-patch symbol.

@@ -19,6 +19,21 @@ def main(argv=None) -> int:
     web = commands.add_parser("serve", help="Run the read-only local investigation workbench")
     web.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
     web.add_argument("--port", type=int, default=8787)
+    repository_sync = commands.add_parser("sync-repository", help="Index public GitHub code/issues/PRs locally; resume committed pages, no LLM")
+    repository_sync.add_argument("--repo", required=True)
+    repository_sync.add_argument("--revision", default="HEAD")
+    repository_sync.add_argument("--max-requests", type=int, default=50, help="GitHub GET budget for this invocation (1–500)")
+    repository_sync.add_argument("--refresh", action="store_true", help="After completion, start a new reconciliation scan")
+    repository_status = commands.add_parser("repository-status", help="Read local repository index coverage without network")
+    repository_status.add_argument("--repo", required=True)
+    repository_search = commands.add_parser("search-repository", help="Search local GitHub history or revision-bound code, without network/LLM")
+    repository_search.add_argument("--repo", required=True)
+    repository_search.add_argument("--query", required=True)
+    repository_search.add_argument("--code", action="store_true")
+    repository_search.add_argument("--limit", type=int, default=10)
+    repository_item = commands.add_parser("repository-item", help="Read a source/hash-bound local issue/PR/comment/file/commit")
+    repository_item.add_argument("--repo", required=True)
+    repository_item.add_argument("--key", required=True, help="For example issue:12 or pull:34")
     strict_dev = commands.add_parser("build-strict-dev", help="DEV-only deterministic eligibility; no LLM or evaluation")
     strict_dev.add_argument("--namespace", choices=("main-dev-strict-v1",), default="main-dev-strict-v1")
     strict_dev.add_argument("--target", type=int, choices=(400,), default=400)
@@ -105,7 +120,19 @@ def main(argv=None) -> int:
     args.root = args.root.resolve()
     load_local_env(args.root / ".env")
     try:
-        if args.command == "prepare-dev-artifacts":
+        if args.command in {"sync-repository", "repository-status", "search-repository", "repository-item"}:
+            from issueintel.integrations.github_index import RepositoryIndex
+            index = RepositoryIndex(args.root, args.repo)
+            if args.command == "sync-repository":
+                result = index.sync(revision=args.revision, max_requests=args.max_requests, refresh=args.refresh)
+            elif args.command == "repository-status":
+                result = index.status()
+            elif args.command == "repository-item":
+                result = index.item(args.key)
+            else:
+                result = (index.search_code if args.code else index.search)(args.query, limit=args.limit)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+        elif args.command == "prepare-dev-artifacts":
             from issueintel.benchmarks.dev_artifacts import prepare_dev_artifacts
             report = prepare_dev_artifacts(args.root, args.cohort, limit=args.limit, concurrency=args.concurrency)
             print(json.dumps({k: v for k, v in report.items() if k != "results"}, indent=2))

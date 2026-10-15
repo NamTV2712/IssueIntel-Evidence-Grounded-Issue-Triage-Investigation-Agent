@@ -38,16 +38,16 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | Mã | Trạng thái hiện tại |
 |---|---|
 | F01 | Nhận issue/repo/revision; intake gợi ý bug/feature/question/unknown bằng lexical cues, nguồn dòng/hash và thông tin cần xem lại; không coi cue là phân loại đã xác minh. |
-| F02 | Tìm ứng viên liên quan bằng lexical trên lịch sử local cùng repo, có snippet/hash và source report. Chưa xác nhận duplicate; tìm issue ngoài lịch sử còn roadmap. |
+| F02 | Tìm ứng viên liên quan trong lịch sử local; CLI repository index thêm FTS trên issue/PR/comment đã đồng bộ. Chưa xác nhận duplicate, chưa tự đưa kết quả vào model. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
-| F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
+| F04 | Code evidence và revision; CLI đồng bộ issue/PR/comment, metadata PR–commit–file và đọc nguồn/hash. Điều tra tự động xuyên artifact trong workbench còn roadmap. |
 | F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng truy xuất theo giả thuyết rồi cập nhật đầu ra. Planner tổng quát nhiều tool/vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts và plan ledger; mở lại kết quả/checklist; lỗi/interrupt không retry API ngầm. |
-| F11 | Cache Git/snapshot/graph, follow-up lineage và truy xuất các phiên đã lưu; repository memory tự động có as-of proof còn roadmap. |
+| F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval và repository index có checkpoint/refresh thủ công. Auto-sync và memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |

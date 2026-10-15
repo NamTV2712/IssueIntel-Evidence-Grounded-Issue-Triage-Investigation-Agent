@@ -50,6 +50,24 @@ cho xem bản nháp comment với code links và duyệt trước khi đăng. Ad
 nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTTPS được
 ghi riêng trong [docs/PRODUCT.md](docs/PRODUCT.md), chưa triển khai tự động.
 
+Khởi tạo bộ nhớ repository public (code, issue/PR, bình luận, commit và file của
+PR) qua CLI, không gọi LLM:
+
+```powershell
+.\.venv\Scripts\python.exe -m issueintel sync-repository --repo owner/repo --revision HEAD --max-requests 50
+.\.venv\Scripts\python.exe -m issueintel repository-status --repo owner/repo
+.\.venv\Scripts\python.exe -m issueintel search-repository --repo owner/repo --query "parser error"
+.\.venv\Scripts\python.exe -m issueintel search-repository --repo owner/repo --query "parse_input" --code
+.\.venv\Scripts\python.exe -m issueintel repository-item --repo owner/repo --key issue:12
+```
+
+Chạy lại `sync-repository` để tiếp tục trang chưa hoàn tất; sau khi xong, thêm
+`--refresh` để quét đối soát mới. Mỗi lần giới hạn 1–500 GET (mặc định 50, tính cả
+kiểm định danh repository); Git fetch revision có giới hạn riêng. Đổi revision
+cần đợi scan xong rồi refresh. Chi tiết coverage/giới hạn và dữ liệu private ở
+[docs/REPOSITORY_INDEX.md](docs/REPOSITORY_INDEX.md). Đây là context GitHub hiện
+tại; không đưa vào strict benchmark, không tự gọi model hoặc đăng comment.
+
 Ngày 14/10 tác giả chọn bắt đầu sản phẩm với Main Dev đã đạt, giữ Holdout để đánh
 giá cuối và không chờ đủ 400 strict. [Quyết định](configs/development_start_decision_2026-10-14.json)
 không tự mở evaluation, đóng băng cohort mới hay khởi động lại bulk LLM.
