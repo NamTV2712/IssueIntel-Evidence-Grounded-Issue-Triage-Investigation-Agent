@@ -103,8 +103,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
             if not self._guard(api=route != '/api/github/webhook'):
                 return
             lengths = self.headers.get_all('Content-Length') or []
+            maximum = 2_000_000 if route == '/api/github/webhook' else 512000
             if (self.headers.get('Transfer-Encoding') is not None or len(lengths) != 1
-                    or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 512000
+                    or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= maximum
                     or self.headers.get('Content-Type', '').split(';')[0] != 'application/json'):
                 self._json(400, {'error': 'A bounded JSON body is required'})
                 return
@@ -124,6 +125,12 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202, workbench.submit(request))
                 elif route == '/api/repositories/sync':
                     self._json(202, workbench.submit_repository(request))
+                elif route == '/api/repositories/connect':
+                    self._json(202, workbench.connect_repository(request))
+                elif route == '/api/repositories/connection':
+                    self._json(200, workbench.repository_connection(request))
+                elif route == '/api/repositories/pause':
+                    self._json(200, workbench.repository_connection(request, pause=True))
                 elif route in {'/api/repositories/status', '/api/repositories/search', '/api/repositories/item'}:
                     self._json(200, workbench.repository_read(route.rsplit('/',1)[1], request))
                 elif route == '/api/comparisons':

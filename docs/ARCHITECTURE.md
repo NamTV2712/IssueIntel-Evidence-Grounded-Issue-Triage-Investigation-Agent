@@ -83,6 +83,16 @@ thủ công; dữ liệu current REST không được đưa vào benchmark pipel
 coi là historical proof. Không lưu patch/diff, không gọi model. Xem
 [REPOSITORY_INDEX.md](REPOSITORY_INDEX.md) về coverage/caps và replay.
 
+`integrations.github_sync` giữ connection lifecycle private trong SQLite;
+scheduler workbench chia đợt 20 GET trên cùng queue để tự hoàn tất initial scan.
+`repository_updates` xác minh HMAC trước JSON, bind App/installation/repository
+global ID, dedup delivery và đọc lại REST canonical theo event. Page receipt,
+cursor và mutation index commit cùng transaction. Unavailable records giữ audit
+và bị loại khỏi search; PR membership thay đổi chỉ đối soát khi listing không
+chạm cap. Push resolve tracked ref hiện tại, không dùng event cũ để rollback.
+Network/rate-limit có cooldown qua restart; identity/integrity lỗi tạm dừng.
+Stop server giữ phase tự động; pause của người dùng giữ riêng và resume đối soát.
+
 Hai protocol: `benchmark_base` đọc base_commit của upstream và khai báo thời gian chưa xác minh; `issue_time` từ chối nếu không có receipt xác minh đúng revision với `available_at < issue_created_at`. Hash đúng không chứng minh lịch sử đúng. Receipt authenticity thuộc trách nhiệm caller; audit lưu giới hạn này.
 
 Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=` cho original title/body. Nội dung API hiện tại và `updated_at` không đủ chứng minh body ban đầu. Human notes, patch, test_patch, test IDs, hints và metadata evaluation không đi vào prompt public. Gold localization chỉ trích file/dòng phía base/symbol từ unified diff; insertion có anchor riêng, added file không bịa pre-patch symbol.

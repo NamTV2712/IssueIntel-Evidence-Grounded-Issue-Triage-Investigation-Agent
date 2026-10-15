@@ -47,11 +47,11 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; đồng bộ tiếp tục chủ động sau trang đã commit, lỗi/interrupt không retry API ngầm. |
-| F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval và repository index có checkpoint/refresh thủ công. Auto-sync và memory có as-of proof còn roadmap. |
+| F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
-| F15 | Nhận issue URL và webhook `issue_comment` HMAC-signed, collaborator command, delivery dedup; GitHub App chưa được cài/triển khai. |
+| F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown. |
 | F18 | Provider bounds, reservation/usage USD, lỗi và trace hiện có; output model vẫn unverified. |

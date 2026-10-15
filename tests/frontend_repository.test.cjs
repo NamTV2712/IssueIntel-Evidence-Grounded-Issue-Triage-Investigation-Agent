@@ -75,3 +75,13 @@ test('code links preserve the searched repository and exact commit when controls
   assert.equal(link.href,'https://github.com/owner/repo/blob/'+'a'.repeat(40)+'/src/parser.py#L3-L7');
   assert.ok(!app.calls.some(c=>c[0].includes('investigations') || c[0].includes('/sync')));
 });
+
+test('connect requests automatic lifecycle once without manual page submissions or model calls',async()=>{
+  const app=boot(route=>route==='/api/repositories/connect'?{repository:'owner/repo'}:
+    route==='/api/repositories/connection'?{connection:{repository:'owner/repo',phase:'ready',paused:false,next_attempt:0},index:{...report,scan_complete:true},webhook_configured:false}:[]);
+  await app.settle();await app.get('index-connect').onclick();
+  assert.deepEqual(app.calls.map(c=>c[0]),['/api/repositories/jobs','/api/repositories/connect','/api/repositories/connection','/api/repositories/jobs']);
+  assert.match(app.text(app.get('index-coverage')),/Webhook chưa cấu hình/);
+  assert.equal(app.get('index-connect').disabled,false);
+  assert.equal(app.get('index-pause-auto').hidden,false);
+});

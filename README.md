@@ -55,6 +55,14 @@ PR) trong bảng **Bộ nhớ repository GitHub** của workbench, hoặc qua CL
 gọi LLM. Giao diện hỗ trợ Việt/Anh và sáng/tối; hiển thị scan/revision, phạm vi
 đã đọc, checkpoint và tìm kiếm local riêng với báo cáo điều tra.
 
+**Kết nối và tự đồng bộ** chạy backfill đến hết trang, tiếp tục qua restart và
+chờ theo rate limit. Webhook HMAC cho repo/installation đã kết nối cập nhật
+issue, PR, comment và snapshot nhánh đang theo dõi. Một scheduler local dùng
+chung worker/queue với investigation, không gọi model. App installation event
+có App ID/installation ID cấu hình trước sẽ tự kết nối các repo public được chọn.
+GitHub App/relay HTTPS ngoài máy vẫn cần thiết lập một lần; bản local không tự
+công khai workbench. Phần đồng bộ thủ công bên dưới vẫn dùng được độc lập.
+
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel sync-repository --repo owner/repo --revision HEAD --max-requests 50
 .\.venv\Scripts\python.exe -m issueintel repository-status --repo owner/repo

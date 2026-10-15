@@ -10,12 +10,13 @@
     return element;
   };
   let coverage=null, results=null, detail=null, jobs=[], active=null, notice=null, busy=false, readVersion=0;
+  let connectionState=null, automaticRepository=null, webhookConfigured=null;
   const repository = () => get('index-repository').value.trim();
   const statusOnly = report => { const {tasks,...rest}=report; return rest; };
   function message(key) { notice=key; get('index-message').textContent=t(key); }
   function controls(locked) {
     busy=locked;
-    for (const id of ['index-sync','index-status','index-repository','index-revision','index-budget','index-refresh']) get(id).disabled=locked;
+    for (const id of ['index-connect','index-sync','index-status','index-repository','index-revision','index-budget','index-refresh']) get(id).disabled=locked;
     get('index-cancel').hidden=!active;
   }
   function sourceLink(url, label) {
@@ -28,15 +29,23 @@
     if(!coverage)return;
     const run=coverage.run;
     area.append(el('h3',coverage.repository));
+    get('index-pause-auto').hidden=!connectionState || connectionState.paused || connectionState.repository!==coverage.repository;
+    if(connectionState?.repository===coverage.repository){
+      area.append(el('p',connectionState.paused?t('Đồng bộ tự động đang tạm dừng.'):t('Đồng bộ tự động đã bật; không cần mở trang để tiếp tục.'),'notice'));
+      if(connectionState.error)area.append(el('p',t('Trạng thái kết nối: ')+connectionState.error+(connectionState.next_attempt?' · '+new Date(connectionState.next_attempt*1000).toLocaleString():''),'notice'));
+      if(webhookConfigured===false)area.append(el('p',t('Webhook chưa cấu hình; cần thiết lập kết nối GitHub một lần để nhận sự kiện.'),'notice'));
+    }
     if(!run){area.append(el('p',t('Repository chưa được đồng bộ.'),'notice'));return;}
     area.append(el('p',coverage.scan_complete?t('Đã đi hết các trang API trong scan.'):t('Scan chưa hoàn tất; bấm tiếp tục để lấy các trang còn lại.'),'notice'));
+    const snapshot=coverage.current_snapshot || run.snapshot;
     const counts=el('dl',undefined,'repository-counts');
-    for(const [label,value] of [[t('File code'),run.snapshot?.file_count ?? '—'],[t('Issue'),coverage.counts.issue || 0],['PR',coverage.counts.pull || 0],
+    for(const [label,value] of [[t('File code'),snapshot?.file_count ?? '—'],[t('Issue'),coverage.counts.issue || 0],['PR',coverage.counts.pull || 0],
       [t('Bình luận'),(coverage.counts.comments || 0)+(coverage.counts.review_comments || 0)],['PR commits',coverage.counts.commits || 0],['PR files',coverage.counts.files || 0]]){
       const cell=el('div');cell.append(el('dt',label),el('dd',String(value)));counts.append(cell);
     }
     area.append(counts,el('p',t('Trang đã lưu: {pages} · tác vụ còn lại: {pending}',{pages:run.pages,pending:coverage.pending_tasks}),'notice'),
-      el('p','Revision '+(run.snapshot?.commit_sha || '—'),'hash-note'),el('p','Scan '+run.id+' · '+run.started_at,'hash-note'));
+      el('p','Revision '+(snapshot?.commit_sha || '—'),'hash-note'),el('p','Scan '+run.id+' · '+run.started_at,'hash-note'));
+    if(coverage.pending_updates)area.append(el('p',t('Webhook đang chờ: {count}',{count:coverage.pending_updates}),'notice'));
     if(run.snapshot?.skipped_count)area.append(el('p',t('Snapshot đã bỏ qua {count} file theo giới hạn.',{count:run.snapshot.skipped_count}),'notice'));
     if(run.api_caps.length)area.append(el('p',t('Đã chạm giới hạn API ở một số PR; xem coverage trước khi kết luận đầy đủ.'),'notice'));
     const raw=el('details');raw.append(el('summary',t('Nguồn, phạm vi và giới hạn')),el('pre',JSON.stringify(coverage,null,2)));area.append(raw);
@@ -134,15 +143,37 @@
   };
   get('index-cancel').onclick=async()=>{
     if(!active)return;get('index-cancel').disabled=true;
-    try{await api('/api/jobs/'+active+'/cancel',{});message('Đã yêu cầu dừng sau trang hiện tại; checkpoint được giữ lại.');}
+    try{if(automaticRepository)await api('/api/repositories/pause',{repository:automaticRepository,paused:true});else await api('/api/jobs/'+active+'/cancel',{});message('Đã yêu cầu dừng sau trang hiện tại; checkpoint được giữ lại.');}
     catch(error){message('Không đọc được index; kiểm tra đầu vào, nguồn và hash.');}
     finally{get('index-cancel').disabled=false;}
   };
   get('index-status').onclick=async()=>{
     const version=++readVersion;controls(true);
-    try{const report=await api('/api/repositories/status',{repository:repository()});if(version===readVersion){coverage=statusOnly(report);renderCoverage();message('Đã đọc trạng thái local; không gọi GitHub hoặc LLM.');}}
+    try{const report=await api('/api/repositories/connection',{repository:repository()});if(version===readVersion){connectionState=report.connection;webhookConfigured=report.webhook_configured;coverage=statusOnly(report.index);renderCoverage();message('Đã đọc trạng thái local; không gọi GitHub hoặc LLM.');}}
     catch(error){message('Không đọc được index; kiểm tra đầu vào, nguồn và hash.');}
     finally{controls(false);}
+  };
+  get('index-connect').onclick=async()=>{
+    if(busy || !repository())return;controls(true);++readVersion;results=null;detail=null;renderResults();renderDetail();
+    const selected=repository();
+    try{
+      await api('/api/repositories/connect',{repository:selected,revision:get('index-revision').value});
+      automaticRepository=selected;active='automatic';controls(true);
+      for(;;){
+        const report=await api('/api/repositories/connection',{repository:selected});
+        connectionState=report.connection;webhookConfigured=report.webhook_configured;coverage=statusOnly(report.index);renderCoverage();
+        if(!connectionState || connectionState.paused || connectionState.next_attempt>Date.now()/1000){message('Đã lưu kết nối và checkpoint; hệ thống hiển thị thời gian chờ hoặc trạng thái tạm dừng.');break;}
+        if(connectionState.phase==='ready'){message('Repository đã sẵn sàng; cập nhật tiếp theo sẽ qua webhook.');break;}
+        message('Đang tự đồng bộ repository; có thể đóng trang, server vẫn tiếp tục.');
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+    }catch(error){message('Không bắt đầu được: kiểm tra repo, revision, giới hạn hoặc hàng đợi.');}
+    finally{automaticRepository=null;active=null;controls(false);await history();}
+  };
+  get('index-pause-auto').onclick=async()=>{
+    if(!connectionState)return;
+    try{const value=await api('/api/repositories/pause',{repository:connectionState.repository,paused:true});connectionState=value.connection;coverage=statusOnly(value.index);renderCoverage();}
+    catch(error){message('Không đọc được index; kiểm tra đầu vào, nguồn và hash.');}
   };
   get('repository-search-form').onsubmit=async event=>{
     event.preventDefault();const version=++readVersion;get('index-search').disabled=true;

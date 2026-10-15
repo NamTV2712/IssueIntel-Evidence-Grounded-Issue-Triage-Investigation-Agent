@@ -7,7 +7,9 @@ import json
 import os
 import re
 import subprocess
+import sqlite3
 import threading
+import time
 import uuid
 
 from issueintel.benchmarks.dev_context import accepted_context, public_catalog
@@ -93,6 +95,81 @@ class Workbench:
         self.active = set()
         self.cancelled = set()
         self.plans = PlanStore(self.directory/'plans.sqlite')
+        from issueintel.integrations.github_sync import GitHubSync
+        self.github_sync = GitHubSync(self.root)
+        # Reconcile changes that might have occurred while the local server was off.
+        for connection in self.github_sync.connections():
+            if not connection['paused'] and connection['phase']=='ready':
+                self.github_sync.change(connection['repository'], phase='initial', initial_started=False)
+        self.sync_stop = threading.Event()
+        self.sync_thread = threading.Thread(target=self._auto_sync_loop, name='issueintel-sync-scheduler', daemon=True)
+        self.sync_thread.start()
+
+    def _auto_sync_loop(self):
+        while not self.sync_stop.is_set():
+            try:
+                for connection in self.github_sync.due():
+                    with self.lock:
+                        if connection.get('job_id') in self.active:
+                            continue
+                        request = {'mode':'repository', 'provider':'none', 'depth':'index', 'automatic':True,
+                                   'repository':connection['repository'], 'revision':connection['revision']}
+                        job = self._enqueue(request, self._run_automatic_sync)
+                        self.github_sync.change(connection['repository'], job_id=job['id'], scheduled_at=time.time())
+                    break  # Fair batches share the bounded queue with investigations.
+            except (RuntimeError, ValueError, OSError, sqlite3.DatabaseError):
+                pass  # Queue/lock pressure must not discard durable pending work.
+            self.sync_stop.wait(1)
+
+    def _run_automatic_sync(self, row):
+        from issueintel.integrations.github_sync import SyncServerStopping
+        repository = row['request']['repository']
+        try:
+            self._save(row, status='running', stage='repository_sync')
+            def check():
+                if self.sync_stop.is_set():
+                    raise SyncServerStopping()
+                self._check_cancelled(row['id'])
+            report = self.github_sync.batch(repository, check_cancelled=check)
+            self._save(row, status='completed', stage='completed',
+                       sync_report={k:v for k,v in report.items() if k != 'tasks'} if report else None,
+                       connection=self.github_sync.connection(repository))
+        except InterruptedError:
+            self._save(row, status='cancelled', stage='cancelled')
+        except SyncServerStopping:
+            self._save(row, status='interrupted', stage='interrupted')
+        except Exception as error:
+            self._save(row, status='failed', stage='failed', error=f'Automatic sync stopped ({type(error).__name__}).')
+        finally:
+            with self.lock:
+                self.active.discard(row['id']); self.cancelled.discard(row['id'])
+            self.capacity.release()
+
+    def connect_repository(self, request):
+        if not isinstance(request, dict) or set(request)-{'repository','revision'} or 'repository' not in request:
+            raise ValueError('Invalid automatic connection input')
+        return self.github_sync.connect(request['repository'], revision=request.get('revision','HEAD'))
+
+    def repository_connection(self, request, *, pause=False):
+        from issueintel.integrations.github_index import RepositoryIndex
+        allowed = {'repository','paused'} if pause else {'repository'}
+        if not isinstance(request, dict) or set(request)-allowed or 'repository' not in request:
+            raise ValueError('Invalid repository connection input')
+        source = RepositoryIndex(self.root, request['repository'])
+        if pause:
+            if type(request.get('paused')) is not bool:
+                raise ValueError('Choose a pause state')
+            if request['paused']:
+                connection = self.github_sync.change(source.repository, paused=True, next_attempt=0)
+            else:
+                current = self.github_sync.connection(source.repository)
+                if not current:
+                    raise ValueError('Repository has not been connected')
+                connection = self.github_sync.connect(source.repository, revision=current['revision'])
+        else:
+            connection = self.github_sync.connection(source.repository)
+        return {'connection':connection, 'index':source.status(),
+                'webhook_configured':bool(os.environ.get('GITHUB_WEBHOOK_SECRET'))}
 
     def catalog(self):
         return public_catalog(self.root)
@@ -216,7 +293,9 @@ class Workbench:
             write_json(self._job_path(row['id']), row)
 
     def cancel(self, identifier):
-        self.job(identifier)
+        row = self.job(identifier)
+        if row.get('connection') or (row['mode']=='repository' and row.get('repository') and self.github_sync.connection(row['repository'])):
+            self.github_sync.change(row['repository'], paused=True)
         with self.lock:
             if identifier in self.active:
                 self.cancelled.add(identifier)
@@ -534,6 +613,12 @@ class Workbench:
         return receipt
 
     def receive_webhook(self, raw, *, signature, event, delivery, secret):
+        from issueintel.integrations.repository_updates import authenticate
+        payload = authenticate(raw, signature, delivery, secret)
+        comment = payload.get('comment', {})
+        if not (event == 'issue_comment' and isinstance(comment.get('body'), str)
+                and comment['body'].startswith('/issueintel investigate')):
+            return self.github_sync.receive(raw, signature=signature, event=event, delivery=delivery, secret=secret)
         request = signed_command(raw, signature=signature, event=event, delivery=delivery, secret=secret)
         directory = self.directory/'github_deliveries'; directory.mkdir(exist_ok=True)
         path = directory/(delivery+'.json')
@@ -555,4 +640,6 @@ class Workbench:
         return job
 
     def close(self):
+        self.sync_stop.set()
+        self.sync_thread.join(5)
         self.executor.shutdown(wait=True)

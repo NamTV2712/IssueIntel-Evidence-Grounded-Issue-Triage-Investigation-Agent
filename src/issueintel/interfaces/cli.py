@@ -34,6 +34,12 @@ def main(argv=None) -> int:
     repository_item = commands.add_parser("repository-item", help="Read a source/hash-bound local issue/PR/comment/file/commit")
     repository_item.add_argument("--repo", required=True)
     repository_item.add_argument("--key", required=True, help="For example issue:12 or pull:34")
+    repository_connect = commands.add_parser("connect-repository", help="Enable durable automatic sync while the local server runs")
+    repository_connect.add_argument("--repo", required=True)
+    repository_connect.add_argument("--revision", default="HEAD")
+    repository_pause = commands.add_parser("pause-repository", help="Pause automatic sync; preserve all local receipts/data")
+    repository_pause.add_argument("--repo", required=True)
+    commands.add_parser("github-connections", help="Read automatic GitHub connections without network or secrets")
     strict_dev = commands.add_parser("build-strict-dev", help="DEV-only deterministic eligibility; no LLM or evaluation")
     strict_dev.add_argument("--namespace", choices=("main-dev-strict-v1",), default="main-dev-strict-v1")
     strict_dev.add_argument("--target", type=int, choices=(400,), default=400)
@@ -120,7 +126,18 @@ def main(argv=None) -> int:
     args.root = args.root.resolve()
     load_local_env(args.root / ".env")
     try:
-        if args.command in {"sync-repository", "repository-status", "search-repository", "repository-item"}:
+        if args.command in {"connect-repository", "pause-repository", "github-connections"}:
+            from issueintel.integrations.github_sync import GitHubSync
+            sync = GitHubSync(args.root)
+            if args.command == "connect-repository":
+                result = sync.connect(args.repo, revision=args.revision)
+            elif args.command == "pause-repository":
+                from issueintel.repository.acquire import parse_github_reference
+                result = sync.change(parse_github_reference(args.repo).repository.lower(), paused=True)
+            else:
+                result = sync.connections()
+            print(json.dumps(result, indent=2))
+        elif args.command in {"sync-repository", "repository-status", "search-repository", "repository-item"}:
             from issueintel.integrations.github_index import RepositoryIndex
             index = RepositoryIndex(args.root, args.repo)
             if args.command == "sync-repository":

@@ -73,6 +73,14 @@ class _NoRedirect(HTTPRedirectHandler):
         raise ValueError('Repository redirect/transfer requires explicit reconnection')
 
 
+class GitHubReadError(ValueError):
+    def __init__(self, status, retry_after=60, retryable=None):
+        self.status = status
+        self.retry_after = retry_after
+        self.retryable = status in {0,429,500,502,503,504} if retryable is None else retryable
+        super().__init__(f'GitHub read failed (HTTP {status}); checkpoint retained')
+
+
 class GitHubReader:
     """GET-only transport with bounded bytes and credential-safe diagnostics."""
     def __init__(self, repository, token=None, *, opener=None):
@@ -114,9 +122,17 @@ class GitHubReader:
                 link = response.headers.get('Link', '')
         except HTTPError as error:
             # Do not expose provider response bodies, credentials or arbitrary URLs.
-            raise ValueError(f'GitHub read failed (HTTP {error.code}); checkpoint retained, no automatic retry') from None
+            try:
+                import time
+                delay = max(int(error.headers.get('Retry-After', '60')),
+                            int(error.headers.get('X-RateLimit-Reset', '0')) - int(time.time()))
+            except (TypeError, ValueError):
+                delay = 60
+            retryable = (error.code in {429,500,502,503,504} or error.code==403
+                         and (error.headers.get('X-RateLimit-Remaining')=='0' or error.headers.get('Retry-After') is not None))
+            raise GitHubReadError(error.code, max(60, min(delay, 21600)), retryable) from None
         except (URLError, TimeoutError):
-            raise ValueError('GitHub network read failed; checkpoint retained, no automatic retry') from None
+            raise GitHubReadError(0, 60) from None
         if len(raw) > 10_000_000:
             raise ValueError('GitHub page exceeds 10 MB; checkpoint retained')
         value = json.loads(raw)
@@ -191,6 +207,10 @@ class RepositoryIndex:
                     key TEXT PRIMARY KEY, sha TEXT NOT NULL, receipt TEXT NOT NULL,
                     run TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL);
                 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(key UNINDEXED, text);
+                CREATE TABLE IF NOT EXISTS unavailable(key TEXT PRIMARY KEY, reason TEXT, receipt TEXT);
+                CREATE TABLE IF NOT EXISTS updates(id TEXT PRIMARY KEY, sha TEXT, value TEXT, done INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS update_seen(delivery TEXT, kind TEXT, subject INTEGER, key TEXT,
+                    PRIMARY KEY(delivery,kind,subject,key));
             ''')
             identity = self._meta(db, 'repository')
             if identity and identity != self.repository:
@@ -285,6 +305,7 @@ class RepositoryIndex:
                    (key, sha, receipt, run, record['kind'], value))
         db.execute('DELETE FROM search WHERE key=?', (key,))
         db.execute('INSERT INTO search VALUES (?,?)', (key, record['title'] + '\n\n' + record['body']))
+        db.execute('DELETE FROM unavailable WHERE key=?', (key,))
 
     def _next_page(self, current, next_url, repository_id):
         if next_url is None:
@@ -304,7 +325,7 @@ class RepositoryIndex:
             raise ValueError('GitHub pagination changed endpoint, filters or page sequence')
 
     def sync(self, *, revision='HEAD', max_requests=50, refresh=False, reader=None, snapshot_builder=None,
-             on_progress=None, check_cancelled=None):
+             on_progress=None, check_cancelled=None, expected_repository_id=None):
         if type(max_requests) is not int or not 1 <= max_requests <= 500:
             raise ValueError('Choose 1–500 GitHub requests per sync invocation')
         if not isinstance(revision, str) or not revision.strip() or len(revision) > 200:
@@ -321,6 +342,8 @@ class RepositoryIndex:
             if run and run['requested_revision'] != revision and not refresh:
                 raise ValueError('Resume requires the original revision; use refresh after completion')
             if run and run['status'] == 'complete' and not refresh:
+                if expected_repository_id is not None and self._meta(db, 'github_repository_id') != expected_repository_id:
+                    raise ValueError('Connected GitHub repository ID mismatch')
                 self._verify_snapshot(run['snapshot'])
                 return self.status()
             if not run or refresh:
@@ -339,18 +362,23 @@ class RepositoryIndex:
                     or metadata.get('full_name', '').lower() != self.repository or next_url):
                 raise ValueError('Require the exact public repository; rename/transfer needs explicit reconnection')
             identity = _positive(metadata.get('id'))
+            if expected_repository_id is not None and identity != expected_repository_id:
+                raise ValueError('Connected GitHub repository ID mismatch')
             previous_id = self._meta(db, 'github_repository_id')
             if previous_id is not None and previous_id != identity:
                 raise ValueError('GitHub global repository ID changed; refusing mixed histories')
             if isinstance(reader, GitHubReader):
                 reader.repository_id = identity
             self._set(db, 'github_repository_id', identity)
+            if isinstance(metadata.get('default_branch'), str):
+                self._set(db, 'default_branch', metadata['default_branch'])
             self._set(db, 'metadata_receipt', {'source_url': self._url(''), 'response_sha256': response_sha,
                                              'fetched_at': now(), 'repository_id': identity})
             db.commit()
             check_cancelled()
             if run['snapshot'] is None:
                 run['snapshot'] = (snapshot_builder or self._build_snapshot)(revision)
+                self._set(db, 'current_snapshot', run['snapshot'])
                 db.execute('UPDATE runs SET value=? WHERE id=?', (canonical_json(run), run_id))
                 db.commit()
             self._verify_snapshot(run['snapshot'])
@@ -451,6 +479,10 @@ class RepositoryIndex:
             counts = {r['kind']: r['n'] for r in db.execute('SELECT kind, count(*) AS n FROM documents GROUP BY kind')}
             tasks = [dict(r) for r in db.execute('SELECT kind,subject,pages,count,done FROM tasks WHERE run=? ORDER BY rowid', (run_id,))]
             return {'repository': self.repository, 'github_repository_id': self._meta(db, 'github_repository_id'),
+                    'current_snapshot': self._meta(db, 'current_snapshot') or (run or {}).get('snapshot'),
+                    'default_branch': self._meta(db, 'default_branch'),
+                    'pending_updates': db.execute('SELECT count(*) FROM updates WHERE done=0').fetchone()[0],
+                    'unavailable_records': db.execute('SELECT count(*) FROM unavailable').fetchone()[0],
                     'run': run, 'counts': counts, 'tasks': tasks, 'limitations': LIMITATIONS,
                     'scan_complete': bool(run and run['status'] == 'complete'),
                     'historical_verified': False, 'evaluation_performed': False,
@@ -475,6 +507,7 @@ class RepositoryIndex:
         with self.connect() as db:
             rows = db.execute('''SELECT documents.*, search.text AS indexed_text, bm25(search) AS rank
                 FROM search JOIN documents ON documents.key=search.key WHERE search MATCH ?
+                AND NOT EXISTS(SELECT 1 FROM unavailable WHERE unavailable.key=documents.key)
                 ORDER BY rank, documents.key LIMIT ?''', (expression, limit)).fetchall()
             results = []
             for row in rows:
@@ -503,10 +536,12 @@ class RepositoryIndex:
             if row is None:
                 raise ValueError('Repository document is not indexed')
             record, receipt = self._verified_record(db, row)
+            unavailable = db.execute('SELECT reason,receipt FROM unavailable WHERE key=?', (key,)).fetchone()
             # Extract mentions as candidates only. No linked issue is acquired.
             text = record['title'] + '\n\n' + record['body']
             mentions = sorted({int(m) for m in re.findall(r'(?<![\w/])#([1-9][0-9]{0,9})\b', text)})[:100]
             return {'record': record, 'record_sha256': row['sha'], 'receipt': receipt,
+                    'availability': dict(unavailable) if unavailable else {'status': 'last_observed_available'},
                     'receipt_sha256': row['receipt'], 'mentions': [
                         {'repository': self.repository, 'number': number, 'relationship': 'text_mention_unverified'}
                         for number in mentions], 'limitations': LIMITATIONS}
@@ -519,7 +554,7 @@ class RepositoryIndex:
         if not query.strip() or type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError('Provide search terms and 1–20 results')
         status = self.status()
-        record = (status.get('run') or {}).get('snapshot')
+        record = status['current_snapshot']
         if not record:
             raise ValueError('Repository code snapshot has not been indexed')
         snapshot = self._verify_snapshot(record)

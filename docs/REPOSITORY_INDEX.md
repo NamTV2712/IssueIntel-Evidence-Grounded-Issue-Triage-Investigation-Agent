@@ -8,6 +8,17 @@ index hay báo cáo. Không hỗ trợ private repository ở phase này.
 
 ## Đồng bộ và tiếp tục
 
+Connection tự động dùng `github_sync`: backfill liên tiếp theo đợt 20 GET trên
+cùng queue, có cooldown rate limit/network qua restart. Không tự gọi LLM. HMAC
+installation events cần App ID hoặc installation ID đã cấu hình; các repo public
+được chọn tự kết nối. Repo hook chỉ cập nhật connection đã tồn tại, kiểm global
+ID và installation binding. Tắt/gỡ installation tạm dừng; dữ liệu không bị xóa.
+`repository_updates` lưu delivery hash, page cursor và canonical API receipts;
+current snapshot giữ riêng baseline scan để không đổi nguồn cũ. Chỉ push đúng
+tracked branch mới resolve code hiện tại. Lỗi identity/integrity cần kiểm tra
+trước khi bật tiếp. Các mô tả manual bên dưới áp dụng cho nút/lệnh manual;
+connection tự động tiếp tục trong khi local server còn chạy.
+
 Trong workbench, mở **Bộ nhớ repository GitHub**, nhập `owner/repo`, revision và
 số GET mỗi lượt, bấm **Đồng bộ / tiếp tục**. Job dùng chung hàng đợi một worker,
 capacity 4 với investigation; lịch sử đồng bộ giữ riêng, không thành investigation
@@ -99,8 +110,11 @@ Không chạm benchmark receipts/release/freeze và không mở evaluation. CI d
 Git/HTTP tổng hợp. Lõi dùng standard library, cần SQLite có FTS5 (đã có trong
 Python runtime dự án); không thêm vector DB hay dependency mới.
 
-Chưa bao gồm review threads đầy đủ, timeline/closing events, reactions, full Git
-history hoặc GitHub App tự động onboarding/sync. Chúng là phần phát triển tiếp.
+Chưa bao gồm review threads đầy đủ, timeline/closing events, reactions hoặc full
+Git history. App/HTTPS relay thật chưa được cấu hình trên máy. Installation
+payload giới hạn 100 repo public mỗi delivery; nguồn private được bỏ qua. HTTP
+webhook nhận tối đa 2 MB; payload vượt giới hạn cần đối soát lại. Hướng dẫn thiết
+lập cho tác giả được trao đổi trong chat, không xuất thành file riêng.
 
 ## Local API
 
