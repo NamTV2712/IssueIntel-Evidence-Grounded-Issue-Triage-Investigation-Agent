@@ -718,5 +718,53 @@ window.IssueIntelMessages = {
   "Provide a traceback, relevant component or reproducible example": {
     "vi": "Bổ sung traceback, thành phần liên quan hoặc ví dụ tái hiện",
     "en": "Provide a traceback, relevant component or reproducible example"
+  },
+  "Các bước đã lưu": {
+    "vi": "Các bước đã lưu",
+    "en": "Saved stages"
+  },
+  "Checkpoint là đầu ra từng bước, chưa phải báo cáo hoàn tất. Mở hoặc tải không gọi lại model.": {
+    "vi": "Checkpoint là đầu ra từng bước, chưa phải báo cáo hoàn tất. Mở hoặc tải không gọi lại model.",
+    "en": "Checkpoints are stage outputs, not a completed report. Opening or downloading never calls the model again."
+  },
+  "Tải checkpoint: {stage}": {
+    "vi": "Tải checkpoint: {stage}",
+    "en": "Download checkpoint: {stage}"
+  },
+  "Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}": {
+    "vi": "Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}",
+    "en": "Additional retrieval rounds: {rounds}/1 · generation passes: {passes}"
+  },
+  "Deep với Groq có tối đa một vòng tìm thêm evidence và một lượt sinh bổ sung; mọi call vẫn qua ledger.": {
+    "vi": "Deep với Groq có tối đa một vòng tìm thêm evidence và một lượt sinh bổ sung; mọi call vẫn qua ledger.",
+    "en": "Deep with Groq can add one retrieval round and one generation pass; every call still uses the budget ledger."
+  },
+  "prepared_input": {
+    "vi": "Đầu vào đã chuẩn bị",
+    "en": "Prepared input"
+  },
+  "seed_generation": {
+    "vi": "Giả thuyết ban đầu",
+    "en": "Initial hypotheses"
+  },
+  "focused_retrieval": {
+    "vi": "Truy xuất theo giả thuyết",
+    "en": "Hypothesis-focused retrieval"
+  },
+  "refined_generation": {
+    "vi": "Giả thuyết cập nhật",
+    "en": "Updated hypotheses"
+  },
+  "verification": {
+    "vi": "Kiểm chứng",
+    "en": "Verification"
+  },
+  "Đang xem phiên: {id}": {
+    "vi": "Đang xem phiên: {id}",
+    "en": "Viewing run: {id}"
+  },
+  "Checkpoint của phiên: {id}": {
+    "vi": "Checkpoint của phiên: {id}",
+    "en": "Checkpoints for run: {id}"
   }
 };

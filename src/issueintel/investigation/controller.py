@@ -23,6 +23,8 @@ class RuleController:
     name = "rules"
 
     def decide(self, state: DecisionState, allowed: tuple[Action, ...]) -> Action:
+        if state.evidence_count and state.hypotheses_count and state.rounds_remaining>0 and Action.RETRIEVE in allowed:
+            return Action.RETRIEVE
         preferred = Action.ASK if state.evidence_count == 0 else Action.VERIFY if state.hypotheses_count else Action.RETRIEVE
         return preferred if preferred in allowed else Action.STOP
 

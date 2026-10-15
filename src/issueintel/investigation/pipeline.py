@@ -13,6 +13,7 @@ from issueintel.repository.snapshot import build_snapshot
 from issueintel.repository.snapshot import source_lines
 from issueintel.repository.graph import build_graph
 from issueintel.retrieval import retrieve_evidence
+from issueintel.retrieval.focused import expand_for_hypotheses, POLICY as FOCUSED_POLICY
 from issueintel.runtime.io import digest, write_json
 from .controller import Action, DecisionState, RuleController
 from .verifier import verify_hypotheses, validate_critique
@@ -50,8 +51,14 @@ def public_case(case: dict) -> dict:
 def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provider="none", model="none",
                 controller=None, protocol="benchmark_base", availability=None, top_k=8,
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
-                query_receipt=None, prepared_evidence=None) -> dict:
+                query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None) -> dict:
     case = public_case(case)
+    if type(refinement_rounds) is not int or refinement_rounds not in {0,1}:
+        raise ValueError('Only zero or one additional retrieval round is supported')
+    if on_stage is not None and not callable(on_stage):
+        raise ValueError('A checkpoint callback must be callable')
+    if refinement_rounds and prepared_evidence is not None:
+        raise ValueError('A frozen prepared evidence set cannot be expanded')
     supplied = snapshot is not None
     snapshot = snapshot or build_snapshot(local_repo, case["revision"], cutoff=case.get("issue_created_at") if protocol == "issue_time" else None,
                                          protocol=protocol, availability=availability)
@@ -106,17 +113,64 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     trace = [{"stage": "snapshot", "protocol": snapshot.protocol, "sha256": snapshot.snapshot_sha256},
              {"stage": "retrieval", "evidence_ids": [e["id"] for e in evidence]}]
     annotation, verification = None, None
+    refinement = {'policy':FOCUSED_POLICY,'requested_rounds':refinement_rounds,
+                  'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
+    checkpoints = {}
+    def checkpoint(stage,payload):
+        if on_stage is not None:
+            record={'schema':'product_investigation_stage_v1','stage':stage,
+                    'case_id':case['case_id'],'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
+                    'snapshot_sha256':snapshot.snapshot_sha256,'commit_sha':snapshot.commit_sha,
+                    'provider':provider,'model':model,'refinement_rounds':refinement_rounds,
+                    'payload':deepcopy(payload),'evaluation_performed':False,'automatic_retry':False}
+            checkpoints[stage] = on_stage(stage,record)
     code_count = sum(e["kind"] == "code" for e in evidence)
     if code_count == 0:
         stop_reason = "insufficient_evidence"
+        refinement['stop_reason'] = 'insufficient_evidence'
     elif complete_json is None:
         stop_reason = "provider_not_configured"
+        refinement['stop_reason'] = 'provider_not_configured'
     else:
+        checkpoint('prepared_input',{'case':case,'evidence':evidence})
         annotation = generate_annotation(case, evidence, complete_json, provider=provider, model=model,max_output_tokens=max_output_tokens).to_dict()
-        decision = controller.decide(DecisionState(code_count, len(annotation["hypotheses"])), (Action.VERIFY, Action.STOP))
+        refinement['generation_passes'] = 1
+        checkpoint('seed_generation',{'annotation':annotation})
+        first_action=None
+        if refinement_rounds:
+            allowed=(Action.RETRIEVE,Action.VERIFY,Action.STOP)
+            action=controller.decide(DecisionState(code_count,len(annotation['hypotheses']),
+                tuple(intake['missing_information']),rounds_remaining=1),allowed)
+            if not isinstance(action,Action) or action not in allowed:
+                action=RuleController().decide(DecisionState(code_count,len(annotation['hypotheses'])),allowed)
+            first_action=action
+            trace.append({'stage':'refinement_decision','controller':controller.name,'action':action.value,
+                          'rounds_remaining':1})
+            if action==Action.RETRIEVE:
+                added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph)
+                refinement.update(retrieval_rounds=1,seed_annotation=deepcopy(annotation),search=search,
+                                  stop_reason=search['stop_reason'])
+                checkpoint('focused_retrieval',{'search':search,'added_evidence':added})
+                trace.append({'stage':'focused_retrieval','policy':FOCUSED_POLICY,
+                              'query_count':len(search['queries']),'added_ids':search['added_ids'],
+                              'stop_reason':search['stop_reason'],'rounds_remaining':0})
+                if added:
+                    evidence.extend(added)
+                    annotation=generate_annotation(case,evidence,complete_json,provider=provider,model=model,max_output_tokens=max_output_tokens).to_dict()
+                    refinement['generation_passes'] = 2
+                    checkpoint('refined_generation',{'annotation':annotation})
+            else:
+                refinement['stop_reason'] = 'controller_skipped_retrieval'
+            if action==Action.STOP:
+                refinement['stop_reason'] = 'controller_stopped'
+        decision = (first_action if first_action in (Action.VERIFY,Action.STOP) else
+            controller.decide(DecisionState(sum(e['kind']=='code' for e in evidence),len(annotation['hypotheses']),rounds_remaining=0),(Action.VERIFY,Action.STOP)))
+        if not isinstance(decision,Action) or decision not in (Action.VERIFY,Action.STOP):
+            decision=Action.STOP
         trace.append({"stage": "decision", "controller": controller.name, "action": decision.value})
         verification = verify_hypotheses(annotation, evidence, complete_json if independent_critic and decision == Action.VERIFY else None,max_output_tokens=max_output_tokens)
-        stop_reason = "bounded_workflow_complete"
+        checkpoint('verification',{'verification':verification})
+        stop_reason = "controller_stopped" if decision==Action.STOP else "bounded_workflow_complete"
     leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
         "strict_issue_time_verified": query_verified and snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
         "snapshot_issue_time_verified": snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
@@ -140,7 +194,12 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         "leakage_audit": leakage, "trace": trace, "stop_reason": stop_reason,
         "recommended_steps": [h["falsification_test"] for h in annotation["hypotheses"]] if annotation else ["Provide a traceback, relevant component or reproducible example"],
         "confidence": {"level": "unverified", "probability": None}}
-    pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation})[:24]
+    if refinement_rounds:
+        pack['refinement'] = refinement
+    if checkpoints:
+        pack['stage_checkpoints'] = checkpoints
+    pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
+                             **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {})})[:24]
     return pack
 
 
@@ -211,6 +270,14 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
              "## Issue", "", pack["case"]["problem_statement"], "", "## Evidence", ""]
     for record in pack["evidence"]:
         lines.append(f"- `{record['id']}` — `{record['locator']}` ({record['kind']}, SHA256 `{record['sha256']}`)")
+    if pack.get('refinement'):
+        refined=pack['refinement']
+        search=refined.get('search',{})
+        lines += ['', '## Bounded hypothesis-focused retrieval', '',
+                  f"Retrieval rounds: {refined['retrieval_rounds']} / 1",
+                  f"Generation passes: {refined['generation_passes']}",
+                  f"Additional excerpts: {len(search.get('added_ids',[]))}",
+                  'Search hits are candidates, not confirmed counter-evidence or proof of a cause.']
     if pack.get('intake'):
         lines += ['', '## Intake (lexical hints, unverified)', '',
                   'Intent: '+pack['intake']['intent'],

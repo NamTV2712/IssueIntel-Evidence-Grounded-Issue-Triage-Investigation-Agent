@@ -41,14 +41,14 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F02 | Tìm ứng viên liên quan bằng lexical trên lịch sử local cùng repo, có snippet/hash và source report. Chưa xác nhận duplicate; tìm issue ngoài lịch sử còn roadmap. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
-| F05 | Job/trace và checklist từ hypotheses: trạng thái, ghi chú, phiên bản/hash chain và lịch sử; planner tự động nhiều vòng còn roadmap. |
+| F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng truy xuất theo giả thuyết rồi cập nhật đầu ra. Planner tổng quát nhiều tool/vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
-| F08 | Kiểm citation/hash, critique riêng và abstention. Counter evidence có thể `not_found`; không bịa quan sát. |
+| F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
 | F10 | Durable job/artifact receipts và plan ledger; mở lại kết quả/checklist; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage và truy xuất các phiên đã lưu; repository memory tự động có as-of proof còn roadmap. |
-| F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
+| F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Nhận issue URL và webhook `issue_comment` HMAC-signed, collaborator command, delivery dedup; GitHub App chưa được cài/triển khai. |
@@ -90,6 +90,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET/POST /api/jobs/<id>/plan`: checklist theo pack; ghi cần expected SHA256, step ID, status và note.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
+- `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.
 - `POST /api/github/webhook`: GitHub signature/event/delivery guards riêng; không tự gọi model hay đăng comment.
@@ -170,6 +171,40 @@ SHA256 chặn ghi đè phiên bản cũ giữa thread/process. Giới hạn 200 
 Có tải lại và export plan JSON riêng; mở lại sau restart không gọi model. Bản
 nháp ghi chú giữ qua đổi ngôn ngữ. Metadata plan lỗi không ngăn xuất báo cáo
 nguồn còn nguyên vẹn. Không đưa ghi chú checklist vào prompt tự động.
+
+## Deep: truy xuất theo giả thuyết
+
+Quick giữ một lượt sinh và critique riêng. Deep khi bật Groq dùng evidence ban
+đầu để sinh hypotheses, rồi rules/typed controller có thể chọn retrieve/verify/
+stop. Retrieve chỉ chạy tối đa một vòng, lấy statement/falsification của ba
+hypotheses đầu làm query text, tối đa 1.201 ký tự/query, ba hit/query và tổng sáu
+excerpt mới. Không thực thi nội dung query hay kiểm tra được model đề nghị.
+
+Mọi hit được replay đúng file/range/text/SHA/revision/protocol/available_at trong
+cùng snapshot. Loại đoạn trùng hoặc overlap; không đọc local history, GitHub,
+gold hoặc snapshot khác. Nếu có đoạn mới thì sinh lại một lần rồi critique trên
+evidence cuối. Không có đoạn mới thì bỏ call sinh lại. Query/proof gốc giữ nguyên.
+Hit không tự trở thành counter-evidence, không chứng minh causal truth hoặc cải
+thiện chất lượng; hypotheses vẫn automatic/unverified. Seed annotation và query
+trace được lưu để phân biệt đầu ra trước/sau. Kết thúc sau vòng giới hạn hoặc
+controller stop; không có vòng agent vô hạn.
+
+Giới hạn trên là logical passes, không phải số HTTP request: generation có thể
+repair/fallback schema theo policy sẵn có. Mỗi call thực vẫn qua provider bounds,
+giá có ngày và durable budget ledger. Lỗi budget/network dừng, không retry ngầm.
+Khi tắt Groq, Deep chỉ thay độ rộng evidence và không sinh/search theo hypotheses.
+
+CLI mặc định giữ baseline; bật rõ `investigate --refinement-rounds 1`. Pipeline
+không cho mở rộng `prepared_evidence` đã chốt. Không đổi recipes, registrations,
+cohort hoặc receipts cũ để hợp thức hóa code mới; benchmark bulk vẫn tạm dừng.
+
+Prepared input, seed generation, focused retrieval, refined generation và
+verification có checkpoint riêng trong ignored artifacts. Workbench lưu dưới
+`artifacts/demo/runs/<job>/stages/`; CLI dưới thư mục output/stages/<random-id>/.
+Failed/interrupted job chỉ có những stage đã hoàn tất; không được coi là pack
+hoàn thành. UI có tải checkpoint ở lịch sử job lỗi và báo job ID đang xem. CLI
+in refs đã lưu khi lỗi. Đây là audit/review, chưa có tự động resume hoặc tự tái
+sử dụng paid output. Mở/tải không gọi model và không đổi bytes/hash checkpoint.
 
 ## Tích hợp GitHub
 

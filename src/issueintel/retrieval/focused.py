@@ -1,0 +1,68 @@
+"""Bounded hypothesis-focused search over the same verified snapshot only."""
+from copy import deepcopy
+import hashlib
+import re
+
+from issueintel.annotations.public_inputs import model_hypotheses, model_evidence
+from issueintel.repository.snapshot import source_lines
+from .search import retrieve_evidence
+
+
+POLICY = 'hypothesis_focused_retrieval_v1'
+MAX_QUERIES = 3
+MAX_ADDED = 6
+
+
+def _replay(record, snapshot, files):
+    model_evidence([record])
+    match = re.fullmatch(r'(.+):(\d+)-(\d+)', record['locator'])
+    if (record['kind'] != 'code' or not match or match[1] not in files
+            or record['revision'] != snapshot.commit_sha
+            or record['provenance'].get('snapshot_sha256') != snapshot.snapshot_sha256
+            or record['provenance'].get('protocol') != snapshot.protocol
+            or record.get('available_at') != snapshot.availability.get('available_at')):
+        raise ValueError('Focused evidence differs from selected snapshot')
+    start,end = int(match[2]),int(match[3])
+    lines = source_lines(files[match[1]].text)
+    text = '\n'.join(lines[start-1:end])
+    if (not 1<=start<=end<=len(lines) or text != record['text']
+            or len(text)>1600 or hashlib.sha256(text.encode()).hexdigest()!=record['sha256']):
+        raise ValueError('Focused excerpt differs from exact snapshot lines')
+    return match[1],start,end
+
+
+def expand_for_hypotheses(hypotheses, evidence, snapshot, graph):
+    snapshot.verify()
+    if graph.snapshot_sha256!=snapshot.snapshot_sha256 or graph.commit_sha!=snapshot.commit_sha:
+        raise ValueError('Focused graph belongs to another snapshot')
+    projected = model_hypotheses(hypotheses)
+    model_evidence(evidence)
+    files = {file.path:file for file in snapshot.files}
+    covered = [_replay(record,snapshot,files) for record in evidence if record['kind']=='code']
+    ids = {record['id'] for record in evidence}
+    added,queries = [],[]
+    for hypothesis in projected[:MAX_QUERIES]:
+        if len(added)==MAX_ADDED:
+            break
+        query = hypothesis['statement'][:600]+'\n'+hypothesis['falsification_test'][:600]
+        records = retrieve_evidence(query,snapshot,graph,top_k=3,expand=0)
+        entry = {'seed_hypothesis_id':hypothesis['id'],'query':query,
+                 'query_sha256':hashlib.sha256(query.encode()).hexdigest(),
+                 'returned_ids':[],'added_ids':[],'purpose':'unverified_hypothesis_focus'}
+        for record in records:
+            path,start,end = _replay(record,snapshot,files)
+            entry['returned_ids'].append(record['id'])
+            if record['id'] in ids or any(path==p and max(start,a)<=min(end,b) for p,a,b in covered):
+                continue
+            copied = deepcopy(record)
+            copied['provenance'].update(search_stage=POLICY,seed_hypothesis_id=hypothesis['id'],
+                                        counter_evidence_confirmed=False)
+            added.append(copied);ids.add(record['id']);covered.append((path,start,end))
+            entry['added_ids'].append(record['id'])
+            if len(added)==MAX_ADDED:
+                break
+        queries.append(entry)
+    return added,{'policy':POLICY,'max_queries':MAX_QUERIES,'max_added_evidence':MAX_ADDED,
+                 'queries':queries,'added_ids':[record['id'] for record in added],
+                 'stop_reason':'new_candidates_added' if added else 'no_new_evidence',
+                 'counter_evidence_confirmed':False,'snapshot_sha256':snapshot.snapshot_sha256}

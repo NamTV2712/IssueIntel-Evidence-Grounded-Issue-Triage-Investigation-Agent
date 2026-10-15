@@ -20,6 +20,7 @@ from .pipeline import investigate, export_pack
 from .comparison import compare_packs
 from .intake import inspect_issue
 from .plan import PlanStore
+from .stages import StageCheckpoints, STAGES
 from .providers import GroqProvider, ProviderError
 from issueintel.runtime.budget import BudgetDenied
 
@@ -233,11 +234,18 @@ class Workbench:
                 return answer
             if provider and hasattr(provider, 'complete_structured'):
                 complete.complete_structured = structured
+            stage_store=StageCheckpoints(self.root,self.directory/'runs'/row['id']/'stages')
+            def save_stage(stage,record):
+                self._check_cancelled(row['id'])
+                ref=stage_store(stage,record)
+                self._save(row,stage=stage,stage_checkpoints=dict(stage_store.receipts))
+                return ref
             self._save(row, stage='investigate')
             pack = investigate(case, local, complete_json=complete if provider else None, provider=request['provider'],
                 model=provider.model if provider else 'none',
                 max_output_tokens=provider.config.max_output_tokens if provider else 2048,
-                top_k=4 if request['depth'] == 'quick' else 12, **extra)
+                top_k=4 if request['depth'] == 'quick' else 12,
+                refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,**extra)
             self._check_cancelled(row['id'])
             if followup:
                 pack['followup'] = followup
@@ -282,6 +290,22 @@ class Workbench:
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != ref['sha256']:
             raise ValueError('Export integrity changed')
+        return raw
+
+    def stage_bytes(self,identifier,stage):
+        if stage not in STAGES:
+            raise ValueError('Unsupported investigation stage')
+        row=self.job(identifier)
+        ref=row.get('stage_checkpoints',{}).get(stage)
+        if not ref:
+            raise FileNotFoundError('No completed checkpoint for this stage')
+        expected=(self.directory/'runs'/identifier/'stages'/(stage+'.json')).resolve()
+        path=(self.root/ref['path']).resolve()
+        if path!=expected or not path.is_relative_to(self.directory.resolve()):
+            raise ValueError('Stage checkpoint path changed')
+        raw=path.read_bytes()
+        if hashlib.sha256(raw).hexdigest()!=ref['sha256']:
+            raise ValueError('Stage checkpoint integrity changed')
         return raw
 
     def _load_pack(self, identifier, seen=None):

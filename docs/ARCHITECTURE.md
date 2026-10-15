@@ -89,6 +89,18 @@ Rule workflow là baseline cố định. `JevController` nhận state cùng allo
 
 Verifier kiểm hash/ID trước. Pass LLM riêng kiểm support/counter và trả assessment có citation; đây là critique của cùng model khi dùng cùng provider, không được gọi là kiểm người độc lập. Semantic correctness và causal truth vẫn phân biệt. Khi citation sai, generator chỉ được sửa schema một lần với allowlist; lỗi budget/network không được tự retry.
 
+Product Deep có `refinement_rounds=1`: controller chọn retrieve/verify/stop sau
+seed generation; `retrieval.focused` chạy tối đa ba query/sáu excerpt trong chính
+snapshot đã kiểm. Hit replay bytes/range/revision và không trùng/overlap. Chỉ có
+hit mới mới cho sinh lại, rồi chuyển sang verify/stop với zero rounds remaining.
+Không nhập history/gold và không nới as-of proof; prepared evidence đã freeze
+không được mở rộng. Mặc định pipeline/CLI vẫn zero rounds cho baseline.
+
+`investigation.stages` ghi checkpoint private sau từng stage đã hoàn tất, giữ
+seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid calls.
+WorkBench/CLI cung cấp callback lưu, pipeline chịu trách nhiệm nội dung và
+thứ tự. Các checkpoint này không phải benchmark receipts hay kết quả evaluation.
+
 ## Ngân sách và bảo mật
 
 Reservation token/cost trước HTTP được ghi trong SQLite transaction `BEGIN IMMEDIATE`, chống các call đồng thời vượt tổng khi có cap. Tác giả đã cho phép bỏ token/USD cap cho công việc dựng lại cần thiết; explicit flags phải khớp author decision, không suy ra unlimited từ cấu hình thiếu. Usage hợp lệ mới giảm charge từ cận trên; call lỗi/usage thiếu giữ cận. Usage vượt bound hoặc bất nhất khóa ledger để review. Ledger không chứa prompt/secret. Giá có ngày và nguồn, decimal/round-up, giá cũ quá 30 ngày chặn.

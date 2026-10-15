@@ -27,6 +27,9 @@ dụ tổng hợp** chạy được khi chưa có dataset/token. Mặc định k
 có snapshot, graph và code evidence. Bật Groq để sinh giả thuyết và chạy verifier
 riêng theo cấu hình/ngân sách hiện có. Quick/Deep thay độ rộng evidence; export
 JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
+Khi bật Groq, Deep có thêm tối đa một vòng truy xuất theo giả thuyết trong cùng
+snapshot; chỉ sinh lại nếu có evidence mới. Checkpoint từng bước được giữ để
+xem/tải khi call sau lỗi. Kết quả tìm thêm chưa phải counter-evidence đã xác nhận.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

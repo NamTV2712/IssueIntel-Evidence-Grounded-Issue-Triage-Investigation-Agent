@@ -8,6 +8,7 @@ let intake=null;
 let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
+let stageView=null;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -39,6 +40,7 @@ async function submit(event) {
 async function runJob(request) {
   if($('run-button').disabled)return;
   try {
+    stageView=null;$('stage-artifacts').hidden=true;
     $('run-button').disabled=true;$('followup-button').disabled=true;message(t("Đang chuẩn bị snapshot và bằng chứng…"));
     const job=await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
@@ -48,7 +50,7 @@ async function runJob(request) {
           await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));
           if(request.mode==='followup' && $('additional-context').value===request.additional_context)$('additional-context').value='';
         }
-        else message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);
+        else {message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);showStageArtifacts(state);}
         break;
       }
       message(state.stage==='prepare_snapshot'?t("Đang kiểm query và snapshot…"):t("Đang truy xuất, điều tra và kiểm chứng…"));
@@ -64,6 +66,7 @@ async function openJob(id) {
   if(generation!==viewGeneration)return;
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   relatedResult=null;
+  showStageArtifacts({id,stage_checkpoints:pack.stage_checkpoints});
   renderPack();
 }
 function renderPack() {
@@ -71,6 +74,7 @@ function renderPack() {
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
   $('followup-panel').hidden=false;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
   $('result-title').textContent=pack.case.case_id;
+  $('viewed-job').hidden=false;$('viewed-job').textContent=t('Đang xem phiên: {id}',{id:currentJob});
   const strict=pack.leakage_audit.strict_issue_time_verified;
   const boxes=[[t("Snapshot"),pack.snapshot.commit_sha.slice(0,12)],[t("Bằng chứng"),t("{count} nguồn",{count:pack.evidence.length})],[t("Thời gian"),strict?t("Strict issue-time"):t("Chưa xác minh lịch sử")]];
   $('summary').replaceChildren(...boxes.map(([label,value])=>{const box=node('div',undefined,'summary-box');box.append(node('small',label),node('strong',value));return box;}));
@@ -86,6 +90,19 @@ function citation(id) {
 }
 function recommendedText(text) {
   return !pack.annotation && text==='Provide a traceback, relevant component or reproducible example'?t(text):text;
+}
+function showStageArtifacts(row) {
+  stageView=row;
+  const refs=row.stage_checkpoints || {},container=$('stage-list');container.replaceChildren();
+  $('stage-artifacts').hidden=!Object.keys(refs).length;
+  if(!Object.keys(refs).length)return;
+  container.append(node('p',t('Checkpoint của phiên: {id}',{id:row.id}),'hash-note'));
+  container.append(node('p',t('Checkpoint là đầu ra từng bước, chưa phải báo cáo hoàn tất. Mở hoặc tải không gọi lại model.'),'notice'));
+  for(const [stage,ref] of Object.entries(refs)){
+    const button=node('button',t('Tải checkpoint: {stage}',{stage:t(stage)}));
+    button.type='button';button.onclick=()=>downloadPath('/api/jobs/'+row.id+'/stages/'+stage,'issueintel-'+row.id+'-'+stage+'.json');
+    container.append(button,node('p','SHA256 '+ref.sha256,'hash-note'));
+  }
 }
 function planDrafts() {
   return [...document.querySelectorAll('[data-plan-step]')].map(form=>({id:form.dataset.planStep,
@@ -188,7 +205,8 @@ function renderTab() {
     const list=node('ol');for(const step of pack.recommended_steps) list.append(node('li',recommendedText(step)));content.append(list);
   }
   if(activeTab==='trace') {
-    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,leakage_audit:pack.leakage_audit},null,2)));
+    if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
+    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,stage_checkpoints:pack.stage_checkpoints,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='github') {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
@@ -215,7 +233,7 @@ async function history() {
   try {jobRows=await api('/api/jobs');renderHistory();}catch(error){message(error.message,true);}
 }
 function renderHistory() {
-  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=row.status!=='completed';el.onclick=()=>openJob(row.id).catch(error=>message(error.message,true));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
+  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=row.status!=='completed'&&!Object.keys(row.stage_checkpoints || {}).length;el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):showStageArtifacts(row);return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
 }
 function comparisonChoices(rows) {
   const completed=rows.filter(row=>row.status==='completed');
@@ -264,7 +282,10 @@ function renderComparison() {
     const source=node('details');source.append(node('summary',t("Nguồn báo cáo và giới hạn")),node('pre',JSON.stringify({sources:comparison.sources,before:comparison.before,after:comparison.after,evidence_counts:comparison.evidence_counts,limitations:comparison.limitations},null,2)));content.append(source);
 }
 async function download(name) {
-  try {const response=await fetch('/api/jobs/'+currentJob+'/'+name,{headers:{'X-IssueIntel-Token':token}});if(!response.ok)throw new Error(t("Không xuất được báo cáo."));const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download='issueintel-'+currentJob+'-'+name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){message(error.message,true);}
+  await downloadPath('/api/jobs/'+currentJob+'/'+name,'issueintel-'+currentJob+'-'+name);
+}
+async function downloadPath(path,filename) {
+  try {const response=await fetch(path,{headers:{'X-IssueIntel-Token':token}});if(!response.ok)throw new Error(t("Không xuất được báo cáo."));const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){message(error.message,true);}
 }
 $('mode').onchange=switchMode;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;
@@ -284,5 +305,6 @@ document.addEventListener('issueintel:languagechange',()=>{
   const drafts=planDrafts();
   filterCases();renderCatalog();renderHistory();renderPack();renderComparison();
   restorePlanDrafts(drafts);
+  if(stageView)showStageArtifacts(stageView);
   if(lastMessage)message(t(lastMessage.key),lastMessage.error);
 });

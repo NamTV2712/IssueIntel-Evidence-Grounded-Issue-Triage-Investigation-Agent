@@ -83,6 +83,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     elif len(parts) == 2 and parts[1] in {'pack.json', 'report.md'}:
                         raw = workbench.result_bytes(parts[0], parts[1])
                         self._send(200, raw, 'application/json; charset=utf-8' if parts[1] == 'pack.json' else 'text/markdown; charset=utf-8', download=parts[1])
+                    elif len(parts)==3 and parts[1]=='stages':
+                        raw=workbench.stage_bytes(parts[0],parts[2])
+                        self._send(200,raw,download=parts[2]+'.json')
                     else:
                         self._json(404, {'error': 'Route not found'})
                 else:

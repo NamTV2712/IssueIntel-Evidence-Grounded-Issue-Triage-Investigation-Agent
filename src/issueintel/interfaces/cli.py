@@ -71,6 +71,8 @@ def main(argv=None) -> int:
     investigate.add_argument("--provider", choices=("none", "groq"), default="none")
     investigate.add_argument("--output", type=Path, default=Path("artifacts/investigations"))
     investigate.add_argument("--no-critic", action="store_true")
+    investigate.add_argument("--refinement-rounds", type=int, choices=(0,1), default=0,
+                             help="At most one hypothesis-focused retrieval round; may add a generation call")
     batch = commands.add_parser("annotate", help="Resumable dev annotation, budget guarded")
     batch.add_argument("--limit", type=int, default=1)
     batch.add_argument("--case-id")
@@ -243,9 +245,18 @@ def _investigate(args):
     local = Path(args.repo)
     local = local if local.is_dir() else acquire_repository(case.get("repository", args.repo), case["revision"], args.root / "data/repos").path
     provider = GroqProvider(RuntimeConfig.load(args.root)) if args.provider == "groq" else None
-    pack = investigate(case, local, complete_json=provider if provider else None,
-        provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
-        max_output_tokens=provider.config.max_output_tokens if provider else 2048)
+    import uuid
+    from issueintel.investigation.stages import StageCheckpoints
+    stages=StageCheckpoints(args.root,output_base/'stages'/uuid.uuid4().hex)
+    try:
+        pack = investigate(case, local, complete_json=provider if provider else None,
+            provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
+            max_output_tokens=provider.config.max_output_tokens if provider else 2048,
+            refinement_rounds=args.refinement_rounds,on_stage=stages)
+    except Exception:
+        if stages.receipts:
+            print(json.dumps({'completed_stage_checkpoints':stages.receipts,'automatic_retry':False}),file=sys.stderr)
+        raise
     directory = (output_base / pack["run_id"]).resolve()
     if not directory.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
