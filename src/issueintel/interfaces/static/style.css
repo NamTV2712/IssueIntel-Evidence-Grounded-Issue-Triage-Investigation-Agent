@@ -36,4 +36,5 @@ header{gap:24px}.brand{flex-shrink:0}
 .repository-counts{display:flex;flex-wrap:wrap;gap:16px 28px}.repository-counts dt{font-size:12px;color:var(--muted)}.repository-counts dd{margin:4px 0;font-size:18px;font-weight:600}
 .repository-section a{color:var(--accent);font-size:12px}.repository-section h3{font-size:14px;overflow-wrap:anywhere}.repository-section details{margin-top:14px}.repository-section pre{margin:12px 0}.repository-section .history-row{width:100%;margin-top:8px}.repository-section .error{color:var(--error)}
 .evidence-card a{color:var(--accent);font-size:12px}
+.result-panel,.input-panel{min-width:0}
 @media(max-width:740px){.repository-controls{grid-template-columns:1fr}.repository-section{padding:18px}.repository-controls button{justify-self:start}}

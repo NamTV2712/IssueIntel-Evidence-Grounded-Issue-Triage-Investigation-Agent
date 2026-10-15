@@ -872,5 +872,17 @@ window.IssueIntelMessages = {
   "hypothesis": {"vi": "Giả thuyết", "en": "Hypothesis"},
   "model_review": {"vi": "Nhận xét model", "en": "Model review"},
   "code": {"vi": "Code", "en": "Code"},
-  "repository_context": {"vi": "Context repository hiện tại", "en": "Current repository context"}
+  "repository_context": {"vi": "Context repository hiện tại", "en": "Current repository context"},
+  "Lần theo từng giả thuyết": {"vi": "Lần theo từng giả thuyết", "en": "Follow each hypothesis"},
+  "Nguồn → giả thuyết → nhận xét. Chọn một nút để kiểm tra liên kết.": {"vi": "Nguồn → giả thuyết → nhận xét. Chọn một nút để kiểm tra liên kết.", "en": "Sources → hypotheses → reviews. Select a node to inspect its connections."},
+  "Chế độ đồ thị": {"vi": "Chế độ đồ thị", "en": "Graph view"},
+  "Theo nút": {"vi": "Theo nút", "en": "Focus"},
+  "Toàn bộ": {"vi": "Toàn bộ", "en": "Overview"},
+  "Phóng rộng": {"vi": "Phóng rộng", "en": "Expand"},
+  "Thu gọn": {"vi": "Thu gọn", "en": "Collapse"},
+  "Chọn tâm đồ thị": {"vi": "Chọn tâm đồ thị", "en": "Choose graph focus"},
+  "Chưa có liên kết trong phạm vi này": {"vi": "Chưa có liên kết trong phạm vi này", "en": "No connections in this scope"},
+  "Đang xem {nodes} nút · {edges} liên kết": {"vi": "Đang xem {nodes} nút · {edges} liên kết", "en": "Showing {nodes} nodes · {edges} connections"},
+  "Citation chưa chứng minh nguyên nhân. Nhận xét model không phải kiểm người.": {"vi": "Citation chưa chứng minh nguyên nhân. Nhận xét model không phải kiểm người.", "en": "Citations do not establish a cause. Model critique is not human review."},
+  "Nguồn và hash đồ thị": {"vi": "Nguồn và hash đồ thị", "en": "Graph sources and hashes"}
 };

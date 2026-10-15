@@ -58,6 +58,11 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag với snapshot của báo cáo product: thêm/xóa/đổi/ngoài phạm vi, diff file có evidence và export riêng. Chưa xác minh fix, ancestry hoặc bản phát hành chứa fix. |
 
+Đồ thị mặc định tập trung vào một giả thuyết và các cạnh trực tiếp; có tổng quan,
+thẻ nguồn chữ thật, màu/nét theo loại quan hệ và cửa sổ phóng rộng với inspector.
+Escape trả về báo cáo, chọn nút/đổi chế độ không gọi lại API hoặc LLM. Trên màn
+hình hẹp chỉ vùng bản đồ cuộn ngang; nội dung và controls vẫn ở trong viewport.
+
 ## API và dữ liệu local
 
 Giao diện hỗ trợ **Tiếng Việt / English** và **Light / Dark / System** từ thanh
