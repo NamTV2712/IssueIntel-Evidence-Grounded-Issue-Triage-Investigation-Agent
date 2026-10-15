@@ -19,6 +19,7 @@ from issueintel.retrieval.related import rank_related
 from .pipeline import investigate, export_pack
 from .comparison import compare_packs
 from .intake import inspect_issue
+from .plan import PlanStore
 from .providers import GroqProvider, ProviderError
 from issueintel.runtime.budget import BudgetDenied
 
@@ -90,6 +91,7 @@ class Workbench:
         self.lock = threading.RLock()
         self.active = set()
         self.cancelled = set()
+        self.plans = PlanStore(self.directory/'plans.sqlite')
 
     def catalog(self):
         return public_catalog(self.root)
@@ -310,6 +312,11 @@ class Workbench:
         pack, raw, _ = self._load_pack(identifier)
         return dict(inspect_issue(pack['case']['problem_statement']),
                     source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
+
+    def plan(self,identifier,request=None):
+        pack, raw, _ = self._load_pack(identifier)
+        args=(identifier,hashlib.sha256(raw).hexdigest(),pack['recommended_steps'])
+        return self.plans.load(*args) if request is None else self.plans.update(*args,request)
 
     def _source_case(self, pack):
         # The entire chain was replayed by _load_pack before this traversal.

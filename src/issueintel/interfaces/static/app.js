@@ -6,6 +6,8 @@ let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 
 let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
 let intake=null;
 let relatedResult=null;
+let planData=null;
+let viewGeneration=0;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -56,8 +58,11 @@ async function runJob(request) {
   finally {activeJob=null;$('run-button').disabled=false;$('followup-button').disabled=false;$('cancel-button').hidden=true;await history();}
 }
 async function openJob(id) {
-  const [loaded, inspected]=await Promise.all([api('/api/jobs/'+id+'/pack.json'),api('/api/jobs/'+id+'/intake')]);
-  pack=loaded;intake=inspected;currentJob=id;
+  const generation=++viewGeneration;
+  const loaded=await api('/api/jobs/'+id+'/pack.json');
+  const [inspected,plan]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan')]);
+  if(generation!==viewGeneration)return;
+  pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   relatedResult=null;
   renderPack();
 }
@@ -79,10 +84,59 @@ function evidenceCard(e) {
 function citation(id) {
   const button=node('button',id,'citation');button.onclick=()=>{activeTab='evidence';renderTab();document.getElementById('evidence-'+id)?.scrollIntoView({behavior:'smooth',block:'center'});};return button;
 }
+function recommendedText(text) {
+  return !pack.annotation && text==='Provide a traceback, relevant component or reproducible example'?t(text):text;
+}
+function planDrafts() {
+  return [...document.querySelectorAll('[data-plan-step]')].map(form=>({id:form.dataset.planStep,
+    status:form.querySelector('select').value,note:form.querySelector('textarea').value}));
+}
+function restorePlanDrafts(drafts) {
+  for(const draft of drafts){
+    const form=[...document.querySelectorAll('[data-plan-step]')].find(el=>el.dataset.planStep===draft.id);
+    if(!form)continue;
+    form.querySelector('select').value=draft.status;
+    const note=form.querySelector('textarea');note.value=draft.note;note.required=['blocked','reported_done'].includes(draft.status);
+  }
+}
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();if(!pack)return;
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
+  if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
+  if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
+  if(activeTab==='plan' && planData){
+    const reload=node('button',t('Tải lại kế hoạch'));reload.onclick=async()=>{
+      const selected=currentJob;
+      try{const plan=await api('/api/jobs/'+selected+'/plan');if(currentJob===selected){planData=plan;renderTab();}}
+      catch(error){message(error.message,true);}
+    };
+    const exportPlan=node('button',t('Xuất kế hoạch JSON'));exportPlan.onclick=()=>{
+      const url=URL.createObjectURL(new Blob([JSON.stringify(planData,null,2)],{type:'application/json'}));
+      const link=node('a');link.href=url;link.download='issueintel-'+planData.job_id+'-plan.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+    content.append(node('p',t('Phiên bản kế hoạch: {revision}',{revision:planData.revision}),'notice'),
+      node('p',t('Trạng thái và ghi chú do người dùng tự báo cáo; hệ thống không chạy code và chưa xác minh bản sửa.'),'notice'),reload,exportPlan);
+    for(const step of planData.steps){
+      const form=node('form',undefined,'hypothesis-card');form.dataset.planStep=step.id;form.append(node('h3',recommendedText(step.description)));
+      const label=node('label',t('Trạng thái bước kiểm tra'));const status=node('select');status.id='status-'+step.id;label.htmlFor=status.id;
+      for(const value of ['todo','in_progress','blocked','reported_done']){const option=node('option',t(value));option.value=value;status.append(option);}status.value=step.status;
+      const noteLabel=node('label',t('Ghi chú hoặc quan sát'));const note=node('textarea');note.id='note-'+step.id;noteLabel.htmlFor=note.id;note.value=step.note;note.maxLength=2000;note.rows=3;
+      const requireNote=()=>note.required=['blocked','reported_done'].includes(status.value);status.onchange=requireNote;requireNote();
+      const save=node('button',t('Lưu bước kiểm tra'));save.type='submit';
+      form.append(label,status,noteLabel,note,save);
+      const selected=currentJob,expected=planData.sha256;
+      form.onsubmit=async event=>{
+        event.preventDefault();save.disabled=true;
+        try{
+          const plan=await api('/api/jobs/'+selected+'/plan',{expected_sha256:expected,step_id:step.id,status:status.value,note:note.value});
+          if(currentJob===selected){const drafts=planDrafts().filter(d=>d.id!==step.id);planData=plan;renderTab();restorePlanDrafts(drafts);message(t('Đã lưu phiên bản kế hoạch mới.'));}
+        }catch(error){message(t('Chưa lưu được. Kiểm tra ghi chú hoặc tải lại kế hoạch nếu phiên bản đã đổi.'),true);save.disabled=false;}
+      };
+      content.append(form);
+    }
+    const history=node('details');history.append(node('summary',t('Lịch sử thay đổi kế hoạch')),node('pre',JSON.stringify({source_pack_sha256:planData.source_pack_sha256,sha256:planData.sha256,history:planData.history},null,2)));content.append(history);
+  }
   if(activeTab==='related') {
     const search=node('button',t('Tìm issue liên quan trong lịch sử local'));
     content.append(node('p',t('Chỉ tìm trong 50 phiên local gần nhất, cùng repository. Tương đồng chưa chứng minh duplicate; không đưa vào inference strict.'),'notice'),search);
@@ -131,7 +185,7 @@ function renderTab() {
     for(const review of pack.verification?.reviews || []) {const card=node('article',undefined,'hypothesis-card');card.append(node('h3',review.hypothesis_id+' · '+t(review.assessment)),node('p',review.reason),...review.evidence_ids.map(citation));content.append(card);}
     if(!pack.verification)content.append(node('p',t("Chưa có verifier pass cho lần điều tra này."),'notice'));
     content.append(node('h3',t("Bước kiểm tra tiếp theo")));
-    const list=node('ol');for(const step of pack.recommended_steps) list.append(node('li',step));content.append(list);
+    const list=node('ol');for(const step of pack.recommended_steps) list.append(node('li',recommendedText(step)));content.append(list);
   }
   if(activeTab==='trace') {
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,leakage_audit:pack.leakage_audit},null,2)));
@@ -227,6 +281,8 @@ function renderCatalog() {
   $('data-status').textContent=catalogInfo.original_total?t('{count} pending · Holdout giữ riêng',{count:catalogInfo.pending}):t('Chưa có dataset cục bộ');
 }
 document.addEventListener('issueintel:languagechange',()=>{
+  const drafts=planDrafts();
   filterCases();renderCatalog();renderHistory();renderPack();renderComparison();
+  restorePlanDrafts(drafts);
   if(lastMessage)message(t(lastMessage.key),lastMessage.error);
 });

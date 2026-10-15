@@ -38,6 +38,9 @@ hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict
 Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
 repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
 kết quả không tự đi vào inference strict.
+Tab **Kế hoạch kiểm tra / Check plan** lưu trạng thái và ghi chú theo phiên bản,
+mở lại sau restart và xuất JSON riêng. Trạng thái hoàn tất là tự báo cáo, chưa
+xác minh bản sửa; hệ thống không chạy code/test của repository đích.
 
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook

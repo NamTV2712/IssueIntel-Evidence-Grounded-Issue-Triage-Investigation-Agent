@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 import os
+import sqlite3
 
 from issueintel.investigation.workbench import Workbench
 
@@ -77,6 +78,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.job(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'plan':
+                        self._json(200, workbench.plan(parts[0]))
                     elif len(parts) == 2 and parts[1] in {'pack.json', 'report.md'}:
                         raw = workbench.result_bytes(parts[0], parts[1])
                         self._send(200, raw, 'application/json; charset=utf-8' if parts[1] == 'pack.json' else 'text/markdown; charset=utf-8', download=parts[1])
@@ -86,7 +89,7 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(404, {'error': 'Route not found'})
             except FileNotFoundError:
                 self._json(404, {'error': 'Local data or job not found'})
-            except (ValueError, KeyError, OSError):
+            except (ValueError, KeyError, OSError, sqlite3.DatabaseError):
                 self._json(409, {'error': 'Local data integrity check failed'})
 
         def do_POST(self):
@@ -117,6 +120,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.compare(request))
                 elif route == '/api/related':
                     self._json(200, workbench.related(request))
+                elif route.startswith('/api/jobs/') and route.endswith('/plan'):
+                    if len(route.split('/')) != 5:
+                        raise ValueError('Invalid plan request')
+                    self._json(200, workbench.plan(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/cancel'):
                     if request != {} or len(route.split('/')) != 5:
                         raise ValueError('Invalid cancellation request')
@@ -135,6 +142,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self._json(400, {'error': 'Invalid investigation input'})
             except FileNotFoundError:
                 self._json(404, {'error': 'Job not found'})
+            except sqlite3.DatabaseError:
+                self._json(409, {'error': 'Local plan storage is unavailable'})
             except RuntimeError:
                 self._json(429, {'error': 'Queue is full; wait for a current investigation'})
 

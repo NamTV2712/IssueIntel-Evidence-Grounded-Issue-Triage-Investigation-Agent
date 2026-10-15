@@ -36,6 +36,13 @@ flowchart LR
 
 `investigation.pipeline.investigate()` là application entry point. Nó nhận case công khai và repository đã chọn revision; không đọc gold, human rationale hoặc nhãn tham chiếu. Dataset preparation dùng cùng `build_snapshot()` và `build_graph()`, rồi mới tạo localization ở nhánh riêng.
 
+Workbench bổ sung intake, follow-up, so sánh, truy xuất lịch sử và checklist qua
+shared modules trong `investigation`/`retrieval`. Follow-up có lineage pack hash,
+giữ commit và tạo query mới unverified. Related search chỉ tham khảo lịch sử local,
+không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite local
+riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
+PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
+
 ## Quyền sở hữu của các package
 
 | Package | Trách nhiệm | Ranh giới |

@@ -41,12 +41,12 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F02 | Tìm ứng viên liên quan bằng lexical trên lịch sử local cùng repo, có snippet/hash và source report. Chưa xác nhận duplicate; tìm issue ngoài lịch sử còn roadmap. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Code evidence, query/proof nguồn và revision đã có; điều tra động issue/PR/tài liệu chưa có trong workbench. |
-| F05 | Trạng thái job và trace; kế hoạch kiểm tra lấy từ hypotheses. Planner nhiều vòng còn roadmap. |
+| F05 | Job/trace và checklist từ hypotheses: trạng thái, ghi chú, phiên bản/hash chain và lịch sử; planner tự động nhiều vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs và graph descriptor qua shared pipeline. |
 | F08 | Kiểm citation/hash, critique riêng và abstention. Counter evidence có thể `not_found`; không bịa quan sát. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
-| F10 | Durable job/artifact receipts; mở lại kết quả; lỗi/interrupt không retry API ngầm. |
+| F10 | Durable job/artifact receipts và plan ledger; mở lại kết quả/checklist; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage và truy xuất các phiên đã lưu; repository memory tự động có as-of proof còn roadmap. |
 | F12 | Quick/Deep điều chỉnh số code evidence; routing model của benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái theo stage và yêu cầu hủy; request/usage/cost qua ledger. |
@@ -87,6 +87,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
+- `GET/POST /api/jobs/<id>/plan`: checklist theo pack; ghi cần expected SHA256, step ID, status và note.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
@@ -151,6 +152,24 @@ Score không phải xác suất. Mỗi kết quả có matched terms, đoạn ng
 query/pack SHA256 và nút mở báo cáo. Quan hệ luôn `candidate_unverified`, không
 coi giống triệu chứng là duplicate. Chưa xác minh nguồn này có trước cutoff của
 issue đích; chưa có semantic duplicate judgment hoặc đồng bộ toàn GitHub history.
+
+## Kế hoạch kiểm tra có phiên bản
+
+Tab Check plan/Kế hoạch kiểm tra lấy bước đề xuất trong pack; description không
+cho ghi đè. Trạng thái gồm todo/in-progress/blocked/reported-done. Bước blocked
+hoặc reported-done cần ghi chú; mọi quan sát là tự báo cáo, chưa xác minh. Không
+thực thi code/test, thay đổi confidence hoặc đánh giá test split khi lưu checklist.
+
+SQLite local tại `artifacts/demo/plans.sqlite` lưu event có hash/source pack/
+parent hash, timestamp, version và change. Mỗi lần đọc replay từ plan gốc; dữ
+liệu không khớp source hoặc chain bị từ chối. `BEGIN IMMEDIATE` cùng expected
+SHA256 chặn ghi đè phiên bản cũ giữa thread/process. Giới hạn 200 version/job,
+50 bước và 2.000 ký tự/ghi chú. Ghi không thay pack, hypotheses hoặc receipt gốc.
+Đây là lịch sử local, không phải chứng thực chống mọi sửa đổi bởi chủ filesystem.
+
+Có tải lại và export plan JSON riêng; mở lại sau restart không gọi model. Bản
+nháp ghi chú giữ qua đổi ngôn ngữ. Metadata plan lỗi không ngăn xuất báo cáo
+nguồn còn nguyên vẹn. Không đưa ghi chú checklist vào prompt tự động.
 
 ## Tích hợp GitHub
 

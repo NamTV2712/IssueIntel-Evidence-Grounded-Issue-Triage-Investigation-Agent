@@ -629,7 +629,7 @@ window.IssueIntelMessages = {
   },
   "Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.": {
     "vi": "Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.",
-    "en": "Read {scanned} runs; {issues} other issues; skipped {skipped} invalid sources."
+    "en": "Runs read: {scanned} · Other issues: {issues} · Invalid sources skipped: {skipped}"
   },
   "Chưa tìm thấy ứng viên phù hợp trong phạm vi này.": {
     "vi": "Chưa tìm thấy ứng viên phù hợp trong phạm vi này.",
@@ -650,5 +650,73 @@ window.IssueIntelMessages = {
   "Mở báo cáo nguồn": {
     "vi": "Mở báo cáo nguồn",
     "en": "Open source report"
+  },
+  "Kế hoạch kiểm tra": {
+    "vi": "Kế hoạch kiểm tra",
+    "en": "Check plan"
+  },
+  "Tải lại kế hoạch": {
+    "vi": "Tải lại kế hoạch",
+    "en": "Reload plan"
+  },
+  "Xuất kế hoạch JSON": {
+    "vi": "Xuất kế hoạch JSON",
+    "en": "Export plan JSON"
+  },
+  "Phiên bản kế hoạch: {revision}": {
+    "vi": "Phiên bản kế hoạch: {revision}",
+    "en": "Plan revision: {revision}"
+  },
+  "Trạng thái và ghi chú do người dùng tự báo cáo; hệ thống không chạy code và chưa xác minh bản sửa.": {
+    "vi": "Trạng thái và ghi chú do người dùng tự báo cáo; hệ thống không chạy code và chưa xác minh bản sửa.",
+    "en": "Statuses and notes are user-reported; the system does not execute code or verify a fix."
+  },
+  "Trạng thái bước kiểm tra": {
+    "vi": "Trạng thái bước kiểm tra",
+    "en": "Check status"
+  },
+  "Ghi chú hoặc quan sát": {
+    "vi": "Ghi chú hoặc quan sát",
+    "en": "Notes or observations"
+  },
+  "Lưu bước kiểm tra": {
+    "vi": "Lưu bước kiểm tra",
+    "en": "Save check"
+  },
+  "Đã lưu phiên bản kế hoạch mới.": {
+    "vi": "Đã lưu phiên bản kế hoạch mới.",
+    "en": "New plan revision saved."
+  },
+  "Chưa lưu được. Kiểm tra ghi chú hoặc tải lại kế hoạch nếu phiên bản đã đổi.": {
+    "vi": "Chưa lưu được. Kiểm tra ghi chú hoặc tải lại kế hoạch nếu phiên bản đã đổi.",
+    "en": "Not saved. Check the note or reload the plan if its revision changed."
+  },
+  "Lịch sử thay đổi kế hoạch": {
+    "vi": "Lịch sử thay đổi kế hoạch",
+    "en": "Plan change history"
+  },
+  "todo": {
+    "vi": "Chưa làm",
+    "en": "To do"
+  },
+  "in_progress": {
+    "vi": "Đang làm",
+    "en": "In progress"
+  },
+  "blocked": {
+    "vi": "Đang vướng",
+    "en": "Blocked"
+  },
+  "reported_done": {
+    "vi": "Đã làm · tự báo cáo",
+    "en": "Done · self-reported"
+  },
+  "Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.": {
+    "vi": "Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.",
+    "en": "Metadata could not be loaded; source reports can still be exported."
+  },
+  "Provide a traceback, relevant component or reproducible example": {
+    "vi": "Bổ sung traceback, thành phần liên quan hoặc ví dụ tái hiện",
+    "en": "Provide a traceback, relevant component or reproducible example"
   }
 };
