@@ -62,6 +62,11 @@ Snapshot chứa commit, tree, Git blob OID, SHA256 raw bytes/canonical text, pro
 
 Graph có node file/class/function; cạnh contains/imports/inherits/calls. Quan hệ call tĩnh là suy luận từ syntax, không chứng minh hành vi runtime. Dynamic dispatch và tên mơ hồ giữ unresolved. Graph phải khớp revision/hash snapshot; snapshot được truyền vào pipeline phải khớp case và protocol.
 
+Retrieval chỉ trích các dòng nguyên vẹn trong giới hạn excerpt; dòng vượt giới
+hạn không bị cắt giữa dòng rồi gắn locator của cả dòng. Excerpt rỗng bị bỏ qua,
+và phần còn lại giữ đúng start/end để replay với snapshot. Không thay hash của
+artifact cũ khi thay đổi quy tắc retrieval; recipe cũ vẫn phải qua integrity gate.
+
 Cache giữ text theo SHA256 trong blob gzip dùng chung; index snapshot và graph nén. Investigation pack chỉ chứa code excerpts và metadata liên quan, không chép toàn repository. Có thể rebuild derived cache từ nguồn, nhưng phải kiểm receipt/inventory trước khi coi một ca hoàn tất; không thay hash mong đợi để che lỗi.
 
 ## Temporal và gold isolation

@@ -30,13 +30,21 @@ def retrieve_evidence(query: str, snapshot, graph, *, top_k: int = 8, expand: in
         for start in range(0, len(lines), 15):
             excerpt_lines = []
             characters = 0
-            for line in lines[start:start + 40]:
+            actual_start = start
+            for index, line in enumerate(lines[start:start + 40], start):
+                if len(line) > 1600:
+                    if excerpt_lines:
+                        break
+                    actual_start = index + 1
+                    continue
                 if excerpt_lines and characters + len(line) + 1 > 1600:
                     break
-                excerpt_lines.append(line[:1600])
-                characters += len(line[:1600]) + 1
+                excerpt_lines.append(line)
+                characters += len(line) + 1
             excerpt = "\n".join(excerpt_lines)
-            documents.append({"path": file.path, "start": start + 1, "end": start + len(excerpt_lines),
+            if not excerpt.strip():
+                continue
+            documents.append({"path": file.path, "start": actual_start + 1, "end": actual_start + len(excerpt_lines),
                               "text": excerpt, "words": Counter(tokens(file.path + " " + excerpt))})
     if not documents:
         return []
@@ -45,7 +53,7 @@ def retrieve_evidence(query: str, snapshot, graph, *, top_k: int = 8, expand: in
     query_words = set(tokens(query))
     for doc in documents:
         length, score = sum(doc["words"].values()), 0.0
-        for word in query_words:
+        for word in sorted(query_words):
             frequency = doc["words"][word]
             if frequency:
                 idf = math.log(1 + (len(documents) - frequencies[word] + 0.5) / (frequencies[word] + 0.5))

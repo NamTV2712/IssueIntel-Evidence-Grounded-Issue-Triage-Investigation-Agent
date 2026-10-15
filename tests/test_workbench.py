@@ -213,7 +213,7 @@ def test_http_example_api_export_and_invalid_inputs(tmp_path):
         headers = {'X-IssueIntel-Token': server.session_token, 'Content-Type': 'application/json'}
         assert http(server, 'POST', '/api/investigations', '{', headers)[0] == 400
         assert http(server, 'POST', '/api/investigations', json.dumps({'mode':'example','patch':'hidden'}), headers)[0] == 400
-        assert http(server, 'POST', '/api/investigations', 'x', {**headers,'Content-Length':'512001'})[0] == 400
+        assert http(server, 'POST', '/api/investigations', None, {**headers,'Content-Length':'512001'})[0] == 400
         status, _, raw = http(server, 'POST', '/api/investigations', json.dumps({'mode':'example'}), headers)
         assert status == 202
         identifier = json.loads(raw)['id']; job = completed(server.workbench, identifier)
