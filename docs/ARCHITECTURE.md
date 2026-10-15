@@ -74,7 +74,11 @@ Cache giữ text theo SHA256 trong blob gzip dùng chung; index snapshot và gra
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,
 global repository ID và OS writer lock; lưu private SQLite/FTS5, snapshot/graph
-theo hash. CLI gọi cùng service cho sync/status/search/item. Refresh đối soát
+theo hash. CLI và workbench gọi cùng service cho sync/status/search/item;
+sync jobs dùng chung queue/capacity nhưng giữ lịch sử riêng với investigation.
+Progress/cancel kiểm tại ranh giới stage/page; ngắt không xóa page đã commit.
+UI hiển thị source/scan/commit riêng với controls và hỗ trợ Việt/Anh, sáng/tối.
+Refresh đối soát
 thủ công; dữ liệu current REST không được đưa vào benchmark pipeline hoặc
 coi là historical proof. Không lưu patch/diff, không gọi model. Xem
 [REPOSITORY_INDEX.md](REPOSITORY_INDEX.md) về coverage/caps và replay.

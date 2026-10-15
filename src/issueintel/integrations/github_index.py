@@ -303,11 +303,15 @@ class RepositoryIndex:
         if canonical_path(before.path) != canonical_path(after.path) or a != b or next_page != page + 1:
             raise ValueError('GitHub pagination changed endpoint, filters or page sequence')
 
-    def sync(self, *, revision='HEAD', max_requests=50, refresh=False, reader=None, snapshot_builder=None):
+    def sync(self, *, revision='HEAD', max_requests=50, refresh=False, reader=None, snapshot_builder=None,
+             on_progress=None, check_cancelled=None):
         if type(max_requests) is not int or not 1 <= max_requests <= 500:
             raise ValueError('Choose 1–500 GitHub requests per sync invocation')
         if not isinstance(revision, str) or not revision.strip() or len(revision) > 200:
             raise ValueError('Choose an explicit Git revision')
+        if any(callback is not None and not callable(callback) for callback in (on_progress, check_cancelled)):
+            raise ValueError('Invalid repository sync callbacks')
+        check_cancelled = check_cancelled or (lambda: None)
         reader = reader or GitHubReader(self.repository)
         with _writer_lock(self.directory/'writer.lock'), self.connect() as db:
             run_id = self._meta(db, 'active_run')
@@ -327,6 +331,7 @@ class RepositoryIndex:
                 self._set(db, 'active_run', run_id)
                 db.commit()
             requests = 0
+            check_cancelled()
             # Revalidate public repository/global identity on every resumed invocation.
             metadata, next_url, response_sha = reader.get(self._url(''))
             requests += 1
@@ -343,6 +348,7 @@ class RepositoryIndex:
             self._set(db, 'metadata_receipt', {'source_url': self._url(''), 'response_sha256': response_sha,
                                              'fetched_at': now(), 'repository_id': identity})
             db.commit()
+            check_cancelled()
             if run['snapshot'] is None:
                 run['snapshot'] = (snapshot_builder or self._build_snapshot)(revision)
                 db.execute('UPDATE runs SET value=? WHERE id=?', (canonical_json(run), run_id))
@@ -357,7 +363,10 @@ class RepositoryIndex:
                 db.execute('INSERT OR IGNORE INTO tasks(run,kind,subject,url) VALUES (?,?,?,?)',
                            (run_id, kind, 0, self._url(suffix, per_page=100, page=1, **params)))
             db.commit()
+            if on_progress:
+                on_progress(self.status())
             while requests < max_requests:
+                check_cancelled()
                 task = db.execute('SELECT * FROM tasks WHERE run=? AND done=0 ORDER BY rowid LIMIT 1', (run_id,)).fetchone()
                 if task is None:
                     break
@@ -391,6 +400,8 @@ class RepositoryIndex:
                     run['pages'] += 1
                     run['updated_at'] = now()
                     db.execute('UPDATE runs SET value=? WHERE id=?', (canonical_json(run), run_id))
+                if on_progress:
+                    on_progress(self.status())
             if not db.execute('SELECT 1 FROM tasks WHERE run=? AND done=0', (run_id,)).fetchone():
                 run.update(status='complete', completed_at=now())
                 db.execute('UPDATE runs SET value=? WHERE id=?', (canonical_json(run), run_id))

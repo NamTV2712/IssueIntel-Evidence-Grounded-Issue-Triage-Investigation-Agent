@@ -29,3 +29,10 @@ header{gap:24px}.brand{flex-shrink:0}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
 #followup-panel{border-top:1px solid var(--border);margin-top:28px;padding-top:20px}#followup-panel h3{font-size:16px}#followup-button{margin-top:16px}
+.repository-section{padding:18px 22px;border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-bottom:24px}
+.repository-section>summary{font-size:15px;font-weight:600;cursor:pointer;color:var(--accent)}
+.repository-controls{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:end}
+.repository-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.repository-counts{display:flex;flex-wrap:wrap;gap:16px 28px}.repository-counts dt{font-size:12px;color:var(--muted)}.repository-counts dd{margin:4px 0;font-size:18px;font-weight:600}
+.repository-section a{color:var(--accent);font-size:12px}.repository-section h3{font-size:14px;overflow-wrap:anywhere}.repository-section details{margin-top:14px}.repository-section pre{margin:12px 0}.repository-section .history-row{width:100%;margin-top:8px}.repository-section .error{color:var(--error)}
+@media(max-width:740px){.repository-controls{grid-template-columns:1fr}.repository-section{padding:18px}.repository-controls button{justify-self:start}}

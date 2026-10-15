@@ -338,3 +338,125 @@ def test_document_response_limit_fails_before_json_decode():
     response.seek(0)
     with pytest.raises(ValueError, match='10 MB'):
         GitHubReader(REPO, opener=lambda *a, **k: response).get(BASE)
+
+
+def test_cancel_callback_preserves_committed_page_before_next_get(connected):
+    index, builder = connected
+    saved = []
+    reader = Reader({'/issues?': ([issue(1)], None, digest('page'))})
+    def progress(report):
+        saved.append(report)
+    def cancel():
+        if saved and saved[-1]['counts'].get('issue') == 1:
+            raise InterruptedError('synthetic cancellation')
+    with pytest.raises(InterruptedError):
+        index.sync(reader=reader, snapshot_builder=builder, on_progress=progress, check_cancelled=cancel)
+    assert index.item('issue:1')['record']['number'] == 1
+    assert not any('/issues/comments?' in url for url in reader.calls)
+    assert index.status()['run']['pages'] == 1
+    assert index.sync(reader=Reader())['scan_complete']
+
+
+def test_workbench_repository_jobs_are_separate_and_never_construct_a_provider(connected, monkeypatch):
+    import time
+    from issueintel.investigation.workbench import Workbench
+    index, builder = connected
+    original = RepositoryIndex.sync
+    monkeypatch.setattr(RepositoryIndex, 'sync', lambda self, **kwargs: original(
+        self, **kwargs, reader=Reader({'/issues?': ([issue(1)], None, digest('page'))}), snapshot_builder=builder))
+    monkeypatch.setattr('issueintel.investigation.workbench.RuntimeConfig.load', lambda *_: pytest.fail('Model config requested'))
+    wb = Workbench(index.root, provider_factory=lambda *_a, **_k: pytest.fail('Provider constructed'))
+    try:
+        job = wb.submit_repository({'repository': REPO, 'max_requests': 2})
+        for _ in range(300):
+            job = wb.job(job['id'])
+            if job['status'] not in {'queued', 'running'}:
+                break
+            time.sleep(.01)
+        assert job['status'] == 'completed' and job['sync_report']['scan_complete'] is False
+        assert job['sync_report']['counts'] == {'issue': 1}
+        assert job['provider'] == 'none' and 'result' not in job
+        assert wb.history() == [] and len(wb.repository_history()) == 1
+        assert 'request' not in wb.repository_history()[0]
+        assert wb.repository_read('search', {'repository': REPO, 'query': 'unicode'})['results']
+        with pytest.raises(ValueError):
+            wb.preview_comment(job['id'])
+    finally:
+        wb.close()
+    wb = Workbench(index.root)
+    try:
+        assert wb.repository_history()[0]['status'] == 'completed'
+    finally:
+        wb.close()
+
+
+@pytest.mark.parametrize('payload', [
+    {'repository': REPO, 'provider': 'groq'}, {'repository': REPO, 'max_requests': True},
+    {'repository': REPO, 'refresh': 'true'}, {'repository': REPO, 'revision': '--bad'},
+    {'repository': 'https://github.com/owner/project/issues/1'}, {'repository': REPO, 'split': 'main_test'},
+])
+def test_workbench_sync_input_rejects_inference_and_benchmark_overrides(tmp_path, payload):
+    from issueintel.investigation.workbench import Workbench
+    wb = Workbench(tmp_path)
+    try:
+        with pytest.raises(ValueError):
+            wb.submit_repository(payload)
+        assert wb.repository_history() == []
+    finally:
+        wb.close()
+
+
+def test_repository_http_guards_read_routes_and_async_sync(connected, monkeypatch):
+    import threading
+    import time
+    from http.client import HTTPConnection
+    from issueintel.interfaces.web import make_server
+    index, builder = connected
+    original = RepositoryIndex.sync
+    monkeypatch.setattr(RepositoryIndex, 'sync', lambda self, **kwargs: original(
+        self, **kwargs, reader=Reader({'/issues?': ([issue(1)], None, digest('page'))}), snapshot_builder=builder))
+    server = make_server(index.root, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    def request(path, body=None, *, auth=True, origin=None):
+        connection = HTTPConnection('127.0.0.1', server.server_port, timeout=10)
+        headers = {'Content-Type': 'application/json'}
+        if auth:
+            headers['X-IssueIntel-Token'] = server.session_token
+        if origin:
+            headers['Origin'] = origin
+        payload = json.dumps(body) if body is not None else None
+        if origin and payload is not None:
+            # The Origin guard rejects before reading a body. Advertise its
+            # length but send headers only, avoiding Windows RST on unread bytes.
+            headers['Content-Length'] = str(len(payload.encode()))
+            payload = None
+        connection.request('GET' if body is None else 'POST', path, payload, headers)
+        response = connection.getresponse()
+        raw = response.read()
+        connection.close()
+        return response.status, raw
+    try:
+        assert request('/api/repositories/jobs', auth=False)[0] == 403
+        assert request('/api/repositories/sync', {'repository': REPO}, origin='https://evil.test')[0] == 403
+        assert request('/api/repositories/sync', {'repository': REPO, 'provider': 'groq'})[0] == 400
+        status, raw = request('/api/repositories/sync', {'repository': REPO})
+        assert status == 202
+        identifier = json.loads(raw)['id']
+        for _ in range(300):
+            row = server.workbench.job(identifier)
+            if row['status'] not in {'running', 'queued'}:
+                break
+            time.sleep(.01)
+        assert row['status'] == 'completed' and row['sync_report']['scan_complete']
+        assert request('/api/repositories/status', {'repository': REPO})[0] == 200
+        status, raw = request('/api/repositories/search', {'repository': REPO, 'query': 'Unicode'})
+        assert status == 200 and json.loads(raw)['results']
+        status, raw = request('/api/repositories/item', {'repository': REPO, 'key': 'issue:1'})
+        assert status == 200 and json.loads(raw)['record']['number'] == 1
+        assert request('/api/repositories/search', {'repository': REPO, 'query': 'parser', 'code': 'yes'})[0] == 400
+        assert request('/repository.js')[0] == 200
+        assert json.loads(request('/api/jobs')[1]) == []
+        assert len(json.loads(request('/api/repositories/jobs')[1])) == 1
+    finally:
+        server.shutdown(); server.server_close(); server.workbench.close(); thread.join(5)

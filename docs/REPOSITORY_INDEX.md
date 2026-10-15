@@ -8,6 +8,23 @@ index hay báo cáo. Không hỗ trợ private repository ở phase này.
 
 ## Đồng bộ và tiếp tục
 
+Trong workbench, mở **Bộ nhớ repository GitHub**, nhập `owner/repo`, revision và
+số GET mỗi lượt, bấm **Đồng bộ / tiếp tục**. Job dùng chung hàng đợi một worker,
+capacity 4 với investigation; lịch sử đồng bộ giữ riêng, không thành investigation
+pack hay được phép publish comment. Hết ngân sách GET là một invocation hoàn
+tất nhưng scan có thể vẫn pending; UI báo rõ để tiếp tục chủ động. Checkbox
+refresh chỉ áp dụng cho lượt vừa gửi và tự bỏ chọn sau khi server nhận job.
+
+**Dừng sau trang hiện tại** kiểm trước request/stage kế tiếp. Request đã bắt đầu
+có thể hoàn tất và được commit trước khi dừng. Sau restart không tự tiếp tục;
+**Xem trạng thái local** đọc checkpoint hiện có. Reload/đổi ngôn ngữ/theme,
+tìm kiếm và mở lại nguồn không gọi GitHub hoặc LLM.
+
+Search có code links tại exact commit/span và issue/PR/comment links kèm source
+hash. **Điền issue này vào form điều tra** chỉ chọn URL và snapshot revision,
+tắt Groq; cần bấm điều tra riêng. Form GitHub đọc lại issue hiện tại khi chạy,
+không giả định nội dung đã lưu còn mới hay là opening version.
+
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel sync-repository --repo owner/repo --revision HEAD --max-requests 50
 .\.venv\Scripts\python.exe -m issueintel repository-status --repo owner/repo
@@ -84,6 +101,20 @@ Python runtime dự án); không thêm vector DB hay dependency mới.
 
 Chưa bao gồm review threads đầy đủ, timeline/closing events, reactions, full Git
 history hoặc GitHub App tự động onboarding/sync. Chúng là phần phát triển tiếp.
+
+## Local API
+
+Các route cần session token, Host/Origin localhost và JSON bounds hiện có:
+
+- `POST /api/repositories/sync`: repository, revision, max_requests, refresh;
+  trả job ID (202), chỉ sync read-only, không nhận provider/split.
+- `GET /api/repositories/jobs`: 20 lượt đồng bộ gần nhất, không chứa request
+  nội bộ/credentials. `GET /api/jobs/<id>` theo dõi tiến độ local.
+- `POST /api/repositories/status`: repository; đọc coverage local.
+- `POST /api/repositories/search`: repository, query, code (boolean), limit.
+- `POST /api/repositories/item`: repository, key; đọc source/receipt đã kiểm.
+- `POST /api/jobs/<id>/cancel`: `{}`; dừng trước stage/request kế tiếp.
+
 Nguồn chính thức đã đối chiếu ngày 15/10/2026, API version `2026-03-10`:
 [repository issues](https://docs.github.com/en/rest/issues/issues#list-repository-issues),
 [issue comments](https://docs.github.com/en/rest/issues/comments#list-issue-comments-for-a-repository),

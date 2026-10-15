@@ -51,7 +51,9 @@ nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTT
 ghi riêng trong [docs/PRODUCT.md](docs/PRODUCT.md), chưa triển khai tự động.
 
 Khởi tạo bộ nhớ repository public (code, issue/PR, bình luận, commit và file của
-PR) qua CLI, không gọi LLM:
+PR) trong bảng **Bộ nhớ repository GitHub** của workbench, hoặc qua CLI, không
+gọi LLM. Giao diện hỗ trợ Việt/Anh và sáng/tối; hiển thị scan/revision, phạm vi
+đã đọc, checkpoint và tìm kiếm local riêng với báo cáo điều tra.
 
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel sync-repository --repo owner/repo --revision HEAD --max-requests 50

@@ -111,27 +111,104 @@ class Workbench:
             return {k: v for k, v in row.items() if k != 'request'}
 
     def history(self):
-        paths = sorted(self.jobs.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:50]
-        return [self.job(p.stem) for p in paths]
+        return self._history_mode(False, 50)
+
+    def _history_mode(self, repository, limit):
+        paths = sorted(self.jobs.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        rows = []
+        for path in paths:
+            row = self.job(path.stem)
+            if (row.get('mode') == 'repository') == repository:
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+        return rows
 
     def submit(self, request):
         request = validate_request(request)
+        return self._enqueue(request, self._run)
+
+    def _enqueue(self, request, callback):
         if not self.capacity.acquire(blocking=False):
             raise RuntimeError('The investigation queue is full')
         identifier = uuid.uuid4().hex[:24]
         row = {'id': identifier, 'status': 'queued', 'stage': 'queued', 'created_at': now(),
                'mode': request['mode'], 'provider': request['provider'], 'depth': request['depth'], 'request': request}
+        if request['mode'] == 'repository':
+            row['repository'] = request['repository']
         with self.lock:
             write_json(self._job_path(identifier), row)
             self.active.add(identifier)
         try:
-            self.executor.submit(self._run, row)
+            self.executor.submit(callback, row)
         except BaseException:
             with self.lock:
                 self.active.discard(identifier)
             self.capacity.release()
             raise
         return self.job(identifier)
+
+    def repository_history(self):
+        return self._history_mode(True, 20)
+
+    def repository_read(self, action, request):
+        from issueintel.integrations.github_index import RepositoryIndex
+        fields = {'status': {'repository'}, 'search': {'repository','query','code','limit'},
+                  'item': {'repository','key'}}
+        if action not in fields or not isinstance(request, dict) or set(request)-fields[action] or 'repository' not in request:
+            raise ValueError('Invalid repository index input')
+        index = RepositoryIndex(self.root, request['repository'])
+        if action == 'status':
+            return index.status()
+        if action == 'item':
+            return index.item(request.get('key'))
+        if type(request.get('code', False)) is not bool:
+            raise ValueError('Choose text or code search')
+        search = index.search_code if request.get('code') else index.search
+        return search(request.get('query'), limit=request.get('limit', 10))
+
+    def submit_repository(self, request):
+        from issueintel.repository.acquire import parse_github_reference, _validate_revision
+        if (not isinstance(request, dict) or set(request)-{'repository','revision','max_requests','refresh'}
+                or 'repository' not in request):
+            raise ValueError('Invalid repository sync input')
+        source = parse_github_reference(request['repository'])
+        if source.issue_number is not None:
+            raise ValueError('Select a repository, not an issue')
+        revision = _validate_revision(request.get('revision', 'HEAD'))
+        maximum, refresh = request.get('max_requests', 50), request.get('refresh', False)
+        if type(maximum) is not int or not 1 <= maximum <= 500 or type(refresh) is not bool:
+            raise ValueError('Invalid repository sync limits')
+        return self._enqueue({'mode':'repository','provider':'none','depth':'index',
+                              'repository':source.repository.lower(), 'revision':revision,
+                              'max_requests':maximum, 'refresh':refresh}, self._run_repository)
+
+    def _run_repository(self, row):
+        from issueintel.integrations.github_index import RepositoryIndex
+        request = row['request']
+        index = None
+        try:
+            self._check_cancelled(row['id'])
+            self._save(row, status='running', stage='repository_sync', repository=request['repository'])
+            index = RepositoryIndex(self.root, request['repository'])
+            def progress(report):
+                self._save(row, sync_report={k:v for k,v in report.items() if k != 'tasks'})
+            report = index.sync(revision=request['revision'], max_requests=request['max_requests'],
+                                refresh=request['refresh'], on_progress=progress,
+                                check_cancelled=lambda: self._check_cancelled(row['id']))
+            self._save(row, status='completed', stage='completed',
+                       sync_report={k:v for k,v in report.items() if k != 'tasks'})
+        except InterruptedError:
+            self._save(row, status='cancelled', stage='cancelled',
+                       error='Repository sync paused; committed pages retained. Resume explicitly.')
+        except Exception as error:
+            self._save(row, status='failed', stage='failed',
+                       error=f'Repository sync failed ({type(error).__name__}); committed pages retained, no automatic retry.')
+        finally:
+            with self.lock:
+                self.active.discard(row['id'])
+                self.cancelled.discard(row['id'])
+            self.capacity.release()
 
     def _save(self, row, **changes):
         row.update(changes, updated_at=now())
