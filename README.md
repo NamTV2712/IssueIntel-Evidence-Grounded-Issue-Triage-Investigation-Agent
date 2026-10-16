@@ -100,6 +100,16 @@ hoặc toàn bộ tag. Tag local chưa chứng minh bản phát hành đã công
 sửa. Không gọi model/chạy test. Main Dev/strict và follow-up không dùng luồng này;
 bản báo cáo gốc giữ nguyên.
 
+Với điều tra GitHub product, mục **Kiểm tra GitHub Release** nhận một tag và
+full SHA của commit tham chiếu. Nó đọc metadata công khai, resolve tag (kể cả tag
+có chú thích), rồi hỏi GitHub về ancestry giữa hai SHA cố định. Quan sát có ID
+repository/release, ngày đọc, receipt/hash và export riêng; mở lại không gọi
+network/model. Draft/prerelease được báo riêng. Tag hiện tại không chứng minh
+nội dung tại ngày công bố; chứa commit cũng chưa chứng minh lỗi đã sửa.
+Tag hỗ trợ tối đa 200 ký tự chữ/số ASCII và `_ . / -`; commit tham chiếu cần đủ
+40 hoặc 64 ký tự hex viết thường. Đây là kiểm một release được chọn, không phải
+danh sách mọi release hoặc chứng nhận tính đúng đắn của bản sửa.
+
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook
 nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTTPS được

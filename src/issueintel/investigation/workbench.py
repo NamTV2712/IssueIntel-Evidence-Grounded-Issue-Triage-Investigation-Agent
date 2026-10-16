@@ -115,6 +115,8 @@ class Workbench:
         self.provider_factory = provider_factory
         from .question_jobs import QuestionJobs
         self.questions=QuestionJobs(self)
+        from .release_jobs import ReleaseJobs
+        self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
         self.active = set()
         self.cancelled = set()
@@ -220,7 +222,7 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
-            if row.get('mode') in {'version_comparison','adaptive_questions'}:
+            if row.get('mode') in {'version_comparison','adaptive_questions','release_check'}:
                 continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
@@ -499,6 +501,15 @@ class Workbench:
         finally:
             with self.lock:self.active.discard(row['id']);self.cancelled.discard(row['id'])
             self.capacity.release()
+
+    def submit_release(self, request):
+        return self.releases.submit(request)
+
+    def release_history(self, identifier):
+        return self.releases.history(identifier)
+
+    def release_bytes(self, identifier):
+        return self.releases.result_bytes(identifier)
 
     def submit_versions(self, request):
         from issueintel.investigation.versions import product_version_source

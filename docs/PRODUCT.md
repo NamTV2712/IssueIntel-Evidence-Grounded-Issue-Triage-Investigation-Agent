@@ -56,7 +56,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F17 | Tổng quan và JSON/Markdown/nháp GitHub dùng chung report contract có schema/hash về pack/query/snapshot; tách model critique, citation và kiểm người, giữ nguyên unknown. Xem evidence/hypotheses/trace và pack JSON gốc; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
 | F18 | Reservation trước HTTP gắn về job, cập nhật usage/price date sau call; tab chi phí/export riêng, không nhận tổng ledger thành chi phí phiên. Phiên cũ thiếu receipt giữ unknown. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
-| F20 | Đối chiếu commit/tag, diff file evidence, quan hệ ancestry và commit tham chiếu tùy chọn; liệt kê tag Git local chứa commit. Thiếu lịch sử giữ unknown. Chưa xác minh fix hoặc bản phát hành công khai chứa fix. |
+| F20 | Đối chiếu commit/tag, diff evidence và ancestry local; kiểm riêng một GitHub Release công khai theo tag với commit tham chiếu, giữ ID/receipt/hash và phân biệt draft/prerelease. Quan hệ hiện tại không chứng minh nội dung tag lúc công bố hoặc lỗi đã sửa. |
 
 Đồ thị mặc định tập trung vào một giả thuyết và các cạnh trực tiếp; có tổng quan,
 thẻ nguồn chữ thật, màu/nét theo loại quan hệ và cửa sổ phóng rộng với inspector.
@@ -100,6 +100,9 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/versions`: `job_id`, `revision`, tùy chọn `reference_revision`; job đối chiếu code và ancestry dùng chung queue/worker, không model hoặc thực thi code/test.
 - `GET /api/jobs/<source>/versions`: tối đa 20 lượt đối chiếu của báo cáo nguồn.
 - `GET /api/jobs/<comparison>/versions.json`: export riêng có hash và binding về pack nguồn.
+- `POST /api/releases`: `job_id`, `tag` và `reference_commit` full SHA; kiểm đúng một release của nguồn GitHub product, không gọi model/tải Git history.
+- `GET /api/jobs/<source>/releases`: tối đa 20 lượt kiểm release đã lưu, kể cả lỗi/hủy.
+- `GET /api/jobs/<check>/releases.json`: export quan sát có receipt và binding về source pack/query/snapshot; replay không network/model.
 
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `POST /api/context-search`: `job_id`, `query`; tìm tối đa 20 nguồn trong index của đúng repo GitHub của báo cáo, không network/model.

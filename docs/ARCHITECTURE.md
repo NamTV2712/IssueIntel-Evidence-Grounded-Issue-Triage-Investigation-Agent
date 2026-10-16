@@ -216,6 +216,17 @@ hoàn tất không được gọi lại theo luồng này. Không tự phục h�
 
 ## Ngân sách và bảo mật
 
+`integrations.github_releases` kiểm một release/tag công khai theo yêu cầu rõ
+ràng, với tối đa 16 GET và receipt JSON tổng tối đa 20 MB. Nó pin repository ID,
+release ID, ref object và commit qua các lần đọc; peel annotated tag có giới hạn,
+rồi so ancestry bằng REST compare giữa hai full SHA. Không dùng target_commitish
+làm commit, không theo URL/pagination trả về, không tải Git history hoặc gọi LLM.
+Quan sát hiện tại không phải bằng chứng tag tại ngày công bố hoặc xác nhận fix.
+`investigation.release_jobs` kiểm nguồn GitHub product và lineage trước queue/
+worker, giữ pack bytes/query/snapshot binding, lưu receipt trước request kế tiếp.
+Kết quả private tách khỏi pack; đọc lại replay proof mà không Git/network/model.
+Lỗi/hủy giữ receipt đã ghi, không retry tự động. Benchmark/follow-up bị chặn.
+
 Product provider có callback receipt tùy chọn: ghi reservation ownership vào job
 trước HTTP, cập nhật trạng thái sau reconcile (kể cả lỗi/usage breach). Ghi receipt
 không thành công thì không gửi HTTP. `investigation.usage` chỉ cộng receipt gắn

@@ -26,6 +26,7 @@ STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=u
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
 STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
+STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -91,6 +92,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     parts = route.split('/')[3:]
                     if len(parts) == 1:
                         self._json(200, workbench.job(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'releases':
+                        self._json(200, workbench.release_history(parts[0]))
+                    elif len(parts) == 2 and parts[1] == 'releases.json':
+                        self._send(200, workbench.release_bytes(parts[0]), 'application/json; charset=utf-8', download='releases.json')
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
                     elif len(parts)==2 and parts[1] in {'investigation-report.json','investigation-report.md'}:
@@ -173,6 +178,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.compare(request))
                 elif route == '/api/versions':
                     self._json(202, workbench.submit_versions(request))
+                elif route == '/api/releases':
+                    self._json(202, workbench.submit_release(request))
                 elif route == '/api/related':
                     self._json(200, workbench.related(request))
                 elif route == '/api/context-search':
