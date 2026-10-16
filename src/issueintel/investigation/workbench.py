@@ -892,6 +892,20 @@ class Workbench:
         _, raw, _ = self._load_pack(identifier)
         return raw if name == 'pack.json' else self._export_bytes(identifier, name)
 
+    def investigation_report(self,identifier):
+        from .report import build_report
+        pack,raw,_=self._load_pack(identifier)
+        return build_report(pack,source_pack_sha256=hashlib.sha256(raw).hexdigest(),job_id=identifier)
+
+    def report_bytes(self,identifier,format='json'):
+        from .report import render_markdown
+        if format not in {'json','md'}:
+            raise ValueError('Choose JSON or Markdown report')
+        report=self.investigation_report(identifier)
+        text=(json.dumps(report,ensure_ascii=False,sort_keys=True,indent=2)+'\n' if format=='json'
+              else render_markdown(report))
+        return text.encode('utf-8')
+
     def _export_bytes(self, identifier, name='pack.json'):
         if name not in {'pack.json', 'report.md'}:
             raise ValueError('Unsupported export')
@@ -1115,9 +1129,11 @@ class Workbench:
     def preview_comment(self, identifier):
         if self.job(identifier)['mode'] != 'github':
             raise ValueError('Only an explicit GitHub investigation can prepare a comment')
-        pack = json.loads(self.result_bytes(identifier))
-        preview = dict(comment_preview(pack), job_id=identifier,
-                       pack_sha256=hashlib.sha256(self.result_bytes(identifier)).hexdigest())
+        raw=self.result_bytes(identifier)
+        pack = json.loads(raw)
+        sha=hashlib.sha256(raw).hexdigest()
+        preview = dict(comment_preview(pack,source_pack_sha256=sha,job_id=identifier), job_id=identifier,
+                       pack_sha256=sha)
         path = self.directory/'runs'/identifier/'github_preview.json'
         with self.lock:
             write_json(path, preview)

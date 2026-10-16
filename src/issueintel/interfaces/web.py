@@ -25,6 +25,7 @@ STATIC['/resume.js'] = ('resume.js', 'text/javascript; charset=utf-8')
 STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
+STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -83,12 +84,19 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.history())
                 elif route == '/api/repositories/jobs':
                     self._json(200, workbench.repository_history())
+                elif route=='/api/investigation-report-schema':
+                    from issueintel.investigation.report import REPORT_SCHEMA
+                    self._json(200,REPORT_SCHEMA)
                 elif route.startswith('/api/jobs/'):
                     parts = route.split('/')[3:]
                     if len(parts) == 1:
                         self._json(200, workbench.job(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'investigation-report.json','investigation-report.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        self._send(200,workbench.report_bytes(parts[0],format),
+                            'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',download=parts[1])
                     elif len(parts)==2 and parts[1]=='adaptive-questions':
                         self._json(200,workbench.question_history(parts[0]))
                     elif len(parts)==2 and parts[1]=='questions.json':

@@ -2,9 +2,10 @@
 const t = window.IssueIntelUI.t;
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="issueintel-session"]').content;
-let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 'evidence';
+let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 'overview';
 let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
 let intake=null;
+let reportView=null;
 let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
@@ -64,9 +65,10 @@ async function runJob(request,existingJob=null) {
 async function openJob(id) {
   const generation=++viewGeneration;
   const loaded=await api('/api/jobs/'+id+'/pack.json');
-  const [inspected,plan,cost]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage')]);
+  const [inspected,plan,cost,report]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json')]);
   if(generation!==viewGeneration)return;
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
+  reportView=report.status==='fulfilled'?report.value:null;
   relatedResult=null;
   usageInfo=cost.status==='fulfilled'?cost.value:null;
   showUsage({id,accounting:usageInfo});
@@ -139,6 +141,9 @@ function restorePlanDrafts(drafts) {
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();if(!pack)return;
+  if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
+    pack_sha256:intake?.source_pack_sha256,commit_sha:pack.snapshot.commit_sha,
+    snapshot_sha256:pack.snapshot.snapshot_sha256,query_sha256:intake?.query_sha256});
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
@@ -335,7 +340,9 @@ $('compare-form').onsubmit=compareRuns;
 $('followup-form').onsubmit=event=>{event.preventDefault();if(!currentJob)return;runJob({mode:'followup',parent_job_id:currentJob,additional_context:$('additional-context').value,provider:$('followup-groq').checked?'groq':'none',depth:$('followup-depth').value});};
 $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
 $('cancel-button').onclick=async()=>{try{if(!activeJob)return;await api('/api/jobs/'+activeJob+'/cancel',{});message(t("Đã yêu cầu hủy; lời gọi API đang xử lý có thể vẫn tính phí."));}catch(error){message(error.message,true);}};
-$('export-md').onclick=()=>download('report.md');$('export-json').onclick=()=>download('pack.json');
+$('export-md').onclick=()=>downloadPath('/api/jobs/'+currentJob+'/investigation-report.md','issueintel-'+currentJob+'-report.md');
+$('export-report-json').onclick=()=>downloadPath('/api/jobs/'+currentJob+'/investigation-report.json','issueintel-'+currentJob+'-report.json');
+$('export-json').onclick=()=>download('pack.json');
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{activeTab=button.dataset.tab;renderTab();});
 document.addEventListener('issueintel:resumecreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'resume'},{id:event.detail.job_id});

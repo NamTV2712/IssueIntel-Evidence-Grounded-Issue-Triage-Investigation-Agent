@@ -34,6 +34,13 @@ dụ tổng hợp** chạy được khi chưa có dataset/token. Mặc định k
 có snapshot, graph và code evidence. Bật Groq để sinh giả thuyết và chạy verifier
 riêng theo cấu hình/ngân sách hiện có. Quick/Deep thay độ rộng evidence; export
 JSON/Markdown và lịch sử lưu riêng trong ignored `artifacts/demo/`.
+Tab **Tổng quan / Overview** trình bày trích issue, giả thuyết, bước kiểm tra và
+vị trí code cần xem từ cùng một `InvestigationReport` có phiên bản. Web, bản
+Markdown, JSON báo cáo và nháp GitHub cùng dùng lớp này, khóa vào bytes của pack,
+query và snapshot. JSON pack gốc vẫn có nút tải riêng. Báo cáo cũ được đọc qua lớp
+trình bày mới mà không sửa pack/receipt hoặc gọi lại model. Nhận xét model, kiểm
+citation và kiểm người được phân biệt; chưa tự xác nhận nguyên nhân, mức ảnh
+hưởng, xác suất tin cậy hoặc việc đã chạy các bước kiểm tra.
 Khi bật Groq, Deep có thêm tối đa một vòng truy xuất theo giả thuyết trong cùng
 snapshot; chỉ sinh lại nếu có evidence mới. Checkpoint từng bước được giữ để
 xem/tải khi call sau lỗi. Kết quả tìm thêm chưa phải counter-evidence đã xác nhận.

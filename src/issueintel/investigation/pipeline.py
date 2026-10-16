@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -289,62 +288,13 @@ def finish_pack(prepared, annotation, verification, *, model, stage_receipts=Non
 
 
 def export_pack(pack: dict, directory: Path | str) -> Path:
+    """Write a new pack and derive presentation without changing inference data."""
+    from .report import build_report, render_markdown
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    write_json(directory / "pack.json", pack)
-    lines = ["# IssueIntel investigation", "", f"Case: `{pack['case']['case_id']}`", f"Stop: `{pack['stop_reason']}`", "",
-             "## Issue", "", pack["case"]["problem_statement"], "", "## Evidence", ""]
-    for record in pack["evidence"]:
-        lines.append(f"- `{record['id']}` — `{record['locator']}` ({record['kind']}, SHA256 `{record['sha256']}`)")
-    if pack.get('repository_context'):
-        context=pack['repository_context']
-        lines += ['', '## Current repository context', '',
-                  f"Selected sources: {len(context['sources'])}; SHA256 `{context['sha256']}`.",
-                  'Bounded local retrieval; text mentions are not confirmed duplicates/fixes. Historical availability is unverified.']
-    if pack.get('refinement'):
-        refined=pack['refinement']
-        search=refined.get('search',{})
-        lines += ['', '## Bounded hypothesis-focused retrieval', '',
-                  f"Retrieval rounds: {refined['retrieval_rounds']} / 1",
-                  f"Generation passes: {refined['generation_passes']}",
-                  f"Additional excerpts: {len(search.get('added_ids',[]))}",
-                  'Search hits are candidates, not confirmed counter-evidence or proof of a cause.']
-    if pack.get('intake'):
-        lines += ['', '## Intake (lexical hints, unverified)', '',
-                  'Intent: '+pack['intake']['intent'],
-                  'Review missing cues: '+(', '.join(pack['intake']['missing_information']) or 'none')]
-    if pack.get('followup'):
-        link=pack['followup']
-        lines += ['', '## Follow-up provenance', '', f"Parent job: `{link['parent_job_id']}`",
-                  f"Parent pack SHA256: `{link['parent_pack_sha256']}`",
-                  'User context is unverified and does not inherit historical query certification.']
-        if link.get('clarification'):
-            receipt=link['clarification']
-            lines += ['', '### Guided clarification answers', '',
-                      f"Question bundle SHA256: `{receipt['questions_sha256']}`; answers SHA256: `{receipt['sha256']}`.",
-                      'Answers remain unverified, including unknowns. Generated question wording is excluded from intake cues.',
-                      'Code is retrieved anew at the same commit; prior selected repository context is not carried into the new query.',
-                      '', '```json', json.dumps(receipt['answers'],ensure_ascii=False,indent=2), '```']
-            if link.get('question_job_id'):
-                lines += ['', f"Adaptive question job: `{link['question_job_id']}`.",
-                          'Model-proposed distinctions are unverified; referenced hypotheses and code stay bound to the source report.']
-    if pack.get('resumed_from'):
-        link=pack['resumed_from']
-        lines += ['', '## Explicit verifier continuation', '',
-                  f"Source job: `{link['source_job_id']}`; checkpoint SHA256 `{link['checkpoint_sha256']}`.",
-                  'Generation was reused after replay. Only verification continued; this was not an automatic retry.']
-    if pack.get('context_selection'):
-        link=pack['context_selection']
-        lines += ['', '## User-selected repository context', '',
-                  f"Parent job: `{link['parent_job_id']}`; pack SHA256 `{link['parent_pack_sha256']}`.",
-                  f"Selected context SHA256: `{link['context_sha256']}`.",
-                  'Only explicitly selected current sources were included. Historical availability and causal correctness remain unverified.']
-    if pack["annotation"]:
-        lines += ["", "## Competing hypotheses (automatic, correctness unverified)", ""]
-        for h in pack["annotation"]["hypotheses"]:
-            lines += [f"### {h['id']}", "", h["statement"], "", f"Support: {', '.join(h['support_ids'])}",
-                      f"Counter: {', '.join(h['counter_ids']) or h['counter_status']}", f"Check: {h['falsification_test']}", ""]
-    lines += ["", "## Limits", "", *[f"- {item}" for item in pack["leakage_audit"]["limitations"]],
-              "- Citation integrity and an LLM critique do not establish causal truth.", "- No independent human validation is claimed."]
-    (directory / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path=directory / "pack.json"
+    write_json(path, pack)
+    report=build_report(pack,source_pack_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    write_json(directory / "report.json",report)
+    (directory / "report.md").write_text(render_markdown(report),encoding="utf-8")
     return directory / "report.md"

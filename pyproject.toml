@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=8,<9", "jsonschema>=4.23,<5"]
 data = ["pyarrow>=17,<24"]
 llm = ["tiktoken>=0.12,<1"]
 

@@ -53,7 +53,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
-| F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
+| F17 | Tổng quan và JSON/Markdown/nháp GitHub dùng chung report contract có schema/hash về pack/query/snapshot; tách model critique, citation và kiểm người, giữ nguyên unknown. Xem evidence/hypotheses/trace và pack JSON gốc; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
 | F18 | Reservation trước HTTP gắn về job, cập nhật usage/price date sau call; tab chi phí/export riêng, không nhận tổng ledger thành chi phí phiên. Phiên cũ thiếu receipt giữ unknown. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag, diff file evidence, quan hệ ancestry và commit tham chiếu tùy chọn; liệt kê tag Git local chứa commit. Thiếu lịch sử giữ unknown. Chưa xác minh fix hoặc bản phát hành công khai chứa fix. |
@@ -64,6 +64,14 @@ Escape trả về báo cáo, chọn nút/đổi chế độ không gọi lại A
 hình hẹp chỉ vùng bản đồ cuộn ngang; nội dung và controls vẫn ở trong viewport.
 
 ## API và dữ liệu local
+
+Tab **Tổng quan / Overview** là màn đầu khi mở báo cáo, gồm trích issue được ghi
+rõ là lời người báo, giả thuyết cạnh tranh, bước kiểm tra chưa chạy và vị trí code
+ứng viên. Mở rộng để xem nhận xét model, giới hạn và hashes nguồn. Citation dẫn
+về evidence của đúng phiên; link GitHub pin đúng commit/dòng. Không tự sinh phần
+tóm tắt mới hoặc điểm tin cậy. Các nút **Markdown**, **Report JSON** và **Pack JSON**
+phân biệt bản trình bày với nguồn máy đọc gốc. UI đổi Việt/Anh; nội dung nguồn và
+export giữ nguyên ngôn ngữ. Pack cũ đọc qua projection mới, không bị viết lại.
 
 Giao diện hỗ trợ **Tiếng Việt / English** và **Light / Dark / System** từ thanh
 đầu trang. Theo hệ thống phản ứng với đổi theme của OS; lựa chọn rõ ràng giữ
@@ -103,6 +111,8 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET/POST /api/jobs/<id>/plan`: checklist theo pack; ghi cần expected SHA256, step ID, status và note.
 - `POST /api/jobs/<id>/cancel`: yêu cầu hủy với JSON `{}`.
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
+- `GET /api/jobs/<id>/investigation-report.json`, `.../investigation-report.md`: report v1 dựng từ pack đã replay, có raw-pack/query/snapshot SHA256; không model/Git/network.
+- `GET /api/investigation-report-schema`: JSON Schema 2020-12 của report v1; cùng session/origin guard như API đọc khác.
 - `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.

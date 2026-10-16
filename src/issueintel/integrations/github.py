@@ -6,7 +6,7 @@ import json
 import os
 import re
 from urllib.request import Request, HTTPRedirectHandler, build_opener
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 from issueintel.repository.acquire import parse_github_reference
 
@@ -18,46 +18,21 @@ def github_input(url):
     return source
 
 
-def comment_preview(pack):
+def comment_preview(pack, *, source_pack_sha256=None, job_id=None):
+    from issueintel.investigation.report import build_report, render_markdown
+    from issueintel.runtime.io import digest
     source = github_input(pack['case'].get('issue_url', ''))
-    revision = pack['snapshot']['commit_sha']
-    lines = ['## IssueIntel investigation', '',
-             f'Snapshot: `{revision}`. Automatic analysis; causal correctness is unverified.',
-             '', '### Evidence']
-    for evidence in pack['evidence']:
-        if evidence['kind'] == 'repository_context':
-            url=evidence['provenance']['source_url']
-            parsed=urlsplit(url)
-            if (parsed.scheme!='https' or parsed.netloc!='github.com' or parsed.username or parsed.password
-                    or not parsed.path.lower().startswith('/'+source.repository.lower()+'/')):
-                raise ValueError('Repository context link escaped the reviewed repository')
-            lines.append(f'- [{evidence["id"]}]({url}) — current repository context, historical availability unverified; SHA256 `{evidence["sha256"]}`')
-            continue
-        if evidence['kind'] != 'code':
-            continue
-        match = re.fullmatch(r'(.+):(\d+)-(\d+)', evidence['locator'])
-        if not match:
-            raise ValueError('Invalid code locator')
-        url = f'https://github.com/{source.repository}/blob/{revision}/{quote(match[1], safe="/")}#L{match[2]}-L{match[3]}'
-        lines.append(f'- [{evidence["id"]}]({url}) — SHA256 `{evidence["sha256"]}`')
-    if pack['annotation']:
-        lines += ['', '### Competing hypotheses']
-        for hypothesis in pack['annotation']['hypotheses']:
-            lines += [f'**{hypothesis["id"]}**: {hypothesis["statement"]}',
-                      f'Support: {", ".join(hypothesis["support_ids"])}.',
-                      f'Counter: {", ".join(hypothesis["counter_ids"]) or hypothesis["counter_status"]}.',
-                      f'Check: {hypothesis["falsification_test"]}', '']
-    else:
-        lines += ['', 'No model hypothesis was generated; this report contains retrieved evidence.']
-    lines += ['', '### Next checks', *[f'- {step}' for step in pack['recommended_steps']],
-              '', 'Citation integrity and model critique do not establish causal truth.',
-              'No independent human validation is claimed.']
-    body = '\n'.join(lines)+'\n'
-    if len(body.encode()) > 60000:
+    # In-memory callers have canonical content identity; the workbench supplies
+    # the SHA of the actual immutable serialized export instead.
+    hash_kind='serialized_pack_bytes' if source_pack_sha256 is not None else 'canonical_pack_json'
+    report=build_report(pack,source_pack_sha256=digest(pack) if source_pack_sha256 is None else source_pack_sha256,
+                        job_id=job_id,source_hash_kind=hash_kind)
+    body=render_markdown(report,compact=True)
+    if len(body.encode('utf-8'))>60000:
         raise ValueError('Comment exceeds the reviewable size bound')
-    return {'issue_url': source.issue_url, 'repository': source.repository,
-            'issue_number': source.issue_number, 'body': body,
-            'body_sha256': hashlib.sha256(body.encode()).hexdigest()}
+    return {'issue_url':source.issue_url,'repository':source.repository,
+            'issue_number':source.issue_number,'body':body,
+            'body_sha256':hashlib.sha256(body.encode('utf-8')).hexdigest()}
 
 
 def signed_command(raw, *, signature, event, delivery, secret):

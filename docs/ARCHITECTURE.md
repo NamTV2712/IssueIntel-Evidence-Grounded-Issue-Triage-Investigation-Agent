@@ -43,6 +43,20 @@ không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite
 riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
 PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
 
+`investigation.report` tạo projection `investigation_report_v1` có JSON Schema
+riêng từ pack đã lưu và SHA256 của đúng bytes nguồn. Projection không đọc Git,
+network, gold hoặc gọi model; Workbench replay export và lineage trước khi dựng.
+Web Overview, Markdown và nháp GitHub dùng cùng fields/citations/truth levels.
+`execution.status=completed` chỉ nói lượt điều tra đã hoàn tất; model critique
+không chuyển `causal_status` hoặc semantic support sang verified. Severity giữ
+unassessed, confidence probability giữ null, checks giữ not-executed. Excerpt
+có hash riêng và dấu truncated; link code chỉ dùng repo khớp issue, commit đầy
+đủ và line range. Report có digest riêng, không nằm trong inference pack.
+Standalone CLI export thêm `report.json`; đọc pack cũ chỉ derive view, không sửa
+pack/report.md/receipt. API tải Markdown mới tách khỏi route legacy đã lưu.
+Nháp GitHub thu gọn có giới hạn, báo rõ chi tiết bị bỏ và vẫn duyệt đúng body SHA.
+Schema được kiểm bằng jsonschema trong dev/CI; runtime chỉ dùng thư viện chuẩn.
+
 `investigation.clarifications` giữ template v1 Việt/Anh cố định cho bốn mục intake;
 không gọi model. Workbench khóa parent pack/query/question bundle, lưu nguyên Q/A
 theo ngôn ngữ đã xem và replay receipt khi đọc/export. Chỉ product và các hậu duệ
