@@ -24,6 +24,7 @@ STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
 STATIC['/resume.js'] = ('resume.js', 'text/javascript; charset=utf-8')
 STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
+STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -88,6 +89,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.job(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
+                    elif len(parts)==2 and parts[1]=='adaptive-questions':
+                        self._json(200,workbench.question_history(parts[0]))
+                    elif len(parts)==2 and parts[1]=='questions.json':
+                        self._send(200,workbench.question_bytes(parts[0]),download='questions.json')
                     elif len(parts) == 2 and parts[1] == 'evidence-graph':
                         self._json(200, workbench.evidence_graph(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'usage':
@@ -144,6 +149,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 request = json.loads(raw)
                 if route == '/api/investigations':
                     self._json(202, workbench.submit(request))
+                elif route=='/api/adaptive-questions':
+                    self._json(202,workbench.submit_questions(request))
                 elif route == '/api/repositories/sync':
                     self._json(202, workbench.submit_repository(request))
                 elif route == '/api/repositories/connect':

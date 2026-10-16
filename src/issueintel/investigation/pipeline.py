@@ -325,6 +325,9 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
                       'Answers remain unverified, including unknowns. Generated question wording is excluded from intake cues.',
                       'Code is retrieved anew at the same commit; prior selected repository context is not carried into the new query.',
                       '', '```json', json.dumps(receipt['answers'],ensure_ascii=False,indent=2), '```']
+            if link.get('question_job_id'):
+                lines += ['', f"Adaptive question job: `{link['question_job_id']}`.",
+                          'Model-proposed distinctions are unverified; referenced hypotheses and code stay bound to the source report.']
     if pack.get('resumed_from'):
         link=pack['resumed_from']
         lines += ['', '## Explicit verifier continuation', '',

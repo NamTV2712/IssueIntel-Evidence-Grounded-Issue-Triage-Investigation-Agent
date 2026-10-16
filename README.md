@@ -55,6 +55,12 @@ tìm thấy, không gọi model. Trả lời một phần hoặc ghi “chưa bi
 tạo phiên mới cùng commit. Báo cáo giữ nguyên câu hỏi/câu trả lời và hash nguồn;
 không coi nội dung này là xác minh lịch sử hoặc độ đầy đủ. Code được truy xuất
 lại; nguồn repository đã chọn trước đó không tự đi theo query mới.
+Với báo cáo product đã có ít nhất hai giả thuyết, **Câu hỏi theo giả thuyết và
+code** tạo 1–4 câu hỏi riêng cho issue bằng Groq sau khi duyệt chi phí. Mỗi câu
+có bản Việt/Anh, lý do hỏi, cách dùng câu trả lời và liên kết về giả thuyết/code.
+Một lượt gọi cho mỗi báo cáo nguồn; gửi lặp nhận lại tác vụ cũ, lỗi không tự thử
+lại. Có thể mở/xuất bộ câu hỏi đã lưu và dùng câu trả lời tạo phiên tiếp nối.
+Câu hỏi là đề xuất của model, chưa chứng minh khả năng phân biệt hoặc nguyên nhân.
 Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
 repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
 kết quả không tự đi vào inference strict.

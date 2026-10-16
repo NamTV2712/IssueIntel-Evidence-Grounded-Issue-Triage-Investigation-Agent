@@ -55,6 +55,18 @@ khỏi lexical cues: intake lưu projection nội dung người dùng, hash và 
 riêng; query SHA vẫn khóa toàn bộ đầu vào. “Có cue” và “đã trả lời” không chứng
 minh thông tin đầy đủ/đúng. Template v1 phải được giữ để replay artifact cũ.
 
+`investigation.adaptive_clarifications` thêm câu hỏi riêng dựa trên public issue,
+evidence và hypotheses đã lưu, với prompt v1/hash và bilingual structured output.
+Mỗi câu trỏ tới ít nhất hai hypothesis ID và một code citation; validation kiểm
+reference/schema/hash, không xác nhận chất lượng phân biệt hay causal truth.
+`question_jobs.QuestionJobs` dùng queue và receipt accounting chung; trước
+provider replay snapshot/excerpts, khóa source pack/query/annotation/evidence.
+SQLite intent giữ một attempt cho mỗi source job+pack SHA, kể cả failed/cancelled;
+không auto retry, repair, regeneration hoặc resume. Bundle private tách khỏi
+pack gốc, đọc lại dùng saved source, không mutable index/model. Adaptive answers
+có schema riêng, giữ nguyên prompt/purpose/answer-use/IDs; lineage replay cả
+question job và parent. Tám thế hệ và các cổng product-only giữ như template.
+
 `retrieval.repository_context` có local search và explicit collector: 1–6 nguồn
 khóa record+receipt SHA/global repo ID, không auto-expand. Context mode của
 Workbench chỉ nhận parent GitHub product, replay parent pack/snapshot trước

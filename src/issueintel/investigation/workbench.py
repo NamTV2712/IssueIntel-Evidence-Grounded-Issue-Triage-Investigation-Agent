@@ -33,7 +33,7 @@ def now():
 
 
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language', 'question_job_id'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
@@ -42,16 +42,22 @@ def validate_request(request):
         raise ValueError('Choose quick or deep investigation')
     if mode not in {'local', 'main_dev', 'example', 'github', 'followup', 'context', 'clarification'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
-    if mode not in {'followup','context','clarification'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language'}:
+    if mode not in {'followup','context','clarification'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language','question_job_id'}:
         raise ValueError('Follow-up fields require a follow-up job')
     if mode == 'clarification':
-        if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','questions_sha256','answers','language'}
+        if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','questions_sha256','answers','language','question_job_id'}
                 or request.get('language') not in {'en','vi'}
                 or not isinstance(request.get('parent_job_id'),str) or not re.fullmatch(r'[a-f0-9]{24}',request['parent_job_id'])
                 or any(not isinstance(request.get(key),str) or not re.fullmatch(r'[a-f0-9]{64}',request[key])
                        for key in ('parent_pack_sha256','questions_sha256'))):
             raise ValueError('Choose exact source-bound clarification questions')
-        request=dict(request,answers=validate_answers(request.get('answers')))
+        if 'question_job_id' in request:
+            from .adaptive_clarifications import validate_adaptive_answers
+            if not isinstance(request['question_job_id'],str) or not re.fullmatch(r'[a-f0-9]{24}',request['question_job_id']):
+                raise ValueError('Choose an exact saved adaptive question job')
+            request=dict(request,answers=validate_adaptive_answers(request.get('answers')))
+        else:
+            request=dict(request,answers=validate_answers(request.get('answers')))
     elif mode == 'context':
         from issueintel.retrieval.repository_context import validate_selections
         if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','selected_sources'}
@@ -107,6 +113,8 @@ class Workbench:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='issueintel-demo')
         self.capacity = threading.BoundedSemaphore(4)
         self.provider_factory = provider_factory
+        from .question_jobs import QuestionJobs
+        self.questions=QuestionJobs(self)
         self.lock = threading.RLock()
         self.active = set()
         self.cancelled = set()
@@ -212,7 +220,7 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
-            if row.get('mode') == 'version_comparison':
+            if row.get('mode') in {'version_comparison','adaptive_questions'}:
                 continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
@@ -302,11 +310,24 @@ class Workbench:
         if depth>=8 or hashlib.sha256(raw).hexdigest()!=request['parent_pack_sha256']:
             raise ValueError('Clarification source changed or generation limit reached')
         compare_packs(pack,pack)
-        questions=self._questions_for_pack(pack)
+        questions,prepare=self._answer_bundle(pack,raw,request)
         if questions['sha256']!=request['questions_sha256']:
             raise ValueError('Clarification questions changed; review the source again')
-        receipt=prepare_answers(questions,request['answers'],request['language'])
+        receipt=prepare(questions,request['answers'],request['language'])
         return pack,raw,depth,receipt
+
+    def _answer_bundle(self,pack,raw,request):
+        if 'question_job_id' in request:
+            from .adaptive_clarifications import build_source, prepare_answers as prepare_adaptive_answers
+            source=build_source(pack,request['parent_job_id'],hashlib.sha256(raw).hexdigest())
+            return self.questions.bundle(request['question_job_id'],expected_source=source),prepare_adaptive_answers
+        return self._questions_for_pack(pack),prepare_answers
+
+    def submit_questions(self,request):return self.questions.submit(request)
+
+    def question_history(self,identifier):return self.questions.history(identifier)
+
+    def question_bytes(self,identifier):return self.questions.read_bytes(identifier)
 
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source
@@ -736,15 +757,9 @@ class Workbench:
             elif request['mode'] in {'followup','clarification'}:
                 clarification=None
                 if request['mode']=='clarification':
-                    from issueintel.repository.snapshot import build_snapshot
-                    from .pipeline import validate_prepared_evidence
+                    from .question_jobs import replay_snapshot
                     parent,raw,depth,clarification=self._clarification_input(request)
-                    snapshot=build_snapshot(parent['snapshot']['repository'],parent['snapshot']['commit_sha'])
-                    descriptor=snapshot.to_dict()
-                    descriptor['files']=[{key:value for key,value in file.to_dict().items() if key!='text'} for file in snapshot.files]
-                    if digest(descriptor)!=digest(parent['snapshot']):
-                        raise ValueError('Clarification source snapshot no longer replays')
-                    validate_prepared_evidence(parent['case'],[e for e in parent['evidence'] if e['kind']!='repository_context'],snapshot)
+                    snapshot=replay_snapshot(parent)
                     extra={'snapshot':snapshot}
                 else:
                     parent, raw, depth = self._load_pack(request['parent_job_id'])
@@ -767,6 +782,7 @@ class Workbench:
                             'created_at':now(), 'historical_query_verified':False, 'depth':depth+1}
                 if clarification:
                     followup['clarification']=clarification
+                    if request.get('question_job_id'):followup['question_job_id']=request['question_job_id']
             elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
@@ -882,6 +898,8 @@ class Workbench:
         row = self.job(identifier)
         if row['status'] != 'completed':
             raise ValueError('Investigation is not complete')
+        if name not in row.get('result',{}):
+            raise ValueError('This job has no investigation export')
         ref = row['result'][name]
         expected = (self.directory/'runs'/identifier/name).resolve()
         path = (self.root/ref['path']).resolve()
@@ -969,9 +987,9 @@ class Workbench:
         if link.get('clarification') is not None:
             self._clarification_product(link['parent_job_id'],parent)
             receipt=link['clarification']
-            questions=self._questions_for_pack(parent)
+            questions,prepare=self._answer_bundle(parent,parent_raw,saved_request)
             answers=[{'question_id':row['question_id'],'answer':row['answer']} for row in receipt['answers']]
-            expected=prepare_answers(questions,answers,receipt['language'])
+            expected=prepare(questions,answers,receipt['language'])
             expected_case={'case_id':'followup:'+identifier,'repository':parent['case']['repository'],
                            'revision':parent['snapshot']['commit_sha'],'issue_created_at':None,
                            'problem_statement':parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional}
@@ -985,7 +1003,8 @@ class Workbench:
                     or saved_request.get('parent_job_id')!=link['parent_job_id']
                     or saved_request.get('parent_pack_sha256')!=link['parent_pack_sha256']
                     or saved_request.get('questions_sha256')!=questions['sha256']
-                    or prepare_answers(questions,saved_request.get('answers'),saved_request.get('language'))!=expected
+                    or saved_request.get('question_job_id')!=link.get('question_job_id')
+                    or prepare(questions,saved_request.get('answers'),saved_request.get('language'))!=expected
                     or self._inspect_query(pack['case']['problem_statement'],self._cue_text(pack))!=pack.get('intake')):
                 raise ValueError('Clarification answer/source binding changed')
         return pack, raw, depth+1

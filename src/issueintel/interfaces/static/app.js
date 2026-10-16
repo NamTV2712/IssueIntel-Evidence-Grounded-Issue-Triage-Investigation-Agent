@@ -76,7 +76,7 @@ async function openJob(id) {
 function renderPack() {
   if(!pack)return;
   document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
-    clarifications_available:intake?.clarifications_available===true,intake,
+    clarifications_available:intake?.clarifications_available===true,adaptive_available:intake?.clarifications_available===true,intake,pack,
     context_available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
     available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && !pack.case.case_id.startsWith('verified:') && !pack.case.case_id.startsWith('live:')}}));
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
@@ -208,9 +208,16 @@ function renderTab() {
       const receipt=pack.followup.clarification,saved=node('details');
       saved.append(node('summary',t('Câu trả lời đã lưu (chưa xác minh)')),
         node('p','Question SHA256 '+receipt.questions_sha256,'hash-note'),node('p','Answers SHA256 '+receipt.sha256,'hash-note'));
+      if(pack.followup.question_job_id){
+        const sourceId=pack.followup.parent_job_id,open=node('button',t('Mở phiên nguồn của câu hỏi'));
+        open.type='button';open.onclick=()=>openJob(sourceId);
+        saved.append(node('p',t('Giả thuyết và citation của câu hỏi thuộc phiên nguồn: {id}',{id:sourceId}),'notice'),open);
+      }
       for(const answer of receipt.answers){
         const card=node('article',undefined,'hypothesis-card');
-        card.append(node('h3',t(answer.field)),node('p',answer.question),node('pre',answer.answer));saved.append(card);
+        card.append(node('h3',t(answer.field)),node('p',answer.question),node('pre',answer.answer));
+        if(answer.purpose)card.append(node('p',answer.purpose),node('p',answer.answer_use),node('p',answer.hypothesis_ids.join(' · '),'hash-note'));
+        saved.append(card);
       }
       content.append(saved);
     }

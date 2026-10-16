@@ -1,4 +1,6 @@
 window.IssueIntelMessages = {
+  "Mở phiên nguồn của câu hỏi": {"vi":"Mở phiên nguồn của câu hỏi","en":"Open the question source run"},
+  "Giả thuyết và citation của câu hỏi thuộc phiên nguồn: {id}": {"vi":"Giả thuyết và citation của câu hỏi thuộc phiên nguồn: {id}","en":"Question hypotheses and citations belong to source run: {id}"},
   "IssueIntel · Điều tra issue": {
     "vi": "IssueIntel · Điều tra issue",
     "en": "IssueIntel · Issue investigation"
@@ -988,5 +990,29 @@ window.IssueIntelMessages = {
   "Phiên mới truy xuất code lại ở cùng commit; các nguồn repository đã chọn ở phiên trước không tự đi theo.": {"vi": "Phiên mới truy xuất code lại ở cùng commit; các nguồn repository đã chọn ở phiên trước không tự đi theo.", "en": "The new run retrieves code again at the same commit; repository sources selected in the previous run are not carried over automatically."},
   "Các dòng bên dưới thuộc bản nội dung người dùng đã loại câu hỏi tự sinh; câu trả lời vẫn chưa xác minh.": {"vi": "Các dòng bên dưới thuộc bản nội dung người dùng đã loại câu hỏi tự sinh; câu trả lời vẫn chưa xác minh.", "en": "The lines below come from user-provided content with generated questions removed; answers remain unverified."},
   "Nội dung dùng để kiểm tra từ khóa": {"vi": "Nội dung dùng để kiểm tra từ khóa", "en": "Content used for wording-cue checks"},
-  "Câu trả lời đã lưu (chưa xác minh)": {"vi": "Câu trả lời đã lưu (chưa xác minh)", "en": "Saved answers (unverified)"}
+  "Câu trả lời đã lưu (chưa xác minh)": {"vi": "Câu trả lời đã lưu (chưa xác minh)", "en": "Saved answers (unverified)"},
+  "Câu hỏi theo giả thuyết và code": {"vi":"Câu hỏi theo giả thuyết và code","en":"Questions grounded in hypotheses and code"},
+  "Đặt câu hỏi riêng cho issue để phân biệt các giả thuyết đang có, dựa trên bằng chứng ở đúng snapshot. Model đề xuất câu hỏi, không xác minh nguyên nhân.": {"vi":"Đặt câu hỏi riêng cho issue để phân biệt các giả thuyết đang có, dựa trên bằng chứng ở đúng snapshot. Model đề xuất câu hỏi, không xác minh nguyên nhân.","en":"Ask issue-specific questions to distinguish existing hypotheses using evidence at the saved snapshot. The model proposes questions; it does not verify causes."},
+  "Cần ít nhất hai giả thuyết đã lưu để tạo câu hỏi phân biệt. Bạn vẫn có thể trả lời câu hỏi theo mẫu hoặc bổ sung dữ kiện tự do.": {"vi":"Cần ít nhất hai giả thuyết đã lưu để tạo câu hỏi phân biệt. Bạn vẫn có thể trả lời câu hỏi theo mẫu hoặc bổ sung dữ kiện tự do.","en":"At least two saved hypotheses are needed to generate distinguishing questions. You can still answer template questions or add freeform context."},
+  "Mở danh sách câu hỏi đã lưu": {"vi":"Mở danh sách câu hỏi đã lưu","en":"Open saved question jobs"},
+  "Chỉ khi bạn bấm tạo, issue, các giả thuyết và code excerpts đã lưu mới được gửi tới Groq. Một lượt tạo cho mỗi báo cáo nguồn; chi phí theo cấu hình API, kể cả khi kết quả lỗi.": {"vi":"Chỉ khi bạn bấm tạo, issue, các giả thuyết và code excerpts đã lưu mới được gửi tới Groq. Một lượt tạo cho mỗi báo cáo nguồn; chi phí theo cấu hình API, kể cả khi kết quả lỗi.","en":"Only when you choose to generate are the issue, saved hypotheses and code excerpts sent to Groq. One generation attempt per source report; API costs may apply even if it fails."},
+  "Tôi đồng ý gửi nội dung trên tới Groq để tạo câu hỏi và chịu chi phí API.": {"vi":"Tôi đồng ý gửi nội dung trên tới Groq để tạo câu hỏi và chịu chi phí API.","en":"I agree to send the content above to Groq to generate questions with API costs."},
+  "Tạo câu hỏi từ giả thuyết": {"vi":"Tạo câu hỏi từ giả thuyết","en":"Generate questions from hypotheses"},
+  "Hủy tác vụ câu hỏi": {"vi":"Hủy tác vụ câu hỏi","en":"Cancel question job"},
+  "Chưa có bộ câu hỏi riêng cho phiên nguồn này.": {"vi":"Chưa có bộ câu hỏi riêng cho phiên nguồn này.","en":"No question bundle has been saved for this source run."},
+  "Mở tác vụ câu hỏi {id}": {"vi":"Mở tác vụ câu hỏi {id}","en":"Open question job {id}"},
+  "Tác vụ câu hỏi: {id} · {status}": {"vi":"Tác vụ câu hỏi: {id} · {status}","en":"Question job: {id} · {status}"},
+  "Tác vụ chưa tạo được bộ câu hỏi hợp lệ; receipt được giữ lại. Mỗi báo cáo nguồn chỉ có một lượt tạo câu hỏi. Muốn thử lượt mới, cần tạo phiên điều tra nguồn mới.": {"vi":"Tác vụ chưa tạo được bộ câu hỏi hợp lệ; receipt được giữ lại. Mỗi báo cáo nguồn chỉ có một lượt tạo câu hỏi. Muốn thử lượt mới, cần tạo phiên điều tra nguồn mới.","en":"This job did not produce a valid question bundle; receipts are retained. Each source report has one question-generation attempt. A new attempt requires a new source investigation."},
+  "Vì sao cần hỏi: ": {"vi":"Vì sao cần hỏi: ","en":"Why ask: "},
+  "Câu trả lời giúp phân biệt: ": {"vi":"Câu trả lời giúp phân biệt: ","en":"How answers distinguish hypotheses: "},
+  "Giả thuyết và bằng chứng liên quan": {"vi":"Giả thuyết và bằng chứng liên quan","en":"Related hypotheses and evidence"},
+  "Câu hỏi do model đề xuất, chưa được kiểm người. Trả lời những gì bạn biết hoặc ghi chưa biết.": {"vi":"Câu hỏi do model đề xuất, chưa được kiểm người. Trả lời những gì bạn biết hoặc ghi chưa biết.","en":"These model-proposed questions have not been reviewed by a human. Answer what you know or write unknown."},
+  "Chưa đọc được tác vụ hoặc bộ câu hỏi có nguồn. Mở tác vụ đã lưu để kiểm tra; không tự gọi lại model.": {"vi":"Chưa đọc được tác vụ hoặc bộ câu hỏi có nguồn. Mở tác vụ đã lưu để kiểm tra; không tự gọi lại model.","en":"Could not read the job or its source-bound questions. Open the saved job to check; the model will not be called again automatically."},
+  "Chưa đọc được danh sách câu hỏi đã lưu. Không có lời gọi model mới.": {"vi":"Chưa đọc được danh sách câu hỏi đã lưu. Không có lời gọi model mới.","en":"Could not read saved question jobs. No new model call was made."},
+  "Đang tạo câu hỏi từ issue, giả thuyết và bằng chứng đã lưu…": {"vi":"Đang tạo câu hỏi từ issue, giả thuyết và bằng chứng đã lưu…","en":"Generating questions from the saved issue, hypotheses and evidence…"},
+  "Chưa xác nhận được tác vụ câu hỏi. Mở danh sách đã lưu và kiểm tra receipt; gửi lại cùng nguồn chỉ nhận lại tác vụ cũ, không tạo lượt gọi mới.": {"vi":"Chưa xác nhận được tác vụ câu hỏi. Mở danh sách đã lưu và kiểm tra receipt; gửi lại cùng nguồn chỉ nhận lại tác vụ cũ, không tạo lượt gọi mới.","en":"Could not confirm the question job. Open saved jobs and check receipts; resubmitting the same source returns its existing job without a new model call."},
+  "Đã yêu cầu hủy; lời gọi đang gửi có thể vẫn tính phí.": {"vi":"Đã yêu cầu hủy; lời gọi đang gửi có thể vẫn tính phí.","en":"Cancellation requested; an in-flight call may still incur costs."},
+  "Chưa gửi được yêu cầu hủy; mở lại tác vụ để kiểm tra trạng thái.": {"vi":"Chưa gửi được yêu cầu hủy; mở lại tác vụ để kiểm tra trạng thái.","en":"Could not request cancellation; reopen the job to check its status."},
+  "hypothesis_check": {"vi":"Kiểm tra giả thuyết","en":"Hypothesis check"},
+  "Xuất bộ câu hỏi JSON": {"vi":"Xuất bộ câu hỏi JSON","en":"Export question bundle JSON"}
 };

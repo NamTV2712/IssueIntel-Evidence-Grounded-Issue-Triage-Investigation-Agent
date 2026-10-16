@@ -45,7 +45,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác từ báo cáo lưu sẵn tách truy xuất/citation hỗ trợ/citation phản bác/critique, có inspector và export. |
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
-| F09 | Intake có câu hỏi làm rõ Việt/Anh theo cue chưa tìm thấy; nhận trả lời một phần/“chưa biết” và tạo follow-up cùng commit. Khóa source pack, bộ câu hỏi, ngôn ngữ và Q/A; replay snapshot/excerpts trước provider và chuỗi nguồn khi đọc lại. Dữ kiện mới unverified, không kế thừa strict query. Câu hỏi theo giả thuyết và đo chất lượng câu hỏi còn roadmap. |
+| F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, tạo follow-up cùng commit, khóa và replay source pack/snapshot/question job/Q&A. Tạo câu hỏi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí, một intent cho mỗi nguồn. Chưa resume mọi stage; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
@@ -178,8 +178,26 @@ Nguyên văn Q/A đã lưu xem ở tab Intake và có trong JSON/Markdown. Query
 code lại ở cùng SHA, không tự mang nguồn repository đã chọn của query trước.
 Để câu chữ trong câu hỏi không tạo cue giả, intake của follow-up dùng projection
 nội dung người dùng (query gốc + câu trả lời, bỏ câu hỏi/wrapper), với text/hash và
-nguồn dòng riêng. Query SHA vẫn khóa toàn bộ đầu vào. Đây chưa phải cơ chế đặt
-câu hỏi phân biệt giả thuyết hoặc kết quả đánh giá chất lượng câu hỏi.
+nguồn dòng riêng. Query SHA vẫn khóa toàn bộ đầu vào. Luồng theo mẫu này không
+đặt câu hỏi phân biệt giả thuyết; phần model bên dưới đề xuất loại câu hỏi đó.
+
+**Câu hỏi theo giả thuyết và code** nhận báo cáo product đã có 2–5 hypotheses;
+mỗi lượt tạo 1–4 câu hỏi riêng qua `openai/gpt-oss-120b`, dùng issue, public code
+excerpts và hypotheses của đúng báo cáo. Mỗi câu có Việt/Anh, mục đích, cách dùng
+các câu trả lời khác nhau, ít nhất hai hypothesis refs và một code citation.
+Phải duyệt việc gửi dữ liệu/chi phí; provider đi qua ledger/per-call bounds hiện
+có, một call không tự sửa schema/thử lại. Gửi lặp cùng source nhận lại job cũ,
+kể cả job lỗi; muốn attempt mới cần tạo báo cáo điều tra nguồn mới. Mở lịch sử,
+đổi ngôn ngữ, export hoặc đọc bundle không gọi model. Câu hỏi/IDs đúng schema
+không chứng minh hữu ích hoặc đúng về ngữ nghĩa.
+
+API: `POST /api/adaptive-questions` nhận source job ID, pack SHA và confirmation
+`generate_questions_with_api_cost`. `GET /api/jobs/<source>/adaptive-questions`
+liệt kê local attempts; `GET /api/jobs/<question-job>/questions.json` replay/xuất
+bundle. Trả lời dùng `mode=clarification` cùng `question_job_id`, parent hash và
+bundle hash. Giữ nguyên hỏi đáp, mục đích, refs và language; câu hỏi không đi vào
+lexical cue projection. Context mới chưa xác minh, không mang quyền write/resume,
+không đọc benchmark/Holdout hoặc thay các receipts gốc.
 
 Form bổ sung tạo `mode=followup` với parent job ID và context tối đa 20.000 ký tự.
 Repository/commit lấy từ parent đã kiểm hash; client không được ghi đè. Pack cha
