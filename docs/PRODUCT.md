@@ -40,7 +40,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F01 | Nhận issue/repo/revision; intake gợi ý bug/feature/question/unknown bằng lexical cues, nguồn dòng/hash và thông tin cần xem lại; không coi cue là phân loại đã xác minh. |
 | F02 | Tìm ứng viên liên quan trong lịch sử local; repository memory ở UI/CLI thêm FTS trên issue/PR/comment đã đồng bộ. Chưa xác nhận duplicate, chưa tự đưa kết quả vào model. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
-| F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn issue/PR/comment/commit/file cho từng GitHub issue; typed links/source receipts, dùng trong generation/critique và export. Current context không phải temporal proof. |
+| F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn; người dùng cũng có thể tìm/chọn chính xác nguồn đã đồng bộ để tái điều tra cùng query/commit. Record, receipt và repository ID được replay; dùng trong generation/critique/export. Current context không phải temporal proof. |
 | F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng truy xuất theo giả thuyết rồi cập nhật đầu ra. Planner tổng quát nhiều tool/vòng còn roadmap. |
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác từ báo cáo lưu sẵn tách truy xuất/citation hỗ trợ/citation phản bác/critique, có inspector và export. |
@@ -94,6 +94,8 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs/<comparison>/versions.json`: export riêng có hash và binding về pack nguồn.
 
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
+- `POST /api/context-search`: `job_id`, `query`; tìm tối đa 20 nguồn trong index của đúng repo GitHub của báo cáo, không network/model.
+- `POST /api/investigations` với `mode: context`: `parent_job_id`, `parent_pack_sha256`, `selected_sources` (1–6 bộ key/record_sha256/receipt_sha256), `provider`, `depth`; giữ query/snapshot nguồn, không nhận repo/revision/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
 - `GET /api/jobs/<id>/evidence-graph`: đồ thị từ citation đã replay, hash-bound về pack; không gọi model hoặc đọc nguồn mới.
@@ -124,6 +126,22 @@ thiếu mục này vẫn mở được và không được suy thêm quan hệ a
 Mọi job/pack và repository ví dụ ở ignored `artifacts/demo/`. Không commit data,
 token, review bundle hoặc kết quả thật. CI dùng fixture tổng hợp. Evaluation,
 metrics và thí nghiệm Holdout vẫn cần capability/ủy quyền riêng theo proposal.
+
+## Chọn nguồn cho điều tra
+
+Mục **Chọn nguồn cho điều tra** chỉ áp dụng báo cáo GitHub product
+ngoài benchmark/strict và follow-up nhập văn bản. Tìm local không gọi model;
+preview dùng đúng excerpt mà inference sẽ nhận, tối đa 1.200 ký tự/nguồn. Danh
+sách lựa chọn không tự thêm nguồn khác. Cả record/receipt/global repo ID phải
+khớp trước queue và trước provider; repo gốc được replay ở commit đã lưu, không
+fetch lại HEAD hoặc mô tả issue hiện tại. Groq phải bật riêng và consent được xóa
+khi đổi nguồn/phiên/ngôn ngữ. Không có retry sau lỗi nhận job.
+
+`context_selection` khóa parent pack/context SHA, thứ tự nguồn và độ sâu tối đa
+tám thế hệ, dùng chung giới hạn với follow-up. Toàn bộ proof nguồn được lưu
+private, nên mở lại không phụ thuộc index đang thay đổi. Phiên mới không kế thừa
+quyền đăng comment hoặc verifier resume của phiên cha; context vẫn unverified.
+JSON, Markdown và Trace có provenance; giữ nguyên mọi byte/receipt của phiên cha.
 
 ## So sánh hai phiên
 

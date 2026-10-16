@@ -53,6 +53,12 @@ hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict
 Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
 repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
 kết quả không tự đi vào inference strict.
+Với báo cáo issue GitHub, mục **Chọn nguồn cho điều tra** tìm trong
+repository đã đồng bộ. Xem trích đoạn rồi chọn tối đa sáu nguồn; phiên mới giữ
+query và commit gốc, chỉ dùng đúng các nguồn đã chọn. Nội dung/receipt đổi sẽ yêu
+cầu tìm lại; Groq mặc định tắt. Đây là context hiện tại, chưa xác minh duplicate
+hoặc lịch sử. Báo cáo và receipt gốc được giữ nguyên.
+
 Tab **Kế hoạch kiểm tra / Check plan** lưu trạng thái và ghi chú theo phiên bản,
 mở lại sau restart và xuất JSON riêng. Trạng thái hoàn tất là tự báo cáo, chưa
 xác minh bản sửa; hệ thống không chạy code/test của repository đích.

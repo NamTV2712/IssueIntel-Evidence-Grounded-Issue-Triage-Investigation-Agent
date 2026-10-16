@@ -76,6 +76,7 @@ async function openJob(id) {
 function renderPack() {
   if(!pack)return;
   document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
+    context_available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
     available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && !pack.case.case_id.startsWith('verified:') && !pack.case.case_id.startsWith('live:')}}));
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
   $('followup-panel').hidden=false;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
@@ -224,7 +225,7 @@ function renderTab() {
   }
   if(activeTab==='trace') {
     if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
-    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,leakage_audit:pack.leakage_audit},null,2)));
+    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
   if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo);
@@ -316,6 +317,9 @@ $('export-md').onclick=()=>download('report.md');$('export-json').onclick=()=>do
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{activeTab=button.dataset.tab;renderTab();});
 document.addEventListener('issueintel:resumecreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'resume'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:contextcreated',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'context'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;

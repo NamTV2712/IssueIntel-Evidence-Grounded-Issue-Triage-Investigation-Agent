@@ -322,6 +322,12 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
         lines += ['', '## Explicit verifier continuation', '',
                   f"Source job: `{link['source_job_id']}`; checkpoint SHA256 `{link['checkpoint_sha256']}`.",
                   'Generation was reused after replay. Only verification continued; this was not an automatic retry.']
+    if pack.get('context_selection'):
+        link=pack['context_selection']
+        lines += ['', '## User-selected repository context', '',
+                  f"Parent job: `{link['parent_job_id']}`; pack SHA256 `{link['parent_pack_sha256']}`.",
+                  f"Selected context SHA256: `{link['context_sha256']}`.",
+                  'Only explicitly selected current sources were included. Historical availability and causal correctness remain unverified.']
     if pack["annotation"]:
         lines += ["", "## Competing hypotheses (automatic, correctness unverified)", ""]
         for h in pack["annotation"]["hypotheses"]:

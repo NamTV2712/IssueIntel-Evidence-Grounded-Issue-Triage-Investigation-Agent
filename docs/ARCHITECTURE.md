@@ -43,6 +43,15 @@ không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite
 riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
 PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
 
+`retrieval.repository_context` có local search và explicit collector: 1–6 nguồn
+khóa record+receipt SHA/global repo ID, không auto-expand. Context mode của
+Workbench chỉ nhận parent GitHub product, replay parent pack/snapshot trước
+provider, giữ query và commit, và tạo `context_selection` lineage hash-bound.
+Preview/inference dùng cùng issue query để cắt excerpt; từ khóa tìm kiếm chỉ chọn
+ứng viên. Read/export replay saved records/receipts không consult mutable index.
+Giới hạn tám thế hệ đi chung với follow-up, context mode không được resume paid
+verifier hoặc kế thừa GitHub write approval.
+
 ## Quyền sở hữu của các package
 
 | Package | Trách nhiệm | Ranh giới |

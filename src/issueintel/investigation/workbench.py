@@ -32,18 +32,25 @@ def now():
 
 
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
     if request.get('depth', 'quick') not in {'quick', 'deep'}:
         raise ValueError('Choose quick or deep investigation')
-    if mode not in {'local', 'main_dev', 'example', 'github', 'followup'} or provider not in {'none', 'groq'}:
+    if mode not in {'local', 'main_dev', 'example', 'github', 'followup', 'context'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
-    if mode != 'followup' and set(request) & {'parent_job_id', 'additional_context'}:
+    if mode not in {'followup','context'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources'}:
         raise ValueError('Follow-up fields require a follow-up job')
-    if mode == 'followup':
+    if mode == 'context':
+        from issueintel.retrieval.repository_context import validate_selections
+        if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','selected_sources'}
+                or not isinstance(request.get('parent_job_id'),str) or not re.fullmatch(r'[a-f0-9]{24}',request['parent_job_id'])
+                or not isinstance(request.get('parent_pack_sha256'),str) or not re.fullmatch(r'[a-f0-9]{64}',request['parent_pack_sha256'])):
+            raise ValueError('Choose an exact reviewed product context and sources')
+        request=dict(request,selected_sources=validate_selections(request.get('selected_sources')))
+    elif mode == 'followup':
         if set(request)-{'mode', 'provider', 'depth', 'parent_job_id', 'additional_context'}:
             raise ValueError('A follow-up cannot override its source or revision')
         if not isinstance(request.get('parent_job_id'), str) or not re.fullmatch(r'[a-f0-9]{24}', request['parent_job_id']):
@@ -206,7 +213,40 @@ class Workbench:
 
     def submit(self, request):
         request = validate_request(request)
+        if request['mode']=='context':
+            self._selected_context(request)  # Reject changed sources before queueing or provider construction.
         return self._enqueue(request, self._run)
+
+    def _context_parent(self, identifier, expected=None):
+        from .versions import product_version_source
+        pack,raw,depth=self._load_pack(identifier)
+        case=product_version_source(pack)
+        source=github_input(case.get('issue_url',''))
+        if (case['case_id']!=source.issue_url or case.get('instance_id') is not None
+                or case['repository'].lower()!=source.repository.lower() or depth>=8
+                or (expected is not None and hashlib.sha256(raw).hexdigest()!=expected)):
+            raise ValueError('Selected sources require a bound original product GitHub issue')
+        return pack,raw,depth
+
+    def context_search(self, request):
+        from issueintel.integrations.github_index import RepositoryIndex
+        from issueintel.retrieval.repository_context import search_context
+        if not isinstance(request,dict) or set(request)!={'job_id','query'}:
+            raise ValueError('Choose a product issue and bounded local search')
+        pack,raw,_=self._context_parent(request['job_id'])
+        result=search_context(RepositoryIndex(self.root,pack['case']['repository']),pack['case']['issue_url'],request['query'],
+            evidence_query=pack['case']['problem_statement'])
+        result.update(job_id=request['job_id'],source_pack_sha256=hashlib.sha256(raw).hexdigest(),commit_sha=pack['snapshot']['commit_sha'])
+        result.pop('sha256');result['sha256']=digest(result)
+        return result
+
+    def _selected_context(self, request):
+        from issueintel.integrations.github_index import RepositoryIndex
+        from issueintel.retrieval.repository_context import collect_selected_context
+        pack,raw,depth=self._context_parent(request['parent_job_id'],request['parent_pack_sha256'])
+        context=collect_selected_context(RepositoryIndex(self.root,pack['case']['repository']),
+            pack['case']['issue_url'],pack['case']['problem_statement'],request['selected_sources'])
+        return pack,raw,depth,context
 
     def _enqueue(self, request, callback, *, identifier=None):
         if not self.capacity.acquire(blocking=False):
@@ -431,8 +471,11 @@ class Workbench:
             self._check_cancelled(row['id'])
             # Only the original explicitly remote input may fetch a named ref.
             source_request = json.loads(self._job_path(request['source_job_id']).read_bytes())['request']
-            if source_request['mode']=='resume':
-                source_request=json.loads(self._job_path(source_request['source_job_id']).read_bytes())['request']
+            for _ in range(10):
+                if source_request['mode'] not in {'resume','context'}:break
+                parent_key='source_job_id' if source_request['mode']=='resume' else 'parent_job_id'
+                source_request=json.loads(self._job_path(source_request[parent_key]).read_bytes())['request']
+            else:raise ValueError('Product request ancestry exceeds its bound')
             remote = source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir())
             if remote:
                 acquired = acquire_repository(pack['case']['repository'], request['revision'], self.root/'data/repos')
@@ -585,7 +628,21 @@ class Workbench:
             request = row['request']
             extra = {}
             followup = None
-            if request['mode'] == 'followup':
+            context_selection = None
+            if request['mode']=='context':
+                from issueintel.repository.snapshot import build_snapshot
+                from .versions import compare_versions
+                parent,raw,depth,context=self._selected_context(request)
+                local=Path(parent['snapshot']['repository'])
+                snapshot=build_snapshot(local,parent['snapshot']['commit_sha'])
+                compare_versions(parent,snapshot,snapshot)  # Replay the reviewed source before provider use.
+                case=dict(parent['case'],revision=snapshot.commit_sha)
+                extra=dict(snapshot=snapshot,repository_context=context)
+                context_selection={'schema':'product_context_selection_v1','parent_job_id':request['parent_job_id'],
+                    'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),'depth':depth+1,
+                    'selected_sources':request['selected_sources'],'context_sha256':context['sha256'],
+                    'historical_verified':False}
+            elif request['mode'] == 'followup':
                 parent, raw, depth = self._load_pack(request['parent_job_id'])
                 if depth >= 8:
                     raise ValueError('Follow-up depth is bounded to eight generations')
@@ -677,6 +734,8 @@ class Workbench:
             self._check_cancelled(row['id'])
             if followup:
                 pack['followup'] = followup
+            if context_selection:
+                pack['context_selection']=context_selection
             directory = self.directory/'runs'/row['id']
             export_pack(pack, directory)
             refs = {name: {'path': (directory/name).relative_to(self.root).as_posix(),
@@ -755,6 +814,26 @@ class Workbench:
                     or any(digest(prepared[key])!=digest(pack[key]) for key in ('case','snapshot','evidence','annotation'))
                     or pack['leakage_audit']['strict_issue_time_verified'] is not False):
                 raise ValueError('Saved continuation source changed')
+        selected=pack.get('context_selection')
+        if selected:
+            from .versions import product_version_source
+            from issueintel.retrieval.repository_context import validate_selections
+            if pack.get('followup') or resume or selected.get('schema')!='product_context_selection_v1':
+                raise ValueError('Invalid selected-context lineage')
+            parent,parent_raw,depth=self._load_pack(selected['parent_job_id'],seen)
+            product_version_source(parent);product_version_source(pack)
+            expected_case=dict(parent['case'],revision=parent['snapshot']['commit_sha'])
+            context=pack.get('repository_context') or {}
+            selection=context.get('selection') or {}
+            if (selected['depth']!=depth+1 or selected['depth']>8
+                    or hashlib.sha256(parent_raw).hexdigest()!=selected['parent_pack_sha256']
+                    or pack['case']!=expected_case or pack['snapshot']!=parent['snapshot']
+                    or context.get('sha256')!=selected['context_sha256']
+                    or selected['selected_sources']!=validate_selections(selection.get('sources'))
+                    or selected.get('historical_verified') is not False
+                    or pack['leakage_audit']['strict_issue_time_verified'] is not False):
+                raise ValueError('Selected-context source binding changed')
+            return pack,raw,depth+1
         link = pack.get('followup')
         if not link:
             return pack, raw, 0

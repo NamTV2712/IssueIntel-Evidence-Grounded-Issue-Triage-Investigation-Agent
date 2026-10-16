@@ -22,6 +22,7 @@ STATIC['/evidence-graph.js'] = ('evidence-graph.js', 'text/javascript; charset=u
 STATIC['/evidence-graph.css'] = ('evidence-graph.css', 'text/css; charset=utf-8')
 STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
 STATIC['/resume.js'] = ('resume.js', 'text/javascript; charset=utf-8')
+STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -158,6 +159,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202, workbench.submit_versions(request))
                 elif route == '/api/related':
                     self._json(200, workbench.related(request))
+                elif route == '/api/context-search':
+                    self._json(200, workbench.context_search(request))
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid plan request')
