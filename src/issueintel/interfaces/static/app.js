@@ -76,6 +76,7 @@ async function openJob(id) {
 function renderPack() {
   if(!pack)return;
   document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
+    clarifications_available:intake?.clarifications_available===true,intake,
     context_available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
     available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && !pack.case.case_id.startsWith('verified:') && !pack.case.case_id.startsWith('live:')}}));
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
@@ -199,6 +200,20 @@ function renderTab() {
   }
   if(activeTab==='intake' && intake) {
     content.append(node('h3',t('Loại issue: ')+t(intake.intent)),node('p',t('Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.'),'notice'));
+    if(intake.cue_basis==='user_content_excluding_generated_questions'){
+      content.append(node('p',t('Các dòng bên dưới thuộc bản nội dung người dùng đã loại câu hỏi tự sinh; câu trả lời vẫn chưa xác minh.'),'notice'));
+      const source=node('details');source.append(node('summary',t('Nội dung dùng để kiểm tra từ khóa')),node('pre',intake.cue_text),node('p','SHA256 '+intake.cue_text_sha256,'hash-note'));content.append(source);
+    }
+    if(pack.followup?.clarification){
+      const receipt=pack.followup.clarification,saved=node('details');
+      saved.append(node('summary',t('Câu trả lời đã lưu (chưa xác minh)')),
+        node('p','Question SHA256 '+receipt.questions_sha256,'hash-note'),node('p','Answers SHA256 '+receipt.sha256,'hash-note'));
+      for(const answer of receipt.answers){
+        const card=node('article',undefined,'hypothesis-card');
+        card.append(node('h3',t(answer.field)),node('p',answer.question),node('pre',answer.answer));saved.append(card);
+      }
+      content.append(saved);
+    }
     for(const [field,details] of Object.entries(intake.fields)){
       const card=node('article',undefined,'hypothesis-card');card.append(node('h3',t(field)+' · '+t(details.status)));
       for(const source of details.sources)card.append(node('pre',t('Dòng {line}: ',{line:source.line})+source.text),node('p','SHA256 '+source.text_sha256,'hash-note'));
@@ -320,6 +335,9 @@ document.addEventListener('issueintel:resumecreated',event=>{
 });
 document.addEventListener('issueintel:contextcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'context'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:clarificationcreated',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'clarification'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;

@@ -21,6 +21,7 @@ from issueintel.retrieval.related import rank_related
 from .pipeline import investigate, export_pack
 from .comparison import compare_packs
 from .intake import inspect_issue
+from .clarifications import questions_for, validate_answers, prepare_answers
 from .plan import PlanStore
 from .stages import StageCheckpoints, STAGES
 from .providers import GroqProvider, ProviderError
@@ -32,18 +33,26 @@ def now():
 
 
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
     if request.get('depth', 'quick') not in {'quick', 'deep'}:
         raise ValueError('Choose quick or deep investigation')
-    if mode not in {'local', 'main_dev', 'example', 'github', 'followup', 'context'} or provider not in {'none', 'groq'}:
+    if mode not in {'local', 'main_dev', 'example', 'github', 'followup', 'context', 'clarification'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
-    if mode not in {'followup','context'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources'}:
+    if mode not in {'followup','context','clarification'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language'}:
         raise ValueError('Follow-up fields require a follow-up job')
-    if mode == 'context':
+    if mode == 'clarification':
+        if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','questions_sha256','answers','language'}
+                or request.get('language') not in {'en','vi'}
+                or not isinstance(request.get('parent_job_id'),str) or not re.fullmatch(r'[a-f0-9]{24}',request['parent_job_id'])
+                or any(not isinstance(request.get(key),str) or not re.fullmatch(r'[a-f0-9]{64}',request[key])
+                       for key in ('parent_pack_sha256','questions_sha256'))):
+            raise ValueError('Choose exact source-bound clarification questions')
+        request=dict(request,answers=validate_answers(request.get('answers')))
+    elif mode == 'context':
         from issueintel.retrieval.repository_context import validate_selections
         if (set(request)-{'mode','provider','depth','parent_job_id','parent_pack_sha256','selected_sources'}
                 or not isinstance(request.get('parent_job_id'),str) or not re.fullmatch(r'[a-f0-9]{24}',request['parent_job_id'])
@@ -215,7 +224,89 @@ class Workbench:
         request = validate_request(request)
         if request['mode']=='context':
             self._selected_context(request)  # Reject changed sources before queueing or provider construction.
+        elif request['mode']=='clarification':
+            self._clarification_input(request)
         return self._enqueue(request, self._run)
+
+    def _clarification_product(self, identifier, pack):
+        """Retain product authority through mixed follow-up/context ancestry."""
+        from .resume import validate_product_case
+        seen=set()
+        for _ in range(10):
+            if identifier in seen:
+                raise ValueError('Invalid clarification source lineage')
+            seen.add(identifier)
+            request=json.loads(self._job_path(identifier).read_bytes())['request']
+            mode=request['mode']
+            if (pack['snapshot']['protocol']!='benchmark_base' or pack['case'].get('split') is not None
+                    or pack['leakage_audit']['strict_issue_time_verified'] is not False):
+                raise ValueError('Clarifications require product sources outside benchmark splits')
+            if mode in {'followup','clarification'}:
+                link=pack.get('followup') or {}
+                if link.get('parent_job_id')!=request.get('parent_job_id'):
+                    raise ValueError('Clarification request authority changed')
+                identifier=link['parent_job_id']
+            elif mode=='context':
+                link=pack.get('context_selection') or {}
+                if link.get('parent_job_id')!=request.get('parent_job_id'):
+                    raise ValueError('Clarification context authority changed')
+                identifier=link['parent_job_id']
+            elif mode=='resume':
+                link=pack.get('resumed_from') or {}
+                if link.get('source_job_id')!=request.get('source_job_id'):
+                    raise ValueError('Clarification continuation authority changed')
+                source=json.loads(self._job_path(link['source_job_id']).read_bytes())['request']
+                if source['mode'] not in {'github','local','example'}:
+                    raise ValueError('Clarifications require an original product source')
+                validate_product_case(pack['case'],pack['snapshot']['protocol'])
+                return
+            elif mode in {'github','local','example'}:
+                validate_product_case(pack['case'],pack['snapshot']['protocol'])
+                return
+            else:
+                raise ValueError('Clarifications require original product authority')
+            pack=json.loads(self._export_bytes(identifier))
+        raise ValueError('Clarification ancestry exceeds the bounded workflow')
+
+    def _cue_text(self, pack):
+        """Do not let generated question wording manufacture input cues."""
+        link=pack.get('followup')
+        if not link:
+            return pack['case']['problem_statement']
+        parent=json.loads(self._export_bytes(link['parent_job_id']))
+        receipt=link.get('clarification')
+        addition=('\n'.join(row['answer'] for row in receipt['answers']) if receipt else link['additional_context'])
+        return self._cue_text(parent)+'\n'+addition
+
+    @staticmethod
+    def _inspect_query(text, cue_text):
+        result=inspect_issue(cue_text)
+        if text!=cue_text:
+            result.update(query_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                          cue_text_sha256=hashlib.sha256(cue_text.encode()).hexdigest(),
+                          cue_basis='user_content_excluding_generated_questions',cue_text=cue_text)
+            for rows in [*(details['sources'] for details in result['fields'].values()),*result['intent_signals'].values()]:
+                for source in rows:
+                    source.update(source_kind='user_content_projection',source_text_sha256=result['cue_text_sha256'])
+            result['limitations'].append('Generated clarification questions and follow-up wrappers are excluded from lexical cues; user answers remain unverified.')
+        return result
+
+    def _questions_for_pack(self, pack):
+        text=pack['case']['problem_statement']
+        cue_text=self._cue_text(pack)
+        return questions_for(text,cue_text=cue_text if cue_text!=text else None)
+
+    def _clarification_input(self, request):
+        pack,raw,depth=self._load_pack(request['parent_job_id'])
+        self._clarification_product(request['parent_job_id'],pack)
+        if depth>=8 or hashlib.sha256(raw).hexdigest()!=request['parent_pack_sha256']:
+            raise ValueError('Clarification source changed or generation limit reached')
+        compare_packs(pack,pack)
+        questions=self._questions_for_pack(pack)
+        if questions['sha256']!=request['questions_sha256']:
+            raise ValueError('Clarification questions changed; review the source again')
+        receipt=prepare_answers(questions,request['answers'],request['language'])
+        return pack,raw,depth,receipt
 
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source
@@ -642,11 +733,24 @@ class Workbench:
                     'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),'depth':depth+1,
                     'selected_sources':request['selected_sources'],'context_sha256':context['sha256'],
                     'historical_verified':False}
-            elif request['mode'] == 'followup':
-                parent, raw, depth = self._load_pack(request['parent_job_id'])
+            elif request['mode'] in {'followup','clarification'}:
+                clarification=None
+                if request['mode']=='clarification':
+                    from issueintel.repository.snapshot import build_snapshot
+                    from .pipeline import validate_prepared_evidence
+                    parent,raw,depth,clarification=self._clarification_input(request)
+                    snapshot=build_snapshot(parent['snapshot']['repository'],parent['snapshot']['commit_sha'])
+                    descriptor=snapshot.to_dict()
+                    descriptor['files']=[{key:value for key,value in file.to_dict().items() if key!='text'} for file in snapshot.files]
+                    if digest(descriptor)!=digest(parent['snapshot']):
+                        raise ValueError('Clarification source snapshot no longer replays')
+                    validate_prepared_evidence(parent['case'],[e for e in parent['evidence'] if e['kind']!='repository_context'],snapshot)
+                    extra={'snapshot':snapshot}
+                else:
+                    parent, raw, depth = self._load_pack(request['parent_job_id'])
                 if depth >= 8:
                     raise ValueError('Follow-up depth is bounded to eight generations')
-                additional = request['additional_context']
+                additional = clarification['additional_context'] if clarification else request['additional_context']
                 text = parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
                 if len(text)>100000:
                     raise ValueError('Combined query exceeds the public input bound')
@@ -661,6 +765,8 @@ class Workbench:
                             'source_case_id':(parent.get('followup') or {}).get('source_case_id',parent['case']['case_id']),
                             'additional_context':additional, 'context_sha256':hashlib.sha256(additional.encode()).hexdigest(),
                             'created_at':now(), 'historical_query_verified':False, 'depth':depth+1}
+                if clarification:
+                    followup['clarification']=clarification
             elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
@@ -734,6 +840,13 @@ class Workbench:
             self._check_cancelled(row['id'])
             if followup:
                 pack['followup'] = followup
+                cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
+                              if followup.get('clarification') else followup['additional_context'])
+                pack['intake']=self._inspect_query(pack['case']['problem_statement'],self._cue_text(parent)+'\n'+cue_addition)
+                if followup.get('clarification'):
+                    pack['trace'].append({'stage':'clarification_answers','questions_sha256':followup['clarification']['questions_sha256'],
+                        'answers_sha256':followup['clarification']['sha256'],'parent_pack_sha256':followup['parent_pack_sha256'],
+                        'answer_count':len(followup['clarification']['answers']),'historical_verified':False})
             if context_selection:
                 pack['context_selection']=context_selection
             directory = self.directory/'runs'/row['id']
@@ -802,6 +915,9 @@ class Workbench:
         seen.add(identifier)
         raw = self._export_bytes(identifier)
         pack = json.loads(raw)
+        saved_request=json.loads(self._job_path(identifier).read_bytes())['request']
+        if saved_request.get('mode')=='clarification' and not (pack.get('followup') or {}).get('clarification'):
+            raise ValueError('Missing saved clarification receipt')
         resume=pack.get('resumed_from')
         if resume:
             if pack.get('followup') or resume.get('schema')!='product_verification_resume_v1':
@@ -840,6 +956,7 @@ class Workbench:
         parent, parent_raw, depth = self._load_pack(link['parent_job_id'], seen)
         additional = link['additional_context']
         if (link.get('schema') != 'investigation_followup_v1' or link['depth'] != depth+1
+                or link['depth']>8
                 or hashlib.sha256(parent_raw).hexdigest() != link['parent_pack_sha256']
                 or hashlib.sha256(additional.encode()).hexdigest() != link['context_sha256']
                 or link['source_case_id'] != (parent.get('followup') or {}).get('source_case_id',parent['case']['case_id'])
@@ -849,12 +966,42 @@ class Workbench:
                 or pack['snapshot']['protocol'] != 'benchmark_base'
                 or pack['leakage_audit']['strict_issue_time_verified'] is not False):
             raise ValueError('Follow-up source binding changed')
+        if link.get('clarification') is not None:
+            self._clarification_product(link['parent_job_id'],parent)
+            receipt=link['clarification']
+            questions=self._questions_for_pack(parent)
+            answers=[{'question_id':row['question_id'],'answer':row['answer']} for row in receipt['answers']]
+            expected=prepare_answers(questions,answers,receipt['language'])
+            expected_case={'case_id':'followup:'+identifier,'repository':parent['case']['repository'],
+                           'revision':parent['snapshot']['commit_sha'],'issue_created_at':None,
+                           'problem_statement':parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional}
+            if parent['case'].get('issue_url'):
+                expected_case['issue_url']=parent['case']['issue_url']
+            compare_packs(pack,pack)
+            if (receipt!=expected or additional!=expected['additional_context']
+                    or pack['case']!=expected_case or pack['snapshot']!=parent['snapshot']
+                    or pack.get('repository_context') is not None
+                    or saved_request.get('mode')!='clarification'
+                    or saved_request.get('parent_job_id')!=link['parent_job_id']
+                    or saved_request.get('parent_pack_sha256')!=link['parent_pack_sha256']
+                    or saved_request.get('questions_sha256')!=questions['sha256']
+                    or prepare_answers(questions,saved_request.get('answers'),saved_request.get('language'))!=expected
+                    or self._inspect_query(pack['case']['problem_statement'],self._cue_text(pack))!=pack.get('intake')):
+                raise ValueError('Clarification answer/source binding changed')
         return pack, raw, depth+1
 
     def intake(self, identifier):
-        pack, raw, _ = self._load_pack(identifier)
-        return dict(inspect_issue(pack['case']['problem_statement']),
-                    source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
+        pack, raw, depth = self._load_pack(identifier)
+        cue_text=self._cue_text(pack)
+        try:
+            self._clarification_product(identifier,pack)
+            available=depth<8
+        except (ValueError,KeyError,TypeError,OSError):
+            available=False
+        return dict(self._inspect_query(pack['case']['problem_statement'],cue_text),
+                    source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier,
+                    clarifications_available=available,
+                    clarifications=self._questions_for_pack(pack) if available else None)
 
     def evidence_graph(self, identifier):
         from .evidence_graph import evidence_graph

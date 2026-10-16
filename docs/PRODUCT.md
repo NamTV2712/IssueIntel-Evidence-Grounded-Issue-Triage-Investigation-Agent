@@ -45,7 +45,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F06 | `JevController` typed allowed actions và rules fallback đã có; remote transport chưa cấu hình/đánh giá. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác từ báo cáo lưu sẵn tách truy xuất/citation hỗ trợ/citation phản bác/critique, có inspector và export. |
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
-| F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
+| F09 | Intake có câu hỏi làm rõ Việt/Anh theo cue chưa tìm thấy; nhận trả lời một phần/“chưa biết” và tạo follow-up cùng commit. Khóa source pack, bộ câu hỏi, ngôn ngữ và Q/A; replay snapshot/excerpts trước provider và chuỗi nguồn khi đọc lại. Dữ kiện mới unverified, không kế thừa strict query. Câu hỏi theo giả thuyết và đo chất lượng câu hỏi còn roadmap. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí, một intent cho mỗi nguồn. Chưa resume mọi stage; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
@@ -166,6 +166,20 @@ mong đợi, cách tái hiện, môi trường/phiên bản. Các tín hiệu in
 không có giữ `unknown`. `mentioned` không xác nhận đủ thông tin; `not_found`
 không chứng minh thông tin vắng mặt. Nguồn dài có hash cho dòng đầy đủ và excerpt
 riêng, kèm dấu truncated. Không gọi model, tra gold hoặc gán nhãn người.
+
+Mục **Trả lời câu hỏi gợi ý** dùng template v1 Việt/Anh cho những cue chưa tìm
+thấy, tối đa bốn câu. Có thể trả lời một phần hoặc “chưa biết”. `mode=clarification`
+nhận `parent_job_id`, `parent_pack_sha256`, `questions_sha256`, `language` và
+`answers` (ID câu hỏi + nguyên văn câu trả lời, tối đa 4.000 ký tự/câu). Server
+kiểm nguồn trước queue và worker; replay snapshot/excerpts trước provider. Chỉ
+product được dùng, kể cả kiểm nguồn gốc xuyên các phiên tiếp nối; không benchmark.
+Groq bật riêng cho lần gửi, không được kế thừa khi đổi nội dung/ngôn ngữ/nguồn.
+Nguyên văn Q/A đã lưu xem ở tab Intake và có trong JSON/Markdown. Query mới lấy
+code lại ở cùng SHA, không tự mang nguồn repository đã chọn của query trước.
+Để câu chữ trong câu hỏi không tạo cue giả, intake của follow-up dùng projection
+nội dung người dùng (query gốc + câu trả lời, bỏ câu hỏi/wrapper), với text/hash và
+nguồn dòng riêng. Query SHA vẫn khóa toàn bộ đầu vào. Đây chưa phải cơ chế đặt
+câu hỏi phân biệt giả thuyết hoặc kết quả đánh giá chất lượng câu hỏi.
 
 Form bổ sung tạo `mode=followup` với parent job ID và context tối đa 20.000 ký tự.
 Repository/commit lấy từ parent đã kiểm hash; client không được ghi đè. Pack cha

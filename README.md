@@ -50,6 +50,11 @@ nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc d
 Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form
 **Bổ sung dữ kiện / Add context** tạo phiên mới cùng commit, giữ nguồn dẫn và
 hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict lịch sử.
+Với phiên product, **Trả lời câu hỏi gợi ý** đưa ra câu hỏi Việt/Anh theo các cue chưa
+tìm thấy, không gọi model. Trả lời một phần hoặc ghi “chưa biết”, rồi chủ động
+tạo phiên mới cùng commit. Báo cáo giữ nguyên câu hỏi/câu trả lời và hash nguồn;
+không coi nội dung này là xác minh lịch sử hoặc độ đầy đủ. Code được truy xuất
+lại; nguồn repository đã chọn trước đó không tự đi theo query mới.
 Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
 repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
 kết quả không tự đi vào inference strict.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -317,6 +318,13 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
         lines += ['', '## Follow-up provenance', '', f"Parent job: `{link['parent_job_id']}`",
                   f"Parent pack SHA256: `{link['parent_pack_sha256']}`",
                   'User context is unverified and does not inherit historical query certification.']
+        if link.get('clarification'):
+            receipt=link['clarification']
+            lines += ['', '### Guided clarification answers', '',
+                      f"Question bundle SHA256: `{receipt['questions_sha256']}`; answers SHA256: `{receipt['sha256']}`.",
+                      'Answers remain unverified, including unknowns. Generated question wording is excluded from intake cues.',
+                      'Code is retrieved anew at the same commit; prior selected repository context is not carried into the new query.',
+                      '', '```json', json.dumps(receipt['answers'],ensure_ascii=False,indent=2), '```']
     if pack.get('resumed_from'):
         link=pack['resumed_from']
         lines += ['', '## Explicit verifier continuation', '',

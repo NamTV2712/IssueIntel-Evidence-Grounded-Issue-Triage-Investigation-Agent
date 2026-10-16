@@ -43,6 +43,18 @@ không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite
 riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
 PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
 
+`investigation.clarifications` giữ template v1 Việt/Anh cố định cho bốn mục intake;
+không gọi model. Workbench khóa parent pack/query/question bundle, lưu nguyên Q/A
+theo ngôn ngữ đã xem và replay receipt khi đọc/export. Chỉ product và các hậu duệ
+product được dùng; request authority được kiểm xuyên follow-up/context/resume,
+không dùng benchmark dù follow-up đã bỏ nhãn strict. Trước provider phải replay
+snapshot descriptor và excerpt từ Git ở đúng SHA. Query mới lấy code lại, không
+kế thừa context repository đang khóa query cũ, quyền đăng GitHub hay checkpoint
+verifier. Tám thế hệ dùng chung với follow-up/context. Câu hỏi tự sinh bị loại
+khỏi lexical cues: intake lưu projection nội dung người dùng, hash và nguồn dòng
+riêng; query SHA vẫn khóa toàn bộ đầu vào. “Có cue” và “đã trả lời” không chứng
+minh thông tin đầy đủ/đúng. Template v1 phải được giữ để replay artifact cũ.
+
 `retrieval.repository_context` có local search và explicit collector: 1–6 nguồn
 khóa record+receipt SHA/global repo ID, không auto-expand. Context mode của
 Workbench chỉ nhận parent GitHub product, replay parent pack/snapshot trước
