@@ -48,6 +48,8 @@ def test_version_job_diff_is_source_bound_separate_durable_and_no_model(versions
     parser = next(row for row in result['files'] if row['path']=='parser.py')
     assert parser['in_source_evidence'] and '+    return [] if items is None' in parser['diff']['text']
     assert result['fix_status'] == 'unverified' and result['model_calls'] == 0
+    assert result['git_reachability']['source_to_target']['status']=='source_ancestor'
+    assert result['git_reachability']['reference'] is None
     assert result['evaluation_performed'] is False and wb.result_bytes(source) == raw_before
     assert job['id'] not in [row['id'] for row in wb.history()]
     assert wb.versions_history(source)[0]['id'] == job['id']
@@ -138,11 +140,79 @@ def test_invalid_revision_and_fields_rejected_before_git_or_queue(versions, monk
     monkeypatch.setattr(wb,'_enqueue',lambda *a:pytest.fail('Invalid request queued'))
     for revision in ['--upload-pack=bad','../../main','HEAD\n','main:secret',None]:
         with pytest.raises(ValueError): wb.submit_versions({'job_id':source,'revision':revision})
+        with pytest.raises(ValueError): wb.submit_versions({'job_id':source,'revision':'HEAD','reference_revision':revision})
+    with pytest.raises(ValueError): wb.submit_versions({'job_id':source,'revision':'HEAD','reference_revision':''})
     with pytest.raises(ValueError): wb.submit_versions({'job_id':source,'revision':'HEAD','provider':'groq'})
     original = wb._load_pack(source)
     tampered = deepcopy(original[0]);tampered['case']['split']='main_dev'
     monkeypatch.setattr(wb,'_load_pack',lambda *a:(tampered,original[1],0))
     with pytest.raises(ValueError): wb.submit_versions({'job_id':source,'revision':'HEAD'})
+
+
+def test_reference_commit_and_local_tags_are_pinned_in_separate_export(versions):
+    from pathlib import Path
+    wb,source,pack=versions
+    repo=Path(pack['snapshot']['repository'])
+    (repo/'parser.py').write_text('def parse_list(items):\n    return []\n',encoding='utf-8')
+    candidate=commit(repo)
+    subprocess.run(['git','-C',str(repo),'tag','candidate-fix',candidate],check=True)
+    (repo/'release.txt').write_text('Synthetic later version\n',encoding='utf-8')
+    target=commit(repo)
+    subprocess.run(['git','-C',str(repo),'tag','v2',target],check=True)
+    child=completed(wb,wb.submit_versions({'job_id':source,'revision':target,'reference_revision':'candidate-fix'})['id'])
+    assert child['status']=='completed',child
+    saved=wb.versions_bytes(child['id']);result=json.loads(saved)
+    reachability=result['git_reachability']
+    assert reachability['reference']['requested_revision']=='candidate-fix'
+    assert reachability['reference']['commit_sha']==candidate
+    assert reachability['reference']['status']=='contained'
+    assert {tag['name'] for tag in reachability['tags']['containing']}=={'candidate-fix','v2'}
+    assert result['requested_reference_revision']=='candidate-fix'
+    assert reachability['fix_status']=='unverified' and reachability['publication_status']=='unverified'
+    subprocess.run(['git','-C',str(repo),'tag','-d','candidate-fix','v2'],check=True,stdout=subprocess.PIPE)
+    assert wb.versions_bytes(child['id'])==saved  # Reopening preserves the inspected ref inventory.
+    assert json.loads(wb.result_bytes(source))==pack
+
+
+def test_swapping_valid_comparison_cannot_change_the_approved_reference(versions):
+    from pathlib import Path
+    wb,source,pack=versions
+    repo=Path(pack['snapshot']['repository'])
+    (repo/'release.txt').write_text('Synthetic target\n',encoding='utf-8')
+    target=commit(repo)
+    first=completed(wb,wb.submit_versions({'job_id':source,'revision':target,'reference_revision':pack['snapshot']['commit_sha']})['id'])
+    second=completed(wb,wb.submit_versions({'job_id':source,'revision':target,'reference_revision':'HEAD'})['id'])
+    other=wb.versions_bytes(second['id'])
+    path=wb.root/first['result']['versions.json']['path'];path.write_bytes(other)
+    row=json.loads(wb._job_path(first['id']).read_bytes())
+    row['result']['versions.json']['sha256']=hashlib.sha256(other).hexdigest()
+    wb._save(row)
+    with pytest.raises(ValueError,match='binding'):wb.versions_bytes(first['id'])
+
+
+def test_remote_reference_fetch_does_not_retarget_comparison(versions,monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    wb,source,pack=versions
+    repo=Path(pack['snapshot']['repository']);reference=pack['snapshot']['commit_sha']
+    (repo/'release.txt').write_text('Synthetic target\n',encoding='utf-8')
+    target=commit(repo)
+    original=json.loads(wb._job_path(source).read_bytes());original['request']['mode']='github'
+    wb._save(original)
+    calls=[]
+    def acquire(repository,revision,directory):
+        calls.append(revision)
+        resolved=target if revision=='target-ref' else reference
+        (repo/'.git'/'FETCH_HEAD').write_text(resolved+'\n',encoding='ascii')
+        return SimpleNamespace(path=repo,commit_sha=resolved)
+    monkeypatch.setattr('issueintel.investigation.workbench.acquire_repository',acquire)
+    child=completed(wb,wb.submit_versions({'job_id':source,'revision':'target-ref','reference_revision':'fix-ref'})['id'])
+    assert child['status']=='completed',child
+    report=json.loads(wb.versions_bytes(child['id']))
+    assert calls==['target-ref','fix-ref']
+    assert report['after']['commit_sha']==target
+    assert report['git_reachability']['reference']['commit_sha']==reference
+    assert report['git_reachability']['reference']['requested_revision']=='fix-ref'
 
 
 def test_http_versions_require_session_and_preserve_source_binding(tmp_path):

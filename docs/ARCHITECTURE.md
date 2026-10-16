@@ -131,7 +131,16 @@ chặn. Workbench chạy job riêng trong cùng queue, có cancel và export has
 về source pack; không sửa pack/citation/eligibility. Đếm mọi tracked text được
 snapshot nhận, giữ skipped là unavailable; hiển thị tối đa 200 mục và bốn diff
 file evidence (2.000 dòng/40.000 ký tự input và 12.000 ký tự output mỗi diff).
-Không chạy test, gọi LLM, chứng minh ancestry/release hoặc xác nhận bản sửa.
+Không chạy test, gọi LLM hoặc xác nhận bản sửa/release.
+
+`investigation.reachability` bổ sung ancestry view của cùng repository product.
+Resolve ref một lần về SHA, so source/target hai chiều, tùy chọn kiểm commit tham
+chiếu và tối đa 200 tag local chụp cùng OID. Không checkout/hook/lazy-fetch;
+replacement/commit-graph bị tắt, graft được bỏ qua và đánh dấu altered. Kết quả
+âm tính thiếu lịch sử giữ unknown; không gán tag Git thành published release.
+Giới hạn thời gian/output và callback cancel áp dụng giữa lệnh. Workbench pin
+reference fetched riêng về SHA trước inspection; hash nested result và source/
+target/reference được kiểm lại khi đọc export, không chạy lại Git hoặc model.
 
 Rule workflow là baseline cố định. `JevController` nhận state cùng allowed actions, chỉ trả enum hợp lệ; hành động khác fallback về rules. Adapter chưa cấu hình remote transport. Code vẫn giữ quyền kiểm ngân sách và thực thi; decision model không tự chạy command.
 

@@ -46,7 +46,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác từ báo cáo lưu sẵn tách truy xuất/citation hỗ trợ/citation phản bác/critique, có inspector và export. |
 | F08 | Kiểm citation/hash, tìm thêm code theo giả thuyết ở Deep, critique riêng và abstention. Kết quả tìm vẫn là candidate, counter có thể `not_found`. |
 | F09 | Intake chỉ ra mục cần bổ sung; tạo follow-up ở đúng commit với parent pack hash và chuỗi nguồn được replay. Context mới unverified, không kế thừa strict query. |
-| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; đồng bộ tiếp tục chủ động sau trang đã commit, lỗi/interrupt không retry API ngầm. |
+| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí, một intent cho mỗi nguồn. Chưa resume mọi stage; lỗi/interrupt không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep mở rộng và có tối đa một lượt truy xuất/sinh bổ sung khi bật Groq. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái/hủy, token và USD theo phiên từ receipt riêng; đang chạy/lỗi/interrupted vẫn xem được cận giữ chỗ. |
@@ -56,7 +56,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F17 | Xem evidence/citations/hypotheses/verifier/trace và export JSON/Markdown; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
 | F18 | Reservation trước HTTP gắn về job, cập nhật usage/price date sau call; tab chi phí/export riêng, không nhận tổng ledger thành chi phí phiên. Phiên cũ thiếu receipt giữ unknown. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
-| F20 | Đối chiếu commit/tag với snapshot của báo cáo product: thêm/xóa/đổi/ngoài phạm vi, diff file có evidence và export riêng. Chưa xác minh fix, ancestry hoặc bản phát hành chứa fix. |
+| F20 | Đối chiếu commit/tag, diff file evidence, quan hệ ancestry và commit tham chiếu tùy chọn; liệt kê tag Git local chứa commit. Thiếu lịch sử giữ unknown. Chưa xác minh fix hoặc bản phát hành công khai chứa fix. |
 
 Đồ thị mặc định tập trung vào một giả thuyết và các cạnh trực tiếp; có tổng quan,
 thẻ nguồn chữ thật, màu/nét theo loại quan hệ và cửa sổ phóng rộng với inspector.
@@ -89,9 +89,10 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
-- `POST /api/versions`: `job_id`, `revision`; job đối chiếu code dùng chung queue/worker, không model hoặc thực thi code/test.
+- `POST /api/versions`: `job_id`, `revision`, tùy chọn `reference_revision`; job đối chiếu code và ancestry dùng chung queue/worker, không model hoặc thực thi code/test.
 - `GET /api/jobs/<source>/versions`: tối đa 20 lượt đối chiếu của báo cáo nguồn.
 - `GET /api/jobs/<comparison>/versions.json`: export riêng có hash và binding về pack nguồn.
+
 - `POST /api/related`: `job_id` đã hoàn tất; tìm ứng viên từ các job local, không nhận scope/split/query override.
 - `GET /api/jobs`, `GET /api/jobs/<id>`: lịch sử/trạng thái.
 - `GET /api/jobs/<id>/intake`: cue trong query có dòng/hash, áp dụng cả pack cũ mà không sửa export gốc.
@@ -104,6 +105,21 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.
 - `POST /api/github/webhook`: GitHub signature/event/delivery guards riêng; không tự gọi model hay đăng comment.
+
+Đối chiếu mới lưu thêm `git_reachability`: pin source/target/reference về SHA
+commit, kiểm ancestor hai chiều và kiểm reference có trong target. `contained`
+chỉ nói về lịch sử Git; chưa chứng minh đúng bản sửa, patch tương đương, ngày
+phát hành hoặc bản phát hành công khai. Tag được chụp từ refs local, tối đa 200
+tag nhận kiểm containment, có số ngoài phạm vi/không kiểm được. Lịch sử shallow,
+altered, thiếu object hoặc hết thời gian giữ unknown khi không đủ bằng chứng;
+đường ancestor tìm thấy vẫn có thể chứng minh containment trong cache shallow.
+
+Với input remote gốc, chỉ target và reference người dùng nhập được fetch theo
+cơ chế acquire giới hạn hiện có; không tải toàn bộ tags hoặc deepen lịch sử.
+Phần kiểm ancestry chỉ đọc local, không lazy-fetch. Git có cận 5 giây/lệnh,
+60 giây tổng và 2 MiB output/lệnh. Export giữ inventory/ref hash lúc kiểm;
+mở lại không chạy Git hoặc làm tag hiện tại thay đổi kết quả đã lưu. Báo cáo cũ
+thiếu mục này vẫn mở được và không được suy thêm quan hệ ancestry.
 
 Mọi job/pack và repository ví dụ ở ignored `artifacts/demo/`. Không commit data,
 token, review bundle hoặc kết quả thật. CI dùng fixture tổng hợp. Evaluation,

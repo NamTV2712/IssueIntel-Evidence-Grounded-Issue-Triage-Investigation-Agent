@@ -87,7 +87,7 @@ def compare_versions(pack, before, after):
               'before_skipped': len(before.skipped), 'after_skipped': len(after.skipped),
               'fix_status': 'unverified', 'evaluation_performed': False, 'model_calls': 0,
               'limitations': ['Code changes do not prove a fix or a released version containing a fix.',
-                  'No target code/tests are executed; ancestry and release publication are not established.',
+                  'No target code/tests are executed; this file diff alone does not establish ancestry or release publication.',
                   'Only admitted tracked text is compared. Skipped files are unavailable, not deleted.',
                   'Renames appear as added/removed. Diffs cover at most four source-evidence files.',
                   'Diffs normalize line endings; raw-byte hashes also detect changes invisible in the text diff.',

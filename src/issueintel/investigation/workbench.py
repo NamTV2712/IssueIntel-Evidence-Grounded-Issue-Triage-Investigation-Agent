@@ -351,14 +351,16 @@ class Workbench:
     def submit_versions(self, request):
         from issueintel.investigation.versions import product_version_source
         from issueintel.repository.acquire import _validate_revision
-        if not isinstance(request, dict) or set(request) != {'job_id', 'revision'}:
+        if (not isinstance(request, dict) or set(request)-{'job_id','revision','reference_revision'}
+                or not {'job_id','revision'} <= set(request)):
             raise ValueError('Choose a product investigation and target revision')
         revision = _validate_revision(request['revision'])
+        reference = _validate_revision(request['reference_revision']) if 'reference_revision' in request else None
         pack, raw, _ = self._load_pack(request['job_id'])
         product_version_source(pack)  # Reject benchmark/follow-up before Git or queue.
         return self._enqueue({'mode':'version_comparison', 'provider':'none', 'depth':'versions',
                               'source_job_id':request['job_id'], 'source_pack_sha256':hashlib.sha256(raw).hexdigest(),
-                              'revision':revision}, self._run_versions)
+                              'revision':revision, **({'reference_revision':reference} if reference is not None else {})}, self._run_versions)
 
     def versions_history(self, identifier):
         self._load_pack(identifier)
@@ -384,13 +386,36 @@ class Workbench:
         if hashlib.sha256(raw).hexdigest() != ref['sha256']:
             raise ValueError('Version export integrity changed')
         result = json.loads(raw)
-        _, source_raw, _ = self._load_pack(result['source']['job_id'])
+        source_pack, source_raw, _ = self._load_pack(result['source']['job_id'])
         if hashlib.sha256(source_raw).hexdigest() != result['source']['pack_sha256']:
             raise ValueError('Version comparison source changed')
+        reachability=result.get('git_reachability')
+        if row.get('reachability_schema') and not isinstance(reachability,dict):
+            raise ValueError('Version ancestry report missing')
+        if reachability is not None:
+            request=json.loads(self._job_path(identifier).read_bytes())['request']
+            reference=reachability.get('reference')
+            if (reachability.get('schema')!='product_git_reachability_v1'
+                    or digest({k:v for k,v in reachability.items() if k!='sha256'})!=reachability.get('sha256')
+                    or digest({k:v for k,v in result.items() if k!='sha256'})!=result.get('sha256')
+                    or result['source']['job_id']!=request['source_job_id']
+                    or result['source']['pack_sha256']!=request['source_pack_sha256']
+                    or result['requested_revision']!=request['revision']
+                    or result.get('requested_reference_revision')!=request.get('reference_revision')
+                    or reachability['source_commit_sha']!=source_pack['snapshot']['commit_sha']
+                    or reachability['source_commit_sha']!=result['before']['commit_sha']
+                    or result['before']['snapshot_sha256']!=source_pack['snapshot']['snapshot_sha256']
+                    or reachability['target_commit_sha']!=result['after']['commit_sha']
+                    or result['after']['commit_sha']!=row['target_commit']
+                    or (reference is None)!=(request.get('reference_revision') is None)
+                    or (reference is not None and (reference['requested_revision']!=request['reference_revision']
+                        or reference['commit_sha']!=row['reference_commit']))):
+                raise ValueError('Version ancestry source or reference binding changed')
         return raw
 
     def _run_versions(self, row):
         from issueintel.investigation.versions import compare_versions, product_version_source
+        from issueintel.investigation.reachability import inspect_reachability
         from issueintel.repository.snapshot import build_snapshot
         try:
             self._check_cancelled(row['id'])
@@ -408,7 +433,8 @@ class Workbench:
             source_request = json.loads(self._job_path(request['source_job_id']).read_bytes())['request']
             if source_request['mode']=='resume':
                 source_request=json.loads(self._job_path(source_request['source_job_id']).read_bytes())['request']
-            if source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir()):
+            remote = source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir())
+            if remote:
                 acquired = acquire_repository(pack['case']['repository'], request['revision'], self.root/'data/repos')
                 if acquired.path.resolve() != local.resolve():
                     raise ValueError('Target acquisition differs from source repository')
@@ -418,8 +444,23 @@ class Workbench:
             self._check_cancelled(row['id'])
             after = build_snapshot(local, revision)
             result = compare_versions(pack, before, after)
+            self._check_cancelled(row['id'])
+            reference=request.get('reference_revision')
+            if remote and reference is not None:
+                acquired=acquire_repository(pack['case']['repository'],reference,self.root/'data/repos')
+                if acquired.path.resolve()!=local.resolve():
+                    raise ValueError('Reference acquisition differs from source repository')
+                reference=acquired.commit_sha
+            self._save(row,stage='inspect_git_ancestry')
+            ancestry=inspect_reachability(local,before.commit_sha,after.commit_sha,reference,
+                check_cancelled=lambda:self._check_cancelled(row['id']))
+            if ancestry['reference'] is not None:
+                ancestry['reference']['requested_revision']=request['reference_revision']
+                ancestry.pop('sha256');ancestry['sha256']=digest(ancestry)
+            result['git_reachability']=ancestry
             result['source'] = {'job_id':request['source_job_id'], 'pack_sha256':request['source_pack_sha256']}
             result['requested_revision'] = request['revision']
+            result['requested_reference_revision']=request.get('reference_revision')
             result.pop('sha256')
             result['sha256'] = digest(result)
             self._check_cancelled(row['id'])
@@ -427,6 +468,8 @@ class Workbench:
             write_json(path, result)
             self._save(row, status='completed', stage='completed',
                        source_job_id=request['source_job_id'], target_commit=after.commit_sha,
+                       reachability_schema=ancestry['schema'],
+                       reference_commit=ancestry['reference']['commit_sha'] if ancestry['reference'] else None,
                        result={'versions.json':{'path':path.relative_to(self.root).as_posix(),
                                                'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}})
         except InterruptedError:

@@ -69,9 +69,12 @@ có receipt hiện unknown. Đây là số liệu ghi nhận/giữ chỗ, không
 
 Mục **Đối chiếu phiên bản code** dưới báo cáo product nhận commit/tag khác, đọc
 snapshot và lưu riêng thay đổi code cùng hash nguồn/đích. Diff ưu tiên file trong
-evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. Không gọi model,
-chạy test hoặc xác nhận lỗi đã sửa. Main Dev/strict và follow-up không dùng luồng
-này; bản báo cáo gốc giữ nguyên.
+evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. Có thể thêm
+**Commit tham chiếu** để kiểm phiên bản đích có chứa commit đó không và xem tag
+Git local chứa nó. Quan hệ thiếu lịch sử giữ unknown; không tự tải thêm lịch sử
+hoặc toàn bộ tag. Tag local chưa chứng minh bản phát hành đã công bố hay lỗi đã
+sửa. Không gọi model/chạy test. Main Dev/strict và follow-up không dùng luồng này;
+bản báo cáo gốc giữ nguyên.
 
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook

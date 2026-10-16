@@ -4,6 +4,52 @@
   const get=id=>document.getElementById(id), t=window.IssueIntelUI.t;
   const el=(tag,text,cls)=>{const item=document.createElement(tag);if(text!==undefined)item.textContent=text;if(cls)item.className=cls;return item;};
   let selected=null, result=null, rows=[], running=null, notice=null;
+  const ancestryLabels={
+    same_commit:'Nguồn và đích là cùng commit.',
+    source_ancestor:'Commit nguồn là tổ tiên của commit đích.',
+    target_ancestor:'Commit đích là tổ tiên của commit nguồn.',
+    diverged:'Nguồn và đích nằm trên các nhánh lịch sử khác nhau.',
+    unknown:'Chưa xác định được quan hệ lịch sử Git.'
+  };
+  const containmentLabels={
+    contained:'Đích chứa commit tham chiếu trong lịch sử Git.',
+    not_contained:'Đích không chứa commit tham chiếu trong lịch sử Git đã kiểm.',
+    unknown:'Chưa xác định được đích có chứa commit tham chiếu.'
+  };
+  function renderReachability(area,reachability){
+    if(!reachability)return;
+    const section=el('section',undefined,'versions-proof');
+    section.append(el('h3',t('Quan hệ lịch sử Git')));
+    const relation=reachability.source_to_target||{};
+    section.append(el('p',t(ancestryLabels[relation.status]||ancestryLabels.unknown),'versions-status'));
+    if(relation.reason)section.append(el('p',t('Lý do: {reason}',{reason:t(relation.reason)}),'field-note'));
+    if(relation.ancestry_complete===false)section.append(el('p',t('Lịch sử Git chưa đầy đủ; kết quả thiếu bằng chứng giữ trạng thái chưa biết.'),'notice'));
+    const reference=reachability.reference;
+    if(reference){
+      const card=el('section',undefined,'versions-reference-result');
+      card.append(el('h4',t('Commit tham chiếu')),
+        el('p',t('Ref đã nhập: {revision}',{revision:reference.requested_revision}),'hash-note'),
+        el('p',t('Commit đã resolve: {sha}',{sha:reference.commit_sha||t('Chưa resolve được')}),'hash-note'),
+        el('p',t(containmentLabels[reference.status]||containmentLabels.unknown),'versions-status'));
+      if(reference.reason)card.append(el('p',t('Lý do: {reason}',{reason:t(reference.reason)}),'field-note'));
+      section.append(card);
+      const tags=reachability.tags;
+      if(tags){
+        const tagCard=el('section',undefined,'versions-tags');
+        tagCard.append(el('h4',t('Tag local chứa commit tham chiếu')),
+          el('p',t('Đã quét {scanned}/{total} tag local; giới hạn {limit}.',{scanned:tags.scanned,total:tags.total,limit:tags.limit}),'field-note'));
+        if(tags.truncated)tagCard.append(el('p',t('Danh sách tag bị giới hạn; các tag chưa quét vẫn chưa biết.'),'notice'));
+        if(tags.unavailable && (Array.isArray(tags.unavailable)?tags.unavailable.length:true))tagCard.append(el('p',t('Có tag không kiểm được; xem chi tiết trong JSON xuất ra.'),'notice'));
+        if(tags.containing?.length){
+          const list=el('ul');
+          for(const tag of tags.containing){const item=el('li');item.append(el('strong',tag.name),el('span',' · '+tag.commit_sha,'hash-note'));list.append(item);}tagCard.append(list);
+        }else tagCard.append(el('p',t('Chưa tìm thấy tag chứa commit trong phạm vi đã kiểm.'),'field-note'));
+        tagCard.append(el('p',t('Đây là tag trong Git local, chưa xác minh bản phát hành đã công bố hoặc lỗi đã được sửa.'),'notice'));
+        section.append(tagCard);
+      }
+    }
+    area.append(section);
+  }
   function render(){
     get('versions-message').textContent=notice?t(notice):'';
     get('versions-submit').disabled=!!running;
@@ -12,6 +58,7 @@
     if(result?.source.job_id===selected){
       area.append(el('p',t('Thay đổi code chưa chứng minh lỗi đã được sửa. Không chạy code/test hoặc gọi LLM.'),'notice'),
         el('p','Before '+result.before.commit_sha,'hash-note'),el('p','After '+result.after.commit_sha,'hash-note'));
+      renderReachability(area,result.git_reachability);
       const counts=el('dl',undefined,'repository-counts');
       for(const [status,count] of Object.entries(result.counts)){const cell=el('div');cell.append(el('dt',t(status)),el('dd',String(count)));counts.append(cell);}area.append(counts);
       area.append(el('p',t('Ngoài phạm vi: {before} file nguồn, {after} file đích. Bỏ bớt {omitted} mục do giới hạn hiển thị.',{before:result.before_skipped,after:result.after_skipped,omitted:result.files_omitted}),'notice'));
@@ -33,8 +80,8 @@
       const button=el('button',t('Mở đối chiếu: {id} · {status}',{id:row.id,status:t(row.status)}),'history-row');button.type='button';
       button.disabled=row.status!=='completed';button.onclick=async()=>{
         const source=selected;
-        try{const report=await api('/api/jobs/'+row.id+'/versions.json');if(source===selected){result=report;render();}}
-        catch(_){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}
+        try{const report=await api('/api/jobs/'+row.id+'/versions.json');if(source===selected){result=report;notice=null;render();}}
+        catch(_){if(source===selected){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}}
       };history.append(button);
     }
   }
@@ -45,15 +92,17 @@
   document.addEventListener('issueintel:packchange',event=>{
     get('versions-panel').hidden=!event.detail.available;
     if(selected===event.detail.job_id)return;
-    selected=event.detail.job_id;result=null;rows=[];notice=null;render();
+    selected=event.detail.job_id;result=null;rows=[];notice=null;get('versions-reference').value='';render();
     if(event.detail.available)loadHistory(selected);
   });
   document.addEventListener('issueintel:languagechange',render);
   get('versions-form').onsubmit=async event=>{
     event.preventDefault();if(running || !selected)return;
-    const source=selected;running='starting';notice='Đang đọc hai snapshot; không gọi LLM.';render();
+    const source=selected, revision=get('versions-revision').value.trim(), reference=get('versions-reference').value.trim();
+    const request={job_id:source,revision};if(reference)request.reference_revision=reference;
+    running='starting';notice='Đang đọc hai snapshot; không gọi LLM.';render();
     try{
-      const job=await api('/api/versions',{job_id:source,revision:get('versions-revision').value.trim()});running=job.id;
+      const job=await api('/api/versions',request);running=job.id;
       if(source===selected)render();
       for(;;){
         const state=await api('/api/jobs/'+job.id);
