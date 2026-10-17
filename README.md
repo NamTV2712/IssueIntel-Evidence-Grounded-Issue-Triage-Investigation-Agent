@@ -41,6 +41,14 @@ query và snapshot. JSON pack gốc vẫn có nút tải riêng. Báo cáo cũ �
 trình bày mới mà không sửa pack/receipt hoặc gọi lại model. Nhận xét model, kiểm
 citation và kiểm người được phân biệt; chưa tự xác nhận nguyên nhân, mức ảnh
 hưởng, xác suất tin cậy hoặc việc đã chạy các bước kiểm tra.
+Tab **Giả thuyết / Hypotheses** có bảng đối chiếu từ cùng báo cáo đã lưu:
+nguồn hỗ trợ/phản bác, nhận xét model, khoảng trống và bước kiểm tra của từng
+giả thuyết. Chọn hai giả thuyết để xem nguồn dùng chung hoặc cùng nguồn được
+model gán hai vai trò khác nhau. Đây là quan hệ citation cần xem lại, chưa phải
+mâu thuẫn ngữ nghĩa hoặc bằng chứng các giả thuyết độc lập. Không xếp hạng hoặc
+chọn một nguyên nhân thắng. JSON/Markdown đối chiếu khóa vào report/pack/query/
+snapshot/commit; mở lại, đổi ngôn ngữ và xuất không gọi model. CLI export thêm
+`hypothesis-review.json` và `hypothesis-review.md`; pack và report v1 giữ nguyên.
 Khi bật Groq, Deep có thêm tối đa một vòng truy xuất theo giả thuyết trong cùng
 snapshot; chỉ sinh lại nếu có evidence mới. Checkpoint từng bước được giữ để
 xem/tải khi call sau lỗi. Kết quả tìm thêm chưa phải counter-evidence đã xác nhận.

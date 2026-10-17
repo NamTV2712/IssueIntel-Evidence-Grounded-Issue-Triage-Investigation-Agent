@@ -28,6 +28,7 @@ STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; c
 STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
 STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
+STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -40,7 +41,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None):
+            if report_sha256 is not None and (not isinstance(report_sha256,str) or len(report_sha256)!=64 or any(char not in '0123456789abcdef' for char in report_sha256)):
+                raise ValueError('Invalid report source binding')
             self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(raw)))
@@ -50,6 +53,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
             if download:
                 self.send_header('Content-Disposition', f'attachment; filename="{download}"')
+            if report_sha256 is not None:
+                self.send_header('X-IssueIntel-Report-SHA256',report_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -105,6 +110,14 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         format='json' if parts[1].endswith('.json') else 'md'
                         self._send(200,workbench.report_bytes(parts[0],format),
                             'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',download=parts[1])
+                    elif len(parts)==2 and parts[1] in {'hypothesis-review.json','hypothesis-review.md'}:
+                        from issueintel.investigation.hypothesis_review import render_markdown
+                        review=workbench.hypothesis_review(parts[0])
+                        as_json=parts[1].endswith('.json')
+                        text=json.dumps(review,ensure_ascii=False,sort_keys=True,indent=2)+'\n' if as_json else render_markdown(review)
+                        self._send(200,text.encode('utf-8'),
+                            'application/json; charset=utf-8' if as_json else 'text/markdown; charset=utf-8',
+                            download=parts[1],report_sha256=review['source']['report_sha256'])
                     elif len(parts)==2 and parts[1]=='adaptive-questions':
                         self._json(200,workbench.question_history(parts[0]))
                     elif len(parts)==2 and parts[1]=='questions.json':

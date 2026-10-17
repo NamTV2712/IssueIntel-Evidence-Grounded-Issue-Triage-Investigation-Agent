@@ -57,6 +57,21 @@ pack/report.md/receipt. API tải Markdown mới tách khỏi route legacy đã 
 Nháp GitHub thu gọn có giới hạn, báo rõ chi tiết bị bỏ và vẫn duyệt đúng body SHA.
 Schema được kiểm bằng jsonschema trong dev/CI; runtime chỉ dùng thư viện chuẩn.
 
+`investigation.hypothesis_review` dựng `hypothesis_review_v1` thuần dữ liệu từ
+report đã qua `validate_report`, giữ report SHA cùng toàn bộ source binding.
+Mỗi hypothesis giữ support/counter, model review, check IDs và gap codes từ
+metadata được ghi: chưa có counter trong phạm vi truy xuất, chưa có citation
+code hỗ trợ hoặc model review thiếu/unsupported/contradicted/uncertain. Cặp giả
+thuyết dùng giao ID theo thứ tự evidence gốc để lộ nguồn hỗ trợ/phản bác dùng
+chung và citation khác vai trò. Không gộp các ID khác nhau chỉ vì nội dung giống,
+không suy ra quan hệ nhân quả, phụ thuộc, độc lập hoặc mâu thuẫn ngữ nghĩa.
+Validator tái dựng projection từ report và so toàn bộ để chặn sửa rồi tính lại
+hash. UI đọc cùng lượt mở saved job, cache khi đổi ngôn ngữ và chặn citation/
+download stale theo job/report/pack/query/snapshot. JSON/Markdown HTTP mang
+`X-IssueIntel-Report-SHA256` từ chính projection được gửi. CLI export sidecar;
+đọc bản cũ không tạo/sửa pack, report hay receipts. Không có Git/network/model,
+evaluation hoặc xếp hạng chất lượng trong lớp đối chiếu này.
+
 `investigation.clarifications` giữ template v1 Việt/Anh cố định cho bốn mục intake;
 không gọi model. Workbench khóa parent pack/query/question bundle, lưu nguyên Q/A
 theo ngôn ngữ đã xem và replay receipt khi đọc/export. Chỉ product và các hậu duệ

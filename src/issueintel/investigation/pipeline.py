@@ -397,4 +397,8 @@ def export_pack(pack: dict, directory: Path | str) -> Path:
     report=build_report(pack,source_pack_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
     write_json(directory / "report.json",report)
     (directory / "report.md").write_text(render_markdown(report),encoding="utf-8")
+    from .hypothesis_review import build_hypothesis_review, render_markdown as render_review
+    review=build_hypothesis_review(report)
+    write_json(directory / 'hypothesis-review.json',review)
+    (directory / 'hypothesis-review.md').write_text(render_review(review),encoding='utf-8')
     return directory / "report.md"

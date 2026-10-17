@@ -6,6 +6,7 @@ let catalog = [], pack = null, currentJob = null, activeJob = null, activeTab = 
 let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
 let intake=null;
 let reportView=null;
+let hypothesisReview=null;
 let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
@@ -100,11 +101,13 @@ async function runJob(request,existingJob=null) {
 }
 async function openJob(id) {
   const generation=++viewGeneration;
+  window.IssueIntelHypothesisReview?.cancel();
   const loaded=await api('/api/jobs/'+id+'/pack.json');
-  const [inspected,plan,cost,report]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json')]);
+  const [inspected,plan,cost,report,review]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json'),readHypothesisReview(id)]);
   if(generation!==viewGeneration)return;
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   reportView=report.status==='fulfilled'?report.value:null;
+  hypothesisReview=review.status==='fulfilled'?review.value:null;
   relatedResult=null;
   usageInfo=cost.status==='fulfilled'?cost.value:null;
   showUsage({id,accounting:usageInfo,...savedTypesafeUsage()});
@@ -182,7 +185,7 @@ function restorePlanDrafts(drafts) {
 }
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
-  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();if(!pack)return;
+  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
     pack_sha256:intake?.source_pack_sha256,commit_sha:pack.snapshot.commit_sha,
     snapshot_sha256:pack.snapshot.snapshot_sha256,query_sha256:intake?.query_sha256});
@@ -276,13 +279,7 @@ function renderTab() {
     if(pack.followup)content.append(node('p',t('Dữ kiện bổ sung chưa xác minh; không kế thừa chứng nhận query lịch sử.'),'notice'),node('pre',JSON.stringify({parent_job_id:pack.followup.parent_job_id,parent_pack_sha256:pack.followup.parent_pack_sha256,depth:pack.followup.depth},null,2)));
   }
   if(activeTab==='hypotheses') {
-    if(!pack.annotation) content.append(node('p',t("Chưa gọi model để sinh giả thuyết. Bạn có thể đọc bằng chứng hiện có hoặc bật Groq khi điều tra."),'notice'));
-    for(const h of pack.annotation?.hypotheses || []) {
-      const card=node('article',undefined,'hypothesis-card');card.append(node('h3',h.id+' · '+h.statement));
-      card.append(node('p',t("Bằng chứng hỗ trợ:")));card.append(...h.support_ids.map(citation));
-      card.append(node('p',t("Bằng chứng phản bác: ")+(h.counter_ids.length?'':t("chưa tìm thấy"))));card.append(...h.counter_ids.map(citation));
-      card.append(node('p',t("Cách kiểm tra: ")+h.falsification_test),node('span',t("Chưa xác minh nguyên nhân"),'badge'));content.append(card);
-    }
+    window.IssueIntelHypothesisReview?.render(content,hypothesisReview,currentJob,reportView,hypothesisReviewSource(),{reload:reloadHypothesisReview,export:exportHypothesisReview});
     if(pack.annotation?.abstention) content.append(node('p','Abstention: '+t(pack.annotation.abstention.label)+' — '+pack.annotation.abstention.reason,'notice'));
   }
   if(activeTab==='verification') {
@@ -377,6 +374,45 @@ async function download(name) {
 }
 async function downloadPath(path,filename) {
   try {const response=await fetch(path,{headers:{'X-IssueIntel-Token':token}});if(!response.ok)throw new Error(t("Không xuất được báo cáo."));const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){message(error.message,true);}
+}
+function hypothesisReviewSource(){
+  return {pack_sha256:intake?.source_pack_sha256,query_sha256:intake?.query_sha256,
+    commit_sha:pack?.snapshot.commit_sha,snapshot_sha256:pack?.snapshot.snapshot_sha256};
+}
+async function readHypothesisReview(id){
+  const response=await fetch('/api/jobs/'+id+'/hypothesis-review.json',{headers:{'X-IssueIntel-Token':token}});
+  if(!response.ok)throw new Error(t('Không xuất được báo cáo.'));
+  const value=await response.json();
+  if(!/^[a-f0-9]{64}$/.test(value?.source?.report_sha256||'')||response.headers.get('X-IssueIntel-Report-SHA256')!==value.source.report_sha256)
+    throw new Error(t('Không xuất được báo cáo.'));
+  return value;
+}
+async function reloadHypothesisReview(){
+  const selected=currentJob,generation=viewGeneration,sourceReport=reportView;
+  try{
+    const [loaded,loadedReport,loadedIntake]=await Promise.all([
+      readHypothesisReview(selected),
+      reportView?Promise.resolve(reportView):api('/api/jobs/'+selected+'/investigation-report.json'),
+      intake?Promise.resolve(intake):api('/api/jobs/'+selected+'/intake')]);
+    if(selected!==currentJob||generation!==viewGeneration||sourceReport!==reportView)return;
+    hypothesisReview=loaded;reportView=loadedReport;intake=loadedIntake;renderTab();
+  }catch(error){if(selected===currentJob&&generation===viewGeneration)message(error.message,true);}
+}
+async function exportHypothesisReview(format){
+  const selected=currentJob,generation=viewGeneration,sourceReport=reportView,review=hypothesisReview,expected=hypothesisReviewSource();
+  const current=()=>selected===currentJob&&generation===viewGeneration&&sourceReport===reportView&&review===hypothesisReview;
+  if(!['json','md'].includes(format)||!window.IssueIntelHypothesisReview.valid(review,selected,sourceReport,expected))return;
+  try{
+    const response=await fetch('/api/jobs/'+selected+'/hypothesis-review.'+format,{headers:{'X-IssueIntel-Token':token}});
+    if(!response.ok||response.headers.get('X-IssueIntel-Report-SHA256')!==sourceReport.sha256)throw new Error(t('Không xuất được báo cáo.'));
+    let body;
+    if(format==='json'){
+      const value=await response.json();if(value?.sha256!==review.sha256||!window.IssueIntelHypothesisReview.valid(value,selected,sourceReport,expected))throw new Error(t('Không xuất được báo cáo.'));
+      body=new Blob([JSON.stringify(value,null,2)],{type:'application/json'});
+    }else body=await response.blob();
+    if(!current())return;
+    const url=URL.createObjectURL(body),link=node('a');link.href=url;link.download='issueintel-'+selected+'-hypothesis-review.'+format;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(error){if(current())message(error.message,true);}
 }
 $('mode').onchange=switchMode;$('depth').onchange=updateDepthControls;$('use-groq').onchange=updateTypesafeControls;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;

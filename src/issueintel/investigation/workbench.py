@@ -980,6 +980,19 @@ class Workbench:
               else render_markdown(report))
         return text.encode('utf-8')
 
+    def hypothesis_review(self,identifier):
+        from .hypothesis_review import build_hypothesis_review
+        return build_hypothesis_review(self.investigation_report(identifier))
+
+    def hypothesis_review_bytes(self,identifier,format='json'):
+        from .hypothesis_review import render_markdown
+        if format not in {'json','md'}:
+            raise ValueError('Choose JSON or Markdown hypothesis comparison')
+        review=self.hypothesis_review(identifier)
+        text=(json.dumps(review,ensure_ascii=False,sort_keys=True,indent=2)+'\n' if format=='json'
+              else render_markdown(review))
+        return text.encode('utf-8')
+
     def _export_bytes(self, identifier, name='pack.json'):
         if name not in {'pack.json', 'report.md'}:
             raise ValueError('Unsupported export')
