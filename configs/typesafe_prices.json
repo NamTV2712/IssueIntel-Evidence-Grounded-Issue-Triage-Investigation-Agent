@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-17",
+  "currency": "USD",
+  "source": "https://docs.typesafe.ai/models",
+  "models": {
+    "jev-1.13.0": {
+      "input_per_million": "0.042",
+      "output_per_million": "0",
+      "per_request_context": 64000,
+      "per_question_context": 32000
+    }
+  }
+}

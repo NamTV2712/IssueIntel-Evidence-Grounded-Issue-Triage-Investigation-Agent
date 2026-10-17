@@ -189,7 +189,18 @@ Giới hạn thời gian/output và callback cancel áp dụng giữa lệnh. Wo
 reference fetched riêng về SHA trước inspection; hash nested result và source/
 target/reference được kiểm lại khi đọc export, không chạy lại Git hoặc model.
 
-Rule workflow là baseline cố định. `JevController` nhận state cùng allowed actions, chỉ trả enum hợp lệ; hành động khác fallback về rules. Adapter chưa cấu hình remote transport. Code vẫn giữ quyền kiểm ngân sách và thực thi; decision model không tự chạy command.
+Rule workflow là baseline cố định. `JevController` nhận state cùng allowed actions,
+chỉ trả enum hợp lệ; hành động khác fallback về rules, với cờ fallback quan sát
+được. Code vẫn giữ quyền kiểm ngân sách và thực thi; model không chạy command.
+`typesafe_controller.TypesafePlannedController` nối riêng API Typesafe cho product
+Planned có Groq. Mỗi decision khóa query/snapshot, annotation và inventory nguồn;
+state chỉ chứa issue/hypothesis/evidence excerpt rút gọn có cờ truncation, cùng
+counts/gaps quan sát. Request một Choice với đúng action allowlist, không gửi
+toàn repo, gold hoặc source quality. Tối đa bốn decision, không ảnh hưởng cận
+generation/critic của plan v1. Sidecar `typesafe_controller_v1` khóa plan SHA,
+job, request, response và receipt; replay thuần dữ liệu đối chiếu decision vào
+seed/round/final state, không mạng/model/ledger và không suy ra causal truth.
+Workbench còn kiểm receipt ownership với job, từ chối sidecar thiếu/đổi nguồn.
 
 Verifier kiểm hash/ID trước. Pass LLM riêng kiểm support/counter và trả assessment có citation; đây là critique của cùng model khi dùng cùng provider, không được gọi là kiểm người độc lập. Semantic correctness và causal truth vẫn phân biệt. Khi citation sai, generator chỉ được sửa schema một lần với allowlist; lỗi budget/network không được tự retry.
 
@@ -232,6 +243,22 @@ verification và receipt riêng; export liên kết source bằng hash. Một ve
 hoàn tất không được gọi lại theo luồng này. Không tự phục hồi hoặc retry API.
 
 ## Ngân sách và bảo mật
+
+`runtime.typesafe` dùng endpoint chính thức cố định và pin `jev-1.13.0`, không
+dùng đường OpenAI-compatible hoặc credential Groq. `configs/typesafe.toml` có
+enable và trần request/ngày, USD/ngày, USD/tháng riêng; mặc định tắt/trần 0,
+key có sẵn không cấp quyền chi tiêu. Giá ngày 17/10/2026 từ
+[Typesafe Models](https://docs.typesafe.ai/models): USD 0.042/triệu input,
+output miễn phí, context mặc định 64.000/request. Vì API không có max-output
+được tài liệu hóa, ledger riêng chỉ reserve cận USD cho toàn 64.000 input;
+không bịa giá output hoặc giới hạn output bằng API. Request local tối đa
+16 KiB/một Choice; response tối đa 64 KiB, timeout 20 giây, cấm redirect và retry.
+SQLite intent unique theo job/decision được ghi trước HTTP; callback ownership
+phải lưu thành công. Lỗi/missing usage giữ cận, usage vượt cận khóa ledger.
+Jev receipt và chi phí được giữ riêng khi chạy/lỗi/hủy, không cộng nhầm vào
+Groq ledger hoặc coi receipt là hóa đơn. Giá quá 30 ngày/thiếu key/caps thì
+không gọi. Confidence/probabilities chỉ là output lựa chọn action của model,
+chưa được hiệu chỉnh hoặc đánh giá cho IssueIntel. Chưa chạy paid smoke test.
 
 `integrations.github_releases` kiểm một release/tag công khai theo yêu cầu rõ
 ràng, với tối đa 16 GET và receipt JSON tổng tối đa 20 MB. Nó pin repository ID,

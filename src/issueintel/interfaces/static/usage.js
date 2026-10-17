@@ -2,7 +2,7 @@
 (() => {
   const t=window.IssueIntelUI.t;
   const el=(tag,text,cls)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
-  function render(container,usage){
+  function renderGeneration(container,usage){
     container.replaceChildren();
     if(!usage){container.append(el('p',t('Chưa đọc được metadata chi phí.'),'notice'));return;}
     container.append(el('p',t('Chi phí của phiên: {id}',{id:usage.job_id}),'hash-note'));
@@ -17,6 +17,51 @@
         el('p',t('Ngày bảng giá: {date}',{date:receipt.price_date}),'notice'),el('pre',JSON.stringify(receipt,null,2)));container.append(item);
     }
     const exportButton=el('button',t('Xuất receipt chi phí JSON'));exportButton.type='button';exportButton.onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(usage,null,2)],{type:'application/json'}));const link=el('a');link.href=url;link.download='issueintel-'+usage.job_id+'-usage.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};container.append(exportButton);
+  }
+  function renderTypesafe(container,job){
+    if(!job||!(job.controller==='jev'||Object.hasOwn(job,'typesafe_receipts')||Object.hasOwn(job,'typesafe_decisions')))return;
+    const panel=el('section',undefined,'workflow-controller');panel.append(el('h3',t('Chi phí quyết định Jev / Typesafe')));container.append(panel);
+    panel.append(el('p',t('Chi phí của phiên: {id}',{id:job.id}),'hash-note'),el('p',t('Receipt Typesafe được tính riêng với Groq; số tiền ghi nhận/giữ chỗ chưa phải hóa đơn.'),'notice'));
+    const values=job.typesafe_receipts;
+    if(!values||typeof values!=='object'||Array.isArray(values)||!Object.keys(values).length){
+      panel.append(el('p',t('Chưa có receipt Typesafe; chưa coi chi phí là 0. Các lượt bị chặn có thể chưa gửi API.'),'notice'));return;
+    }
+    const statuses={reserved:'Đang giữ chỗ chi phí',settled:'Đã ghi nhận usage',failed_bound:'Lời gọi lỗi; giữ cận chi phí',
+      missing_usage_bound:'Thiếu usage; giữ cận chi phí',breach:'Usage vượt cận chi phí'};
+    const receipts=Object.entries(values);
+    const valid=receipts.length<=4&&/^[a-f0-9]{24}$/.test(job.id||'')&&receipts.every(([id,receipt])=>receipt
+      &&receipt.schema==='typesafe_decision_receipt_v1'&&receipt.provider==='typesafe'&&receipt.model==='jev-1.13.0'
+      &&receipt.reservation_id===id&&/^[a-f0-9]{32}$/.test(id)&&receipt.binding?.job_id===job.id
+      &&Object.hasOwn(statuses,receipt.status)&&Number.isSafeInteger(receipt.micro_usd_charged_or_reserved)&&receipt.micro_usd_charged_or_reserved>=0
+      &&[receipt.input_tokens,receipt.output_tokens].every(value=>value===null||Number.isSafeInteger(value)&&value>=0)
+      &&/^[a-f0-9]{64}$/.test(receipt.sha256||'')&&receipt.currency==='USD'&&receipt.is_provider_invoice===false);
+    const total=valid?receipts.reduce((sum,[,receipt])=>sum+receipt.micro_usd_charged_or_reserved,0):null;
+    if(!valid||!Number.isSafeInteger(total)){
+      panel.append(el('p',t('Chưa kiểm được receipt Typesafe của phiên này; chi phí chưa biết. Không cộng vào chi phí Groq.'),'notice'));return;
+    }
+    panel.append(el('p',t('{count} receipt Typesafe · USD ghi nhận/giữ chỗ {usd}',{count:receipts.length,usd:(total/1000000).toFixed(6)})));
+    const decisions=Array.isArray(job.typesafe_decisions)?job.typesafe_decisions:[];
+    if(decisions.length&&decisions.length<=4&&decisions.every(row=>typeof row?.fallback==='boolean'&&row.binding?.job_id===job.id)){
+      panel.append(el('p',t('{count} lượt quyết định dùng fallback theo luật',{count:decisions.filter(row=>row.fallback).length}),'notice'));
+    }
+    for(const [,receipt] of receipts){
+      const item=el('details',undefined,'usage-receipt');item.append(el('summary',t('Quyết định {number}',{number:receipt.binding.decision_index})+' · '+t(statuses[receipt.status])),
+        el('p',receipt.model,'hash-note'),el('p',t('Token Typesafe: vào {input}, ra {output}',{input:receipt.input_tokens??t('Chưa biết'),output:receipt.output_tokens??t('Chưa biết')}),'notice'),
+        el('p',t('USD ghi nhận/giữ chỗ: {usd}; chưa phải hóa đơn.',{usd:(receipt.micro_usd_charged_or_reserved/1000000).toFixed(6)}),'notice'),
+        el('p',t('Ngày bảng giá: {date}',{date:receipt.price_date}),'notice'),el('pre',JSON.stringify(receipt,null,2)));panel.append(item);
+    }
+    if(receipts.some(([,receipt])=>receipt.status==='breach'))panel.append(el('p',t('Usage Typesafe vượt cận; cần kiểm ledger trước khi gọi tiếp.'),'error'));
+    const button=el('button',t('Xuất receipt Typesafe JSON'));button.type='button';button.onclick=()=>{
+      const output={schema:'typesafe_usage_export_v1',job_id:job.id,is_provider_invoice:false,receipts:receipts.map(([,receipt])=>receipt)};
+      const url=URL.createObjectURL(new Blob([JSON.stringify(output,null,2)],{type:'application/json'}));const link=el('a');link.href=url;link.download='issueintel-'+job.id+'-typesafe-usage.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };panel.append(button);
+  }
+  function render(container,usage,job){
+    renderGeneration(container,usage);
+    if(job&&(job.controller==='jev'||Object.hasOwn(job,'typesafe_receipts')||Object.hasOwn(job,'typesafe_decisions'))){
+      container.prepend(el('h3',t('Chi phí sinh giả thuyết / verifier')));
+    }
+    renderTypesafe(container,job);
   }
   window.IssueIntelUsage={render};
 })();

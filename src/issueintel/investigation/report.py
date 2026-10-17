@@ -52,7 +52,7 @@ _HYPOTHESIS = _object({'id': _ID, 'statement': _TEXT, 'support_ids': _IDS,
     'counter_ids': _IDS, 'counter_status': {'enum': ['found', 'not_found']},
     'verification': _VERIFICATION, 'falsification_test': _TEXT})
 _PROVENANCE = _object({'kind': {'enum': ['followup', 'clarification', 'resume', 'context_selection',
-    'repository_context', 'focused_retrieval', 'planned_workflow']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
+    'repository_context', 'focused_retrieval', 'planned_workflow', 'typesafe_controller']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
 
 # This is an ordinary JSON Schema document and can be exported by any interface.
 # The small validator below keeps the zero-dependency runtime intact.
@@ -212,6 +212,16 @@ def _provenance(pack):
         details={key:plan[key] for key in ('policy','sha256','routing','limits','generation_passes','verifier_passes','stop_reason')}
         details['completed_retrieval_rounds']=sum(step.get('search') is not None for step in plan['rounds'])
         rows.append({'kind':'planned_workflow','details':json.dumps(details,ensure_ascii=False,sort_keys=True)})
+    if pack.get('controller_decisions'):
+        sidecar=pack['controller_decisions'];records=sidecar['records']
+        receipts=[record['receipt'] for record in records if record['receipt'] is not None]
+        rows.append({'kind':'typesafe_controller','details':json.dumps({
+            'model':sidecar['model'],'sha256':sidecar['sha256'],
+            'workflow_plan_sha256':sidecar['workflow_plan_sha256'],
+            'recorded_attempts':len(receipts),'decisions':len(records),
+            'fallbacks':sum(record['fallback'] for record in records),
+            'micro_usd_charged_or_reserved':sum(receipt['micro_usd_charged_or_reserved'] for receipt in receipts),
+            'is_provider_invoice':False,'calibrated_quality_evaluated':False},sort_keys=True)})
     return rows
 
 
@@ -230,6 +240,9 @@ def build_report(pack, *, source_pack_sha256, job_id=None, source_hash_kind='ser
     if 'workflow_plan' in pack:
         from .planner import validate_planned
         validate_planned(pack)
+    if 'controller_decisions' in pack:
+        from .typesafe_controller import validate_controller_decisions
+        validate_controller_decisions(pack)
     case, snapshot = pack['case'], pack['snapshot']
     origin = _github_origin(case)
     issue_records = [row for row in pack['evidence'] if row['kind'] == 'issue']
@@ -488,7 +501,7 @@ def _markdown(report, *, compact, detail_limit=None, text_limit=None):
     names = {'followup': 'Follow-up provenance', 'clarification': 'Guided clarification answers',
         'resume': 'Explicit verifier continuation', 'context_selection': 'User-selected repository context',
         'repository_context': 'Current repository context', 'focused_retrieval': 'Bounded hypothesis-focused retrieval',
-        'planned_workflow': 'Planned investigation workflow'}
+        'planned_workflow': 'Planned investigation workflow', 'typesafe_controller':'Typesafe Jev controller'}
     for row in report['provenance']:
         lines += ['', '## ' + names[row['kind']], '',
                   quoted(row['details']) if not compact else 'Details preserved in the full source-bound report; user/model context remains unverified.']

@@ -49,8 +49,8 @@ test('saved workflow presents bounded routing, observed counters and search step
   assert.match(output,/Điều phối điều tra/);assert.match(output,/chưa đánh giá độ khó hoặc chất lượng/);
   assert.match(output,/chưa phải phản bác đã xác nhận/);assert.match(output,/3 file code · 1 giả thuyết thiếu phản bác/);
   assert.match(output,/Vòng tìm thêm\s+2 \/ 2/);assert.match(output,/Lượt sinh giả thuyết\s+3 \/ 3/);
-  assert.match(output,/Giới hạn: 7 call provider/);assert.match(output,/Bước 1: Tìm thêm bằng chứng/);
-  assert.match(output,/Call provider đã ghi nhận\s+4 \/ 7/);
+  assert.match(output,/Giới hạn sinh\/verifier: 7 call/);assert.match(output,/Bước 1: Tìm thêm bằng chứng/);
+  assert.match(output,/Call sinh và verifier đã ghi nhận\s+4 \/ 7/);
   assert.match(output,/Bước 2: Tìm thêm bằng chứng/);assert.match(output,/Đã chạm giới hạn vòng tìm thêm/);
   assert.match(output,/chưa phải kiểm người/);assert.doesNotMatch(output,/\d+%/);
   assert.ok(app.all(app.target).filter(item=>item.tag==='details').length>=4);

@@ -1,0 +1,10 @@
+# Separate Typesafe authorization. A local API key alone never enables spending.
+# Set explicit positive daily requests/USD and monthly USD only after author choice.
+provider = "typesafe"
+model = "jev-1.13.0"
+enabled = false
+daily_requests = 0
+daily_usd = "0"
+monthly_usd = "0"
+price_file = "configs/typesafe_prices.json"
+ledger = "data/runtime/typesafe_budget.sqlite"

@@ -11,6 +11,7 @@ let planData=null;
 let viewGeneration=0;
 let stageView=null;
 let usageView=null,usageInfo=null;
+let typesafeStatus=null,typesafeStatusLoaded=false,typesafeStatusRequested=false;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -21,6 +22,30 @@ async function api(path, body) {
 }
 function node(tag, text, className) { const el = document.createElement(tag); if(text !== undefined) el.textContent = text; if(className) el.className = className; return el; }
 function message(text, error=false) {lastMessage={key:window.IssueIntelUI.sourceKey(text),error};$('message').textContent=text;$('message').className=error?'error':'';}
+function updateTypesafeControls() {
+  const eligible=['local','github','example'].includes($('mode').value)&&$('depth').value==='planned';
+  const control=$('use-typesafe');
+  $('typesafe-controls').hidden=!eligible;
+  control.disabled=!(eligible&&$('use-groq').checked&&typesafeStatus?.ready===true&&typesafeStatus.enabled===true&&typesafeStatus.key_configured===true);
+  if(control.disabled)control.checked=false;
+  let key='Đang kiểm cấu hình Typesafe trên máy…';
+  if(typesafeStatusLoaded){
+    if(!typesafeStatus)key='Chưa đọc được cấu hình Typesafe. Tải lại trang sau khi kiểm server local.';
+    else if(!typesafeStatus.key_configured)key='Chưa có API key Typesafe trên máy.';
+    else if(!typesafeStatus.enabled)key='Typesafe chưa được bật trong cấu hình. Cần bật và đặt ngân sách riêng trước khi dùng.';
+    else if(typesafeStatus.ready!==true)key='Typesafe chưa sẵn sàng. Kiểm ngân sách request, USD/ngày, USD/tháng và bảng giá trước khi dùng.';
+    else if(!$('use-groq').checked)key='Typesafe sẵn sàng. Bật Groq trước rồi chủ động chọn Jev cho phiên này.';
+    else key='Typesafe sẵn sàng; chỉ gọi sau khi bạn chọn Jev và bắt đầu điều tra.';
+  }
+  $('typesafe-status').textContent=t(key);
+}
+async function loadTypesafeStatus() {
+  if(typesafeStatusRequested)return;
+  typesafeStatusRequested=true;
+  try {typesafeStatus=await api('/api/typesafe/status');}catch(_){typesafeStatus=null;}
+  typesafeStatusLoaded=true;
+  updateTypesafeControls();
+}
 function updateDepthControls() {
   const allowed=['local','github','example'].includes($('mode').value);
   $('planned-depth-option').disabled=!allowed;
@@ -29,6 +54,7 @@ function updateDepthControls() {
     ?'Planned dùng tín hiệu quan sát để giới hạn 1–3 vòng tìm thêm, mỗi vòng tối đa 3 truy vấn/6 trích đoạn mới (tổng 18). Khi bật Groq: tối đa 4 lượt sinh + 1 verifier; mỗi lượt sinh có thể sửa schema một lần (tối đa 9 call). Có thể dừng sớm; ledger và hủy tác vụ vẫn áp dụng. Đây chưa phải đánh giá độ khó hoặc chất lượng.'
     :'Deep với Groq có tối đa một vòng tìm thêm evidence và một lượt sinh bổ sung; mọi call vẫn qua ledger.';
   $('depth-note').dataset.i18n=key;$('depth-note').textContent=t(key);
+  if(typeof updateTypesafeControls==='function')updateTypesafeControls();
 }
 function switchMode() { const mode=$('mode').value; $('main-dev-fields').hidden=mode!=='main_dev'; $('github-fields').hidden=mode!=='github'; $('local-fields').hidden=mode!=='local'; $('example-note').hidden=mode!=='example';updateDepthControls(); }
 function filterCases() {
@@ -40,6 +66,7 @@ function filterCases() {
 }
 function requestInput() {
   const mode=$('mode').value;const request={mode,provider:$('use-groq').checked?'groq':'none',depth:$('depth').value};
+  if(['local','github','example'].includes(mode)&&request.depth==='planned'&&request.provider==='groq'&&typesafeStatus?.ready===true&&typesafeStatus.enabled===true&&typesafeStatus.key_configured===true&&$('use-typesafe').checked)request.controller='jev';
   if(mode==='main_dev') request.case_id=$('case-id').value;
   if(mode==='github') Object.assign(request,{issue_url:$('github-url').value,revision:$('github-revision').value});
   if(mode==='local') Object.assign(request,{repository:$('repository').value,revision:$('revision').value,issue_text:$('issue-text').value});
@@ -80,7 +107,7 @@ async function openJob(id) {
   reportView=report.status==='fulfilled'?report.value:null;
   relatedResult=null;
   usageInfo=cost.status==='fulfilled'?cost.value:null;
-  showUsage({id,accounting:usageInfo});
+  showUsage({id,accounting:usageInfo,...savedTypesafeUsage()});
   showStageArtifacts({id,stage_checkpoints:pack.stage_checkpoints});
   renderPack();
 }
@@ -134,7 +161,12 @@ function showStageArtifacts(row) {
 function showUsage(row){
   usageView=row;
   $('usage-panel').hidden=false;
-  window.IssueIntelUsage.render($('usage-content'),row.accounting);
+  window.IssueIntelUsage.render($('usage-content'),row.accounting,row);
+}
+function savedTypesafeUsage(){
+  const sidecar=pack?.controller_decisions;
+  if(!sidecar)return {};
+  return {controller:'jev',typesafe_decisions:sidecar.records,typesafe_receipts:Object.fromEntries(sidecar.records.filter(row=>row.receipt).map(row=>[row.receipt.reservation_id,row.receipt]))};
 }
 function planDrafts() {
   return [...document.querySelectorAll('[data-plan-step]')].map(form=>({id:form.dataset.planStep,
@@ -263,10 +295,10 @@ function renderTab() {
   if(activeTab==='trace') {
     window.IssueIntelWorkflow?.render(content,pack.workflow_plan,currentJob,pack);
     if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
-    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
+    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,controller_decisions:pack.controller_decisions,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
-  if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo);
+  if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo,{id:currentJob,...savedTypesafeUsage()});
   if(activeTab==='github') {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
     content.append(node('p',t("Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue."),'notice'),button);
@@ -346,7 +378,7 @@ async function download(name) {
 async function downloadPath(path,filename) {
   try {const response=await fetch(path,{headers:{'X-IssueIntel-Token':token}});if(!response.ok)throw new Error(t("Không xuất được báo cáo."));const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){message(error.message,true);}
 }
-$('mode').onchange=switchMode;$('depth').onchange=updateDepthControls;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
+$('mode').onchange=switchMode;$('depth').onchange=updateDepthControls;$('use-groq').onchange=updateTypesafeControls;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;
 $('followup-form').onsubmit=event=>{event.preventDefault();if(!currentJob)return;runJob({mode:'followup',parent_job_id:currentJob,additional_context:$('additional-context').value,provider:$('followup-groq').checked?'groq':'none',depth:$('followup-depth').value});};
 $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
@@ -368,6 +400,7 @@ document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;
   activeTab='evidence';renderTab();document.getElementById('evidence-'+event.detail.evidence_id)?.scrollIntoView({behavior:'smooth',block:'center'});
 });
+loadTypesafeStatus();
 (async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();
 
 function renderCatalog() {

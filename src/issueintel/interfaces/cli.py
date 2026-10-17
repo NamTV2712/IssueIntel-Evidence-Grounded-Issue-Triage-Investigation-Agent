@@ -90,6 +90,8 @@ def main(argv=None) -> int:
     investigate.add_argument("--issue-file", type=Path)
     investigate.add_argument("--case-id", help="main_dev case only")
     investigate.add_argument("--provider", choices=("none", "groq"), default="none")
+    investigate.add_argument("--controller", choices=("rules","jev"), default="rules",
+        help="Jev is opt-in for --planned with Groq; requires separate Typesafe configuration and limits")
     investigate.add_argument("--output", type=Path, default=Path("artifacts/investigations"))
     investigate.add_argument("--no-critic", action="store_true")
     investigate.add_argument("--planned", action="store_true",
@@ -272,6 +274,14 @@ def _investigate(args):
     planned=getattr(args,'planned',False)
     if planned and (args.case_id or args.refinement_rounds):
         raise ValueError('--planned cannot use benchmark cases or --refinement-rounds')
+    jev=getattr(args,'controller','rules')=='jev'
+    if jev and (not planned or args.provider!='groq'):
+        raise ValueError('--controller jev requires --planned --provider groq')
+    if jev:
+        from issueintel.runtime.typesafe import TypesafeConfig, TypesafeClient
+        typesafe_config=TypesafeConfig.load(args.root)
+        if not typesafe_config.status()['ready']:
+            raise ValueError('Typesafe requires its own enabled configuration, key and positive spending limits')
     output_base = (args.root / args.output).resolve()
     if not output_base.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
@@ -301,8 +311,15 @@ def _investigate(args):
             from issueintel.integrations.github_index import RepositoryIndex
             from issueintel.retrieval.repository_context import collect_context
             context=collect_context(RepositoryIndex(args.root,case['repository']),case['issue_url'],case['problem_statement'])
-    provider = GroqProvider(RuntimeConfig.load(args.root)) if args.provider == "groq" else None
     import uuid
+    controller=None
+    if jev:
+        from issueintel.investigation.typesafe_controller import TypesafePlannedController
+        controller_id=uuid.uuid4().hex[:24]
+        def capture_controller_receipt(receipt):
+            write_json(output_base/'controller_receipts'/controller_id/(receipt['reservation_id']+'.json'),receipt)
+        controller=TypesafePlannedController(TypesafeClient(typesafe_config,on_receipt=capture_controller_receipt),controller_id)
+    provider = GroqProvider(RuntimeConfig.load(args.root)) if args.provider == "groq" else None
     from issueintel.investigation.stages import StageCheckpoints
     stages=StageCheckpoints(args.root,output_base/'stages'/uuid.uuid4().hex)
     try:
@@ -310,12 +327,13 @@ def _investigate(args):
             provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
             max_output_tokens=provider.config.max_output_tokens if provider else 2048,
             refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context,
-            **({'planned_workflow':True} if planned else {}))
+            **({'planned_workflow':True} if planned else {}),
+            **({'controller':controller} if controller is not None else {}))
     except Exception:
         if stages.receipts:
             print(json.dumps({'completed_stage_checkpoints':stages.receipts,'automatic_retry':False}),file=sys.stderr)
         raise
-    directory = (output_base / pack["run_id"]).resolve()
+    directory = (output_base / (pack["run_id"]+('-'+controller_id if jev else ''))).resolve()
     if not directory.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
     print(export_pack(pack, directory))

@@ -13,6 +13,8 @@
     no_new_queries:'Không còn truy vấn mới trong giới hạn',no_new_evidence:'Không tìm thêm bằng chứng mới',round_limit:'Đã chạm giới hạn vòng tìm thêm',
     controller_stopped:'Controller chọn dừng',controller_skipped_retrieval:'Controller chuyển thẳng sang verifier'};
   const actions={retrieve:'Tìm thêm bằng chứng',verify:'Chuyển sang verifier',stop:'Dừng điều tra'};
+  const attemptLabels={settled:'Đã ghi nhận usage',failed_bound:'Lời gọi lỗi; giữ cận chi phí',missing_usage_bound:'Thiếu usage; giữ cận chi phí',
+    breach:'Usage vượt cận chi phí',blocked:'Đã chặn trước khi gọi',unreceipted_error:'Chưa có receipt hợp lệ'};
   let active=null;
 
   function valid(plan,job,pack){
@@ -65,6 +67,41 @@
       button.onclick=()=>{if(active!==binding)return;document.dispatchEvent(new CustomEvent('issueintel:showevidence',{detail:{job_id:binding.job,evidence_id:id}}));};row.append(button);}
     return row;
   }
+  function controllerPanel(area,sidecar,plan,job){
+    if(!sidecar)return;
+    const panel=node('section',undefined,'workflow-controller');panel.append(node('h4',t('Quyết định Jev / Typesafe')));area.append(panel);
+    const sameSource=source=>source&&['query_sha256','snapshot_sha256','commit_sha'].every(key=>source[key]===plan.source[key]);
+    const expected=plan.seed_annotation===null?[]:plan.rounds.slice();
+    if(plan.seed_annotation!==null&&(!expected.length||expected.at(-1).action==='retrieve'))expected.push(plan.final_decision);
+    let matches=sidecar.schema==='typesafe_controller_v1'&&sidecar.provider==='typesafe'&&sidecar.model==='jev-1.13.0'
+      &&sameSource(sidecar.source)&&sidecar.workflow_plan_sha256===plan.sha256&&sidecar.job_id===job&&digest(sidecar.sha256)
+      &&sidecar.max_decisions===4&&Array.isArray(sidecar.records)&&sidecar.records.length<=4&&sidecar.records.length===expected.length;
+    if(matches)matches=sidecar.records.every((record,index)=>{
+      const receipt=record?.receipt,chosen=expected[index];
+      return record?.decision_index===index+1&&Array.isArray(record.allowed)&&record.allowed.length>=2&&record.allowed.length<=3
+        &&new Set(record.allowed).size===record.allowed.length&&record.allowed.every(value=>Object.hasOwn(actions,value))&&record.allowed.includes(record.action)
+        &&Object.hasOwn(attemptLabels,record.attempt_status)&&text(record.reason)&&record.reason.length<=80&&typeof record.fallback==='boolean'
+        &&digest(record.state_sha256)&&(record.request_sha256===null||digest(record.request_sha256))&&sameSource(record.binding)
+        &&record.binding.job_id===job&&record.binding.decision_index===index+1&&chosen.controller==='jev'&&chosen.action===record.action&&chosen.fallback===record.fallback
+        &&(receipt===null?['blocked','unreceipted_error'].includes(record.attempt_status):receipt.schema==='typesafe_decision_receipt_v1'
+          &&receipt.provider==='typesafe'&&receipt.model===sidecar.model&&receipt.status===record.attempt_status&&digest(receipt.sha256)
+          &&receipt.request_sha256===record.request_sha256&&sameSource(receipt.binding)&&receipt.binding.job_id===job
+          &&receipt.binding.decision_index===index+1&&receipt.currency==='USD'&&receipt.is_provider_invoice===false
+          &&Number.isSafeInteger(receipt.micro_usd_charged_or_reserved)&&receipt.micro_usd_charged_or_reserved>=0);
+    });
+    if(!matches){panel.append(node('p',t('Không thể gắn quyết định Typesafe với phiên và kế hoạch này. Xem JSON gốc để kiểm tra.'),'notice'));return;}
+    panel.append(node('p',t('{count} / {limit} lượt quyết định đã ghi · model {model}',{count:sidecar.records.length,limit:sidecar.max_decisions,model:sidecar.model})),
+      node('p',t('Các lượt này tính riêng ngoài call sinh giả thuyết/verifier. Quyết định chọn bước không xác minh chất lượng bằng chứng hoặc nguyên nhân.'),'notice'));
+    if(!sidecar.records.length)panel.append(node('p',t('Không gọi Typesafe trong phiên này.'),'notice'));
+    for(const record of sidecar.records){
+      const row=node('details',undefined,'workflow-controller-record');row.append(node('summary',t('Quyết định {number}: {action}',{number:record.decision_index,action:t(actions[record.action])})),
+        node('p',t('Fallback theo luật: {fallback}',{fallback:t(record.fallback?'Có':'Không')}),'notice'),node('p',t(attemptLabels[record.attempt_status]),'notice'));
+      if(record.receipt)row.append(node('p',t('USD ghi nhận/giữ chỗ: {usd}; chưa phải hóa đơn.',{usd:(record.receipt.micro_usd_charged_or_reserved/1000000).toFixed(6)}),'notice'));
+      row.append(node('p',t('Lý do: {reason}',{reason:record.reason}),'workflow-source-text'));panel.append(row);
+    }
+    const provenance=node('details');provenance.append(node('summary',t('Nguồn quyết định')),node('p','Decision SHA256 '+sidecar.sha256,'hash-note'),
+      node('p','Plan SHA256 '+sidecar.workflow_plan_sha256,'hash-note'));panel.append(provenance);
+  }
   function render(target,plan,job,pack){
     active=null;
     const area=node('section',undefined,'investigation-workflow');area.append(node('h3',t('Điều phối điều tra')));target.append(area);
@@ -82,9 +119,10 @@
     const budgets=node('dl',undefined,'workflow-budgets');
     for(const [label,value] of [[t('Vòng tìm thêm'),plan.rounds.filter(row=>row.action==='retrieve').length+' / '+plan.limits.max_retrieval_rounds],
       [t('Lượt sinh giả thuyết'),plan.generation_passes+' / '+plan.limits.max_generation_passes],[t('Lượt verifier riêng'),plan.verifier_passes+' / '+plan.limits.max_verifier_passes],
-      [t('Call provider đã ghi nhận'),plan.provider_calls+' / '+plan.limits.max_provider_calls]]){
+      [t('Call sinh và verifier đã ghi nhận'),plan.provider_calls+' / '+plan.limits.max_provider_calls]]){
       const entry=node('div');entry.append(node('dt',label),node('dd',value));budgets.append(entry);}
-    area.append(budgets,node('p',t('Giới hạn: {calls} call provider, tối đa 3 truy vấn/6 trích đoạn mới mỗi vòng và 18 trích đoạn mới tổng cộng. Lượt sinh có thể kèm một lần sửa schema. Chi phí thực tế xem ở Token và chi phí.',{calls:plan.limits.max_provider_calls}),'notice'));
+    area.append(budgets,node('p',t('Giới hạn sinh/verifier: {calls} call, tối đa 3 truy vấn/6 trích đoạn mới mỗi vòng và 18 trích đoạn mới tổng cộng. Lượt sinh có thể kèm một lần sửa schema. Call Jev/Typesafe tính riêng; xem Token và chi phí để đọc receipt.',{calls:plan.limits.max_provider_calls}),'notice'));
+    controllerPanel(area,pack.controller_decisions,plan,job);
     const seed=node('details',undefined,'workflow-seed');seed.append(node('summary',t('Bắt đầu với {count} nguồn bằng chứng',{count:plan.seed_evidence_ids.length})),citations(plan.seed_evidence_ids,binding));area.append(seed);
     const steps=node('ol',undefined,'workflow-rounds');
     for(const row of plan.rounds){

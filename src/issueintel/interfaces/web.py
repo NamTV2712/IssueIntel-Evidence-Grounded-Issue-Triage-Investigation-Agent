@@ -82,6 +82,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._send(200, raw, mime)
                 elif route == '/api/catalog':
                     self._json(200, workbench.catalog())
+                elif route == '/api/typesafe/status':
+                    self._json(200, workbench.typesafe_status())
                 elif route == '/api/jobs':
                     self._json(200, workbench.history())
                 elif route == '/api/repositories/jobs':

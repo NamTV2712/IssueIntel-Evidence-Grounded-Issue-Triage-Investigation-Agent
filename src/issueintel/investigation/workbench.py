@@ -32,12 +32,29 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def validate_controller_ownership(pack, job):
+    selected=job['request'].get('controller')=='jev'
+    sidecar=pack.get('controller_decisions')
+    if selected and sidecar is None:
+        raise ValueError('Missing saved Typesafe controller decisions')
+    if sidecar is not None:
+        receipts={record['receipt']['reservation_id']:record['receipt'] for record in sidecar['records'] if record['receipt'] is not None}
+        if sidecar['job_id']!=job['id'] or not selected or receipts!=job.get('typesafe_receipts'):
+            raise ValueError('Saved Typesafe controller ownership changed')
+
+
 def validate_request(request):
-    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language', 'question_job_id'}
+    allowed = {'mode', 'case_id', 'repository', 'revision', 'issue_text', 'provider', 'depth', 'issue_url', 'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language', 'question_job_id', 'controller'}
     if not isinstance(request, dict) or set(request)-allowed:
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
+    if not isinstance(request.get('controller','rules'),str) or request.get('controller','rules') not in {'rules','jev'}:
+        raise ValueError('Choose rules or Jev controller')
+    if 'controller' in request and (request.get('depth')!='planned' or mode not in {'local','github','example'}):
+        raise ValueError('A controller selection requires an original Planned product investigation')
+    if request.get('controller')=='jev' and provider!='groq':
+        raise ValueError('Jev requires a Planned investigation with generated hypotheses')
     if request.get('depth', 'quick') not in {'quick', 'deep', 'planned'}:
         raise ValueError('Choose quick, deep or planned investigation')
     if request.get('depth') == 'planned' and mode not in {'local','github','example'}:
@@ -106,7 +123,7 @@ def validate_request(request):
 
 
 class Workbench:
-    def __init__(self, root, *, provider_factory=GroqProvider):
+    def __init__(self, root, *, provider_factory=GroqProvider, typesafe_factory=None):
         self.root = Path(root).resolve()
         self.directory = self.root/'artifacts/demo'
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -115,6 +132,7 @@ class Workbench:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='issueintel-demo')
         self.capacity = threading.BoundedSemaphore(4)
         self.provider_factory = provider_factory
+        self.typesafe_factory = typesafe_factory
         from .question_jobs import QuestionJobs
         self.questions=QuestionJobs(self)
         from .release_jobs import ReleaseJobs
@@ -234,11 +252,22 @@ class Workbench:
 
     def submit(self, request):
         request = validate_request(request)
+        if request.get('controller')=='jev' and not self.typesafe_status()['ready']:
+            raise ValueError('Typesafe requires its own enabled configuration, key and positive spending limits')
         if request['mode']=='context':
             self._selected_context(request)  # Reject changed sources before queueing or provider construction.
         elif request['mode']=='clarification':
             self._clarification_input(request)
         return self._enqueue(request, self._run)
+
+    def typesafe_status(self):
+        from issueintel.runtime.typesafe import TypesafeConfig, TypesafeError
+        try:
+            return TypesafeConfig.load(self.root).status()
+        except (TypesafeError,OSError,ValueError):
+            return {'ready':False,'enabled':False,'key_configured':bool(os.environ.get('TYPESAFE_API_KEY')),
+                    'reason':'invalid_configuration','model':'jev-1.13.0','max_calls_per_run':4,
+                    'per_call_usd_bound':None,'daily_requests':0,'daily_usd':'0','monthly_usd':'0'}
 
     def _clarification_product(self, identifier, pack):
         """Retain product authority through mixed follow-up/context ancestry."""
@@ -370,6 +399,10 @@ class Workbench:
         identifier = identifier or uuid.uuid4().hex[:24]
         row = {'id': identifier, 'status': 'queued', 'stage': 'queued', 'created_at': now(),
                'mode': request['mode'], 'provider': request['provider'], 'depth': request['depth'], 'request': request}
+        if request.get('controller')=='jev':
+            row['controller']='jev'
+            row['typesafe_receipts']={}
+            row['typesafe_decisions']=[]
         if request['mode'] == 'repository':
             row['repository'] = request['repository']
         with self.lock:
@@ -824,6 +857,24 @@ class Workbench:
                 if not local.is_dir():
                     local = acquire_repository(repository, case['revision'], self.root/'data/repos').path
             # No provider exists until the public/Main Dev boundary has replayed.
+            selected_controller=None
+            if request.get('controller')=='jev':
+                from issueintel.runtime.typesafe import TypesafeConfig, TypesafeClient
+                from .typesafe_controller import TypesafePlannedController
+                typesafe_config=TypesafeConfig.load(self.root)
+                def capture_typesafe(receipt):
+                    row.setdefault('typesafe_receipts',{})[receipt['reservation_id']]=receipt
+                    self._save(row,typesafe_receipts=row['typesafe_receipts'])
+                    if receipt['status']=='reserved':self._check_cancelled(row['id'])
+                def capture_decision(decision):
+                    if decision.get('receipt') is not None:
+                        receipt=decision['receipt']
+                        row.setdefault('typesafe_receipts',{})[receipt['reservation_id']]=receipt
+                    row.setdefault('typesafe_decisions',[]).append(decision)
+                    self._save(row,typesafe_decisions=row['typesafe_decisions'],typesafe_receipts=row.get('typesafe_receipts',{}))
+                    self._check_cancelled(row['id'])
+                client=(self.typesafe_factory or TypesafeClient)(typesafe_config,on_receipt=capture_typesafe)
+                selected_controller=TypesafePlannedController(client,row['id'],on_decision=capture_decision)
             config = RuntimeConfig.load(self.root) if request['provider'] == 'groq' else None
             context = ({'category': 'ARTIFACT_GENERATION_COST', 'reasoning_effort': config.reasoning_effort,
                         'stage': 'local_demo_investigation', 'diagnostic': False}
@@ -873,8 +924,10 @@ class Workbench:
                 top_k=4 if request['depth'] == 'quick' else 12,
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
-                **({'planned_workflow':True} if request['depth']=='planned' else {}),**extra)
+                **({'planned_workflow':True} if request['depth']=='planned' else {}),
+                **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
             self._check_cancelled(row['id'])
+            validate_controller_ownership(pack,row)
             if followup:
                 pack['followup'] = followup
                 cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
@@ -971,7 +1024,12 @@ class Workbench:
         if 'workflow_plan' in pack:
             from .planner import validate_planned
             validate_planned(pack)
-        saved_request=json.loads(self._job_path(identifier).read_bytes())['request']
+        saved_job=json.loads(self._job_path(identifier).read_bytes())
+        saved_request=saved_job['request']
+        if 'controller_decisions' in pack:
+            from .typesafe_controller import validate_controller_decisions
+            validate_controller_decisions(pack)
+        validate_controller_ownership(pack,saved_job)
         if saved_request.get('depth')=='planned' and 'workflow_plan' not in pack:
             raise ValueError('Missing saved planned workflow')
         if saved_request.get('mode')=='clarification' and not (pack.get('followup') or {}).get('clarification'):

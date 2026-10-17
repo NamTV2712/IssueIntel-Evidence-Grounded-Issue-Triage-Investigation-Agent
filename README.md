@@ -53,6 +53,20 @@ Chọn Planned không tự bật Groq; có thể chạy offline với zero call.
 hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; routing này chưa phải
 điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
 Planned chưa hỗ trợ Main Dev, follow-up hoặc tiếp tục paid stage sau lỗi.
+Planned có tùy chọn **Jev / Typesafe** để chọn retrieve/verify/stop từ các bước
+được code cho phép. Mặc định vẫn dùng rules. API key là `TYPESAFE_API_KEY` trong
+`.env`; cấu hình riêng ở `configs/typesafe.toml` mặc định tắt, trần request và
+USD bằng 0. Cần tác giả chọn trần request/ngày, USD/ngày, USD/tháng và bật trước
+khi sử dụng; không kế thừa quyền chi tiêu Groq. UI chỉ gửi yêu cầu Jev khi bạn
+chủ động chọn, Planned đang bật và Groq được chọn để sinh giả thuyết.
+Mỗi phiên tối đa bốn call Jev bổ sung, với receipt/budget riêng và không retry.
+Issue, phần trích code và giả thuyết được rút gọn có giới hạn trước khi gửi.
+Lỗi dịch vụ, budget hoặc output không hợp lệ chuyển về rules và ghi rõ fallback.
+Trace và chi phí phân biệt call điều phối Jev với call sinh/kiểm Groq; xác suất
+Jev trả về là cho lựa chọn hành động, không phải xác suất nguyên nhân đúng.
+CLI dùng thêm `--controller jev --planned --provider groq`. Adapter đã được
+kiểm thử với HTTP giả lập; khóa có trên máy chưa đồng nghĩa kết nối thật đã
+được nghiệm thu hoặc chất lượng controller đã được đánh giá.
 Nếu generation đã lưu nhưng verifier lỗi hoặc bị ngắt, mở phiên lỗi trong lịch
 sử rồi chọn **Tiếp tục verifier từ checkpoint**. Sau khi kiểm snapshot/citation/
 hash và xác nhận chi phí, hệ thống tạo phiên mới chỉ chạy verifier, giữ output

@@ -56,6 +56,10 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     case = public_case(case)
     if type(planned_workflow) is not bool:
         raise ValueError('Planned workflow must be an explicit boolean')
+    if controller is not None:
+        from .typesafe_controller import TypesafePlannedController
+        if isinstance(controller,TypesafePlannedController) and not planned_workflow:
+            raise ValueError('Typesafe requires an original Planned product investigation')
     if type(refinement_rounds) is not int or refinement_rounds not in {0,1}:
         raise ValueError('Only zero or one additional retrieval round is supported')
     if planned_workflow:
@@ -213,6 +217,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             used_queries={workflow_plan['source']['query_sha256']}
             planned_stop=None;decision=None;decision_record=None
             for number in range(1,maximum+1):
+                if hasattr(controller,'bind_context'):
+                    controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
                     len(annotation['hypotheses']),intake['missing_information'],maximum-number+1)
                 step={'round':number,'input_annotation_sha256':digest(annotation),
@@ -247,6 +253,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 step.update(output_annotation_sha256=digest(annotation),output_annotation=deepcopy(annotation))
                 checkpoint(f'planned_generation_{number}',{'round':number,'annotation':annotation})
             if decision not in (Action.VERIFY,Action.STOP):
+                if hasattr(controller,'bind_context'):
+                    controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
                     len(annotation['hypotheses']),intake['missing_information'],0,final=True)
             workflow_plan['final_decision']=decision_record
@@ -261,6 +269,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             workflow_plan=seal_plan(workflow_plan)
             checkpoint('planned_complete',{'workflow_plan':workflow_plan,'verification':verification})
             pack=assemble(stop_reason,verification)
+            if hasattr(controller,'export_decisions'):
+                pack['controller_decisions']=controller.export_decisions(pack)
             from .planner import validate_planned
             validate_planned(pack)
             return pack
@@ -311,6 +321,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         workflow_plan=seal_plan(workflow_plan)
         checkpoint('planned_complete',{'workflow_plan':workflow_plan,'verification':None})
         pack=assemble(stop_reason,verification)
+        if hasattr(controller,'export_decisions'):
+            pack['controller_decisions']=controller.export_decisions(pack)
         validate_planned(pack)
         return pack
     return assemble(stop_reason, verification)
