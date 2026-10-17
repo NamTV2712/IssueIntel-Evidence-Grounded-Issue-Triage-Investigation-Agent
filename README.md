@@ -64,9 +64,12 @@ Issue, phần trích code và giả thuyết được rút gọn có giới hạ
 Lỗi dịch vụ, budget hoặc output không hợp lệ chuyển về rules và ghi rõ fallback.
 Trace và chi phí phân biệt call điều phối Jev với call sinh/kiểm Groq; xác suất
 Jev trả về là cho lựa chọn hành động, không phải xác suất nguyên nhân đúng.
-CLI dùng thêm `--controller jev --planned --provider groq`. Adapter đã được
-kiểm thử với HTTP giả lập; khóa có trên máy chưa đồng nghĩa kết nối thật đã
-được nghiệm thu hoặc chất lượng controller đã được đánh giá.
+CLI dùng thêm `--controller jev --planned --provider groq`. Ngày 17/10/2026 đã
+kiểm tra kết nối thật bằng đúng bốn call dữ liệu tổng hợp, sau ủy quyền riêng
+trần USD 0.011; cả bốn response/schema/receipt hợp lệ, ghi nhận USD 0.000079.
+Đây là kiểm tra kết nối, chưa đánh giá chất lượng controller hoặc nghiệm thu
+luồng GitHub thật. Receipt và dữ liệu thử giữ private; cấu hình thường vẫn tắt
+với trần 0. Quyền thử một lần không cấp ngân sách Jev sử dụng lâu dài.
 Nếu generation đã lưu nhưng verifier lỗi hoặc bị ngắt, mở phiên lỗi trong lịch
 sử rồi chọn **Tiếp tục verifier từ checkpoint**. Sau khi kiểm snapshot/citation/
 hash và xác nhận chi phí, hệ thống tạo phiên mới chỉ chạy verifier, giữ output

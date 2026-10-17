@@ -258,7 +258,13 @@ phải lưu thành công. Lỗi/missing usage giữ cận, usage vượt cận k
 Jev receipt và chi phí được giữ riêng khi chạy/lỗi/hủy, không cộng nhầm vào
 Groq ledger hoặc coi receipt là hóa đơn. Giá quá 30 ngày/thiếu key/caps thì
 không gọi. Confidence/probabilities chỉ là output lựa chọn action của model,
-chưa được hiệu chỉnh hoặc đánh giá cho IssueIntel. Chưa chạy paid smoke test.
+chưa được hiệu chỉnh hoặc đánh giá cho IssueIntel. Ngày 17/10/2026, tác giả cho
+phép đúng bốn call tổng hợp với tổng cận USD 0.011 cho smoke test một lần:
+4/4 response/schema/receipt hợp lệ, 1.842 input token và 142 output token;
+local receipt ghi nhận USD 0.000079, chưa phải hóa đơn provider. Ledger/receipt/
+authorization thử giữ trong ignored artifacts; config product vẫn tắt/trần 0.
+Kết quả chỉ nghiệm thu transport/schema/receipt, không đo độ chính xác điều phối,
+không dùng benchmark và không cấp quyền chi tiêu thường xuyên.
 
 `integrations.github_releases` kiểm một release/tag công khai theo yêu cầu rõ
 ràng, với tối đa 16 GET và receipt JSON tổng tối đa 20 MB. Nó pin repository ID,
