@@ -52,7 +52,7 @@ _HYPOTHESIS = _object({'id': _ID, 'statement': _TEXT, 'support_ids': _IDS,
     'counter_ids': _IDS, 'counter_status': {'enum': ['found', 'not_found']},
     'verification': _VERIFICATION, 'falsification_test': _TEXT})
 _PROVENANCE = _object({'kind': {'enum': ['followup', 'clarification', 'resume', 'context_selection',
-    'repository_context', 'focused_retrieval']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
+    'repository_context', 'focused_retrieval', 'planned_workflow']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
 
 # This is an ordinary JSON Schema document and can be exported by any interface.
 # The small validator below keeps the zero-dependency runtime intact.
@@ -207,6 +207,11 @@ def _provenance(pack):
             'retrieval_rounds': refined['retrieval_rounds'], 'maximum_rounds': 1,
             'generation_passes': refined['generation_passes'],
             'additional_excerpts': len(refined.get('search', {}).get('added_ids', []))}, sort_keys=True)})
+    if pack.get('workflow_plan'):
+        plan=pack['workflow_plan']
+        details={key:plan[key] for key in ('policy','sha256','routing','limits','generation_passes','verifier_passes','stop_reason')}
+        details['completed_retrieval_rounds']=sum(step.get('search') is not None for step in plan['rounds'])
+        rows.append({'kind':'planned_workflow','details':json.dumps(details,ensure_ascii=False,sort_keys=True)})
     return rows
 
 
@@ -222,6 +227,9 @@ def build_report(pack, *, source_pack_sha256, job_id=None, source_hash_kind='ser
     from issueintel.annotations.models import Annotation
 
     compare_packs(pack, pack)
+    if 'workflow_plan' in pack:
+        from .planner import validate_planned
+        validate_planned(pack)
     case, snapshot = pack['case'], pack['snapshot']
     origin = _github_origin(case)
     issue_records = [row for row in pack['evidence'] if row['kind'] == 'issue']
@@ -479,7 +487,8 @@ def _markdown(report, *, compact, detail_limit=None, text_limit=None):
                       ('; excerpt truncated.' if row['text_truncated'] else '; complete evidence excerpt.')]
     names = {'followup': 'Follow-up provenance', 'clarification': 'Guided clarification answers',
         'resume': 'Explicit verifier continuation', 'context_selection': 'User-selected repository context',
-        'repository_context': 'Current repository context', 'focused_retrieval': 'Bounded hypothesis-focused retrieval'}
+        'repository_context': 'Current repository context', 'focused_retrieval': 'Bounded hypothesis-focused retrieval',
+        'planned_workflow': 'Planned investigation workflow'}
     for row in report['provenance']:
         lines += ['', '## ' + names[row['kind']], '',
                   quoted(row['details']) if not compact else 'Details preserved in the full source-bound report; user/model context remains unverified.']

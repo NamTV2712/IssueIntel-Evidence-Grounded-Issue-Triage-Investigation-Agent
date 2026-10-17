@@ -44,11 +44,22 @@ hưởng, xác suất tin cậy hoặc việc đã chạy các bước kiểm tr
 Khi bật Groq, Deep có thêm tối đa một vòng truy xuất theo giả thuyết trong cùng
 snapshot; chỉ sinh lại nếu có evidence mới. Checkpoint từng bước được giữ để
 xem/tải khi call sau lỗi. Kết quả tìm thêm chưa phải counter-evidence đã xác nhận.
+Với issue product ban đầu, **Planned / Nhiều bước** chọn từ một đến ba vòng
+theo số file, khoảng trống snapshot và counter-evidence còn thiếu được quan sát.
+Mỗi vòng tối đa ba query/sáu excerpt mới; không lặp query hoặc evidence đã lấy.
+Chỉ sinh lại khi có evidence mới, rồi chạy verifier tối đa một lần. Cận là chín
+call Groq kể cả sửa schema, vẫn chịu giới hạn và receipt từng call hiện có.
+Chọn Planned không tự bật Groq; có thể chạy offline với zero call. Tab **Trace**
+hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; routing này chưa phải
+điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
+Planned chưa hỗ trợ Main Dev, follow-up hoặc tiếp tục paid stage sau lỗi.
 Nếu generation đã lưu nhưng verifier lỗi hoặc bị ngắt, mở phiên lỗi trong lịch
 sử rồi chọn **Tiếp tục verifier từ checkpoint**. Sau khi kiểm snapshot/citation/
 hash và xác nhận chi phí, hệ thống tạo phiên mới chỉ chạy verifier, giữ output
 generation cùng receipt cũ. Mỗi phiên nguồn chỉ có một intent tiếp tục; gửi lặp
-không tạo thêm call. Chỉ áp dụng checkpoint product mới đủ proof, không Main Dev.
+không tạo thêm call. Chỉ áp dụng checkpoint product Quick/Deep mới đủ proof,
+không Main Dev hoặc Planned. Thay đổi policy/source code có thể làm checkpoint
+cũ không còn đủ điều kiện tiếp tục; bytes và receipt cũ vẫn được giữ nguyên.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

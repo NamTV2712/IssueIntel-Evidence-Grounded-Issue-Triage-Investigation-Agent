@@ -38,8 +38,10 @@ def validate_request(request):
         raise ValueError('Unsupported investigation fields')
     mode = request.get('mode', 'local')
     provider = request.get('provider', 'none')
-    if request.get('depth', 'quick') not in {'quick', 'deep'}:
-        raise ValueError('Choose quick or deep investigation')
+    if request.get('depth', 'quick') not in {'quick', 'deep', 'planned'}:
+        raise ValueError('Choose quick, deep or planned investigation')
+    if request.get('depth') == 'planned' and mode not in {'local','github','example'}:
+        raise ValueError('Planned investigation requires an original product issue')
     if mode not in {'local', 'main_dev', 'example', 'github', 'followup', 'context', 'clarification'} or provider not in {'none', 'groq'}:
         raise ValueError('Choose a supported mode and provider')
     if mode not in {'followup','context','clarification'} and set(request) & {'parent_job_id', 'additional_context', 'parent_pack_sha256', 'selected_sources', 'questions_sha256', 'answers', 'language','question_job_id'}:
@@ -388,6 +390,7 @@ class Workbench:
     def _resume_record(self, identifier):
         row=self.job(identifier)
         if (row['mode'] not in {'github','local','example'} or row['provider']!='groq'
+                or row.get('depth')=='planned'
                 or row['status'] not in {'failed','interrupted','cancelled'}
                 or 'verification_input' not in row.get('stage_checkpoints',{})
                 or 'verification' in row.get('stage_checkpoints',{})):
@@ -828,6 +831,11 @@ class Workbench:
             provider = (self.provider_factory(config, call_context=context)
                 if request['provider'] == 'groq' else None)
             call_stage='seed_generation'
+            def generation_stage():
+                for number in range(3,0,-1):
+                    if f'planned_retrieval_{number}' in stage_store.receipts:
+                        return f'planned_generation_{number}'
+                return 'refined_generation' if 'focused_retrieval' in stage_store.receipts else 'seed_generation'
             if provider and hasattr(provider,'on_receipt'):
                 def capture_receipt(receipt):
                     row.setdefault('usage_receipts',{})[receipt['reservation_id']]=dict(receipt,stage=call_stage)
@@ -836,7 +844,8 @@ class Workbench:
                 self._save(row,usage_tracking=True,usage_receipts={})
             def complete(messages, max_output_tokens):
                 nonlocal call_stage
-                call_stage='refined_generation' if 'focused_retrieval' in stage_store.receipts else 'seed_generation'
+                payload=json.loads(messages[1]['content'])
+                call_stage='verification' if 'hypotheses' in payload and 'case' not in payload else generation_stage()
                 self._check_cancelled(row['id'])
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
@@ -844,7 +853,7 @@ class Workbench:
             def structured(messages, *, max_output_tokens, schema):
                 nonlocal call_stage
                 call_stage=('verification' if 'reviews' in schema.get('properties',{}) else
-                            'refined_generation' if 'focused_retrieval' in stage_store.receipts else 'seed_generation')
+                            generation_stage())
                 self._check_cancelled(row['id'])
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
@@ -863,7 +872,8 @@ class Workbench:
                 max_output_tokens=provider.config.max_output_tokens if provider else 2048,
                 top_k=4 if request['depth'] == 'quick' else 12,
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
-                resumable=request['mode'] in {'github','local','example'},**extra)
+                resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
+                **({'planned_workflow':True} if request['depth']=='planned' else {}),**extra)
             self._check_cancelled(row['id'])
             if followup:
                 pack['followup'] = followup
@@ -958,7 +968,12 @@ class Workbench:
         seen.add(identifier)
         raw = self._export_bytes(identifier)
         pack = json.loads(raw)
+        if 'workflow_plan' in pack:
+            from .planner import validate_planned
+            validate_planned(pack)
         saved_request=json.loads(self._job_path(identifier).read_bytes())['request']
+        if saved_request.get('depth')=='planned' and 'workflow_plan' not in pack:
+            raise ValueError('Missing saved planned workflow')
         if saved_request.get('mode')=='clarification' and not (pack.get('followup') or {}).get('clarification'):
             raise ValueError('Missing saved clarification receipt')
         resume=pack.get('resumed_from')

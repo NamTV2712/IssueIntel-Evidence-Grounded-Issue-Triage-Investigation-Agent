@@ -200,6 +200,23 @@ hit mới mới cho sinh lại, rồi chuyển sang verify/stop với zero round
 Không nhập history/gold và không nới as-of proof; prepared evidence đã freeze
 không được mở rộng. Mặc định pipeline/CLI vẫn zero rounds cho baseline.
 
+Product Planned là lựa chọn riêng `planned_workflow=True`, Web `depth=planned`,
+CLI `--planned`; không kết hợp Deep, strict, benchmark case, prepared evidence
+hoặc resume. `investigation.planner` định tuyến bằng dấu hiệu quan sát được từ
+seed (file, missing counter, parse/skipped gaps), khóa budget một đến ba vòng.
+Pipeline dùng controller typed retrieve/verify/stop; tối đa ba query/sáu excerpt
+mỗi vòng và 18 excerpt mới tổng cộng. Hash query được khử trùng cả trong/vượt
+vòng, kể cả query issue gốc; span/ID evidence không lặp. Không có hit mới thì
+không sinh lại. Tối đa bốn lượt generation (mỗi lượt một schema repair) và một
+critic, tức chín provider calls. Rules vẫn là mặc định; không gọi Jev tự động.
+`planned_investigation_v1` lưu seed, annotation/evidence chain, query/search,
+controller/fallback, routing, giới hạn, counts và stop reason; validator replay
+liên kết query/snapshot/run ID và hash trước saved-read/report. Không suy ra
+causal truth hoặc độ khó đã hiệu chỉnh từ route. Plan và checkpoint không cấp
+quyền thực thi tool/code hoặc benchmark evaluation. Các stage cố định
+`planned_input`, `planned_retrieval_1..3`, `planned_generation_1..3`,
+`planned_complete` giữ tiến độ khi lỗi; receipt chi phí gắn đúng stage.
+
 `investigation.stages` ghi checkpoint private sau từng stage đã hoàn tất, giữ
 seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid calls.
 WorkBench/CLI cung cấp callback lưu, pipeline chịu trách nhiệm nội dung và

@@ -40,8 +40,10 @@ class JevController:
     def __init__(self, decide: Callable, fallback=None):
         self.remote_decide = decide
         self.fallback = fallback or RuleController()
+        self.last_fallback = False
 
     def decide(self, state: DecisionState, allowed: tuple[Action, ...]) -> Action:
+        self.last_fallback = False
         if not allowed:
             return Action.STOP
         try:
@@ -52,4 +54,5 @@ class JevController:
                 raise ValueError("forbidden action")
             return action
         except (KeyError, ValueError, TypeError, RuntimeError):
+            self.last_fallback = True
             return self.fallback.decide(state, allowed)

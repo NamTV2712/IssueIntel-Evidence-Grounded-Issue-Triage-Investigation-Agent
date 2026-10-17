@@ -52,8 +52,16 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 controller=None, protocol="benchmark_base", availability=None, top_k=8,
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
-                repository_context=None, resumable=False) -> dict:
+                repository_context=None, resumable=False, planned_workflow=False) -> dict:
     case = public_case(case)
+    if type(planned_workflow) is not bool:
+        raise ValueError('Planned workflow must be an explicit boolean')
+    if type(refinement_rounds) is not int or refinement_rounds not in {0,1}:
+        raise ValueError('Only zero or one additional retrieval round is supported')
+    if planned_workflow:
+        from .planner import validate_planned_case
+        validate_planned_case(case,protocol,refinement_rounds=refinement_rounds,
+                              prepared_evidence=prepared_evidence,resumable=resumable)
     if resumable:
         from .resume import validate_product_case
         validate_product_case(case,protocol)
@@ -64,8 +72,6 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if prepared_evidence is not None:
             raise ValueError('Frozen prepared evidence cannot acquire current repository context')
         context_records=context_evidence(repository_context,case,protocol=protocol)
-    if type(refinement_rounds) is not int or refinement_rounds not in {0,1}:
-        raise ValueError('Only zero or one additional retrieval round is supported')
     if on_stage is not None and not callable(on_stage):
         raise ValueError('A checkpoint callback must be callable')
     if refinement_rounds and prepared_evidence is not None:
@@ -130,6 +136,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     annotation, verification = None, None
     refinement = {'policy':FOCUSED_POLICY,'requested_rounds':refinement_rounds,
                   'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
+    workflow_plan=None
     checkpoints = {}
     def checkpoint(stage,payload):
         if on_stage is not None:
@@ -138,6 +145,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                     'snapshot_sha256':snapshot.snapshot_sha256,'commit_sha':snapshot.commit_sha,
                     'provider':provider,'model':model,'refinement_rounds':refinement_rounds,
                     'payload':deepcopy(payload),'evaluation_performed':False,'automatic_retry':False}
+            if planned_workflow:
+                record['planned_workflow']=True
             checkpoints[stage] = on_stage(stage,record)
     def assemble(stop_reason, verification):
         leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
@@ -168,12 +177,21 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             pack['leakage_audit']['limitations'].append('Current repository history may include later edits; it is product context, not strict historical proof.')
         if refinement_rounds:
             pack['refinement'] = refinement
+        if workflow_plan is not None:
+            from .planner import planned_run_id
+            pack['workflow_plan']=deepcopy(workflow_plan)
         if checkpoints:
             pack['stage_checkpoints'] = checkpoints
         pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
                                  **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {}),
                                  **({'repository_context':repository_context['sha256']} if repository_context is not None else {})})[:24]
+        if workflow_plan is not None:
+            pack['run_id']=planned_run_id(case,snapshot.snapshot_sha256,evidence,annotation,
+                                           workflow_plan,repository_context)
         return pack
+    if planned_workflow:
+        from .planner import POLICY as PLANNER_POLICY
+        checkpoint('planned_input',{'case':case,'evidence':evidence,'policy':PLANNER_POLICY})
     code_count = sum(e["kind"] == "code" for e in evidence)
     if code_count == 0:
         stop_reason = "insufficient_evidence"
@@ -182,10 +200,70 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         stop_reason = "provider_not_configured"
         refinement['stop_reason'] = 'provider_not_configured'
     else:
-        checkpoint('prepared_input',{'case':case,'evidence':evidence})
+        if not planned_workflow:
+            checkpoint('prepared_input',{'case':case,'evidence':evidence})
         annotation = generate_annotation(case, evidence, complete_json, provider=provider, model=model,max_output_tokens=max_output_tokens).to_dict()
         refinement['generation_passes'] = 1
         checkpoint('seed_generation',{'annotation':annotation})
+        if planned_workflow:
+            from .planner import start_plan, choose_action, seal_plan
+            from issueintel.annotations.public_inputs import model_hypotheses
+            workflow_plan=start_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model)
+            maximum=workflow_plan['limits']['max_retrieval_rounds']
+            used_queries={workflow_plan['source']['query_sha256']}
+            planned_stop=None;decision=None;decision_record=None
+            for number in range(1,maximum+1):
+                decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
+                    len(annotation['hypotheses']),intake['missing_information'],maximum-number+1)
+                step={'round':number,'input_annotation_sha256':digest(annotation),
+                      'input_evidence_ids':[row['id'] for row in evidence],
+                      'input_hypotheses':model_hypotheses(annotation['hypotheses']),
+                      **decision_record,'search':None,'added_ids':[],
+                      'output_annotation_sha256':None,'output_annotation':None}
+                workflow_plan['rounds'].append(step)
+                trace.append({'stage':'planned_decision','round':number,**decision_record,
+                              'rounds_remaining':maximum-number+1})
+                if decision!=Action.RETRIEVE:
+                    planned_stop='controller_stopped' if decision==Action.STOP else 'controller_skipped_retrieval'
+                    break
+                added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,
+                                                  exclude_query_sha256s=used_queries)
+                step.update(search=search,added_ids=[row['id'] for row in added])
+                used_queries.update(row['query_sha256'] for row in search['queries'])
+                checkpoint(f'planned_retrieval_{number}',{'round':number,'search':search,
+                    'added_evidence':added,'input_annotation_sha256':step['input_annotation_sha256'],
+                    'input_evidence_ids':step['input_evidence_ids']})
+                trace.append({'stage':'planned_retrieval','round':number,'policy':FOCUSED_POLICY,
+                    'query_count':len(search['queries']),'added_ids':search['added_ids'],
+                    'stop_reason':search['stop_reason'],'rounds_remaining':maximum-number})
+                if not added:
+                    planned_stop=search['stop_reason']
+                    break
+                evidence.extend(added)
+                annotation=generate_annotation(case,evidence,complete_json,provider=provider,model=model,
+                                                 max_output_tokens=max_output_tokens).to_dict()
+                workflow_plan['generation_passes']+=1
+                workflow_plan['provider_calls']+=1+annotation['provenance']['repair_count']
+                step.update(output_annotation_sha256=digest(annotation),output_annotation=deepcopy(annotation))
+                checkpoint(f'planned_generation_{number}',{'round':number,'annotation':annotation})
+            if decision not in (Action.VERIFY,Action.STOP):
+                decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
+                    len(annotation['hypotheses']),intake['missing_information'],0,final=True)
+            workflow_plan['final_decision']=decision_record
+            trace.append({'stage':'decision','controller':decision_record['controller'],'action':decision.value})
+            critic=complete_json if independent_critic and decision==Action.VERIFY else None
+            verification=verify_hypotheses(annotation,evidence,critic,max_output_tokens=max_output_tokens)
+            workflow_plan['verifier_passes']=int(critic is not None)
+            workflow_plan['provider_calls']+=int(critic is not None)
+            checkpoint('verification',{'verification':verification})
+            stop_reason='controller_stopped' if decision==Action.STOP else planned_stop or 'round_limit'
+            workflow_plan['stop_reason']=stop_reason
+            workflow_plan=seal_plan(workflow_plan)
+            checkpoint('planned_complete',{'workflow_plan':workflow_plan,'verification':verification})
+            pack=assemble(stop_reason,verification)
+            from .planner import validate_planned
+            validate_planned(pack)
+            return pack
         first_action=None
         if refinement_rounds:
             allowed=(Action.RETRIEVE,Action.VERIFY,Action.STOP)
@@ -225,6 +303,16 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         verification = verify_hypotheses(annotation, evidence, complete_json if independent_critic and decision == Action.VERIFY else None,max_output_tokens=max_output_tokens)
         checkpoint('verification',{'verification':verification})
         stop_reason = "controller_stopped" if decision==Action.STOP else "bounded_workflow_complete"
+    if planned_workflow:
+        from .planner import start_plan, seal_plan, validate_planned
+        workflow_plan=start_plan(case,snapshot,graph,evidence,None,provider=provider,model=model)
+        workflow_plan.update(stop_reason=stop_reason,final_decision={
+            'action':'stop','reason':stop_reason,'controller':'rules','fallback':False})
+        workflow_plan=seal_plan(workflow_plan)
+        checkpoint('planned_complete',{'workflow_plan':workflow_plan,'verification':None})
+        pack=assemble(stop_reason,verification)
+        validate_planned(pack)
+        return pack
     return assemble(stop_reason, verification)
 
 

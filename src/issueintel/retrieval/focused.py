@@ -31,7 +31,22 @@ def _replay(record, snapshot, files):
     return match[1],start,end
 
 
-def expand_for_hypotheses(hypotheses, evidence, snapshot, graph):
+def expand_for_hypotheses(hypotheses, evidence, snapshot, graph, *, exclude_query_sha256s=None):
+    """Search new hypothesis queries; exclusions are local, never prompt input.
+
+    The omitted default preserves the original one-round trace byte for byte.
+    Planned investigations pass the already executed query hashes and receive
+    explicit records for skipped queries without executing those searches.
+    """
+    track_queries=exclude_query_sha256s is not None
+    if exclude_query_sha256s is None:
+        exclude_query_sha256s=()
+    if (not isinstance(exclude_query_sha256s, (tuple, list, set, frozenset))
+            or any(not isinstance(item, str) or not re.fullmatch(r'[a-f0-9]{64}', item)
+                   for item in exclude_query_sha256s)):
+        raise ValueError('Focused query exclusions must be SHA256 values')
+    excluded=set(exclude_query_sha256s)
+    initial_exclusions=sorted(excluded)
     snapshot.verify()
     if graph.snapshot_sha256!=snapshot.snapshot_sha256 or graph.commit_sha!=snapshot.commit_sha:
         raise ValueError('Focused graph belongs to another snapshot')
@@ -40,14 +55,19 @@ def expand_for_hypotheses(hypotheses, evidence, snapshot, graph):
     files = {file.path:file for file in snapshot.files}
     covered = [_replay(record,snapshot,files) for record in evidence if record['kind']=='code']
     ids = {record['id'] for record in evidence}
-    added,queries = [],[]
+    added,queries,skipped = [],[],[]
     for hypothesis in projected[:MAX_QUERIES]:
         if len(added)==MAX_ADDED:
             break
         query = hypothesis['statement'][:600]+'\n'+hypothesis['falsification_test'][:600]
+        query_hash=hashlib.sha256(query.encode()).hexdigest()
+        if track_queries and query_hash in excluded:
+            skipped.append({'seed_hypothesis_id':hypothesis['id'],'query_sha256':query_hash,
+                            'reason':'already_executed','executed':False})
+            continue
         records = retrieve_evidence(query,snapshot,graph,top_k=3,expand=0)
         entry = {'seed_hypothesis_id':hypothesis['id'],'query':query,
-                 'query_sha256':hashlib.sha256(query.encode()).hexdigest(),
+                 'query_sha256':query_hash,
                  'returned_ids':[],'added_ids':[],'purpose':'unverified_hypothesis_focus'}
         for record in records:
             path,start,end = _replay(record,snapshot,files)
@@ -62,7 +82,14 @@ def expand_for_hypotheses(hypotheses, evidence, snapshot, graph):
             if len(added)==MAX_ADDED:
                 break
         queries.append(entry)
-    return added,{'policy':POLICY,'max_queries':MAX_QUERIES,'max_added_evidence':MAX_ADDED,
+        if track_queries:
+            excluded.add(query_hash)
+    result={'policy':POLICY,'max_queries':MAX_QUERIES,'max_added_evidence':MAX_ADDED,
                  'queries':queries,'added_ids':[record['id'] for record in added],
                  'stop_reason':'new_candidates_added' if added else 'no_new_evidence',
                  'counter_evidence_confirmed':False,'snapshot_sha256':snapshot.snapshot_sha256}
+    if track_queries:
+        result.update(excluded_query_sha256s=initial_exclusions,skipped_queries=skipped)
+        if not queries:
+            result['stop_reason']='no_new_queries'
+    return added,result

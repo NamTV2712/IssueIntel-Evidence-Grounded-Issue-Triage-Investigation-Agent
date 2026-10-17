@@ -27,6 +27,7 @@ STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=u
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
 STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
 STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
+STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):

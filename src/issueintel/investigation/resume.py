@@ -36,6 +36,7 @@ def replay_verification_input(record):
     case=prepared['case'];snapshot=prepared['snapshot']
     validate_product_case(case,snapshot['protocol'])
     if (payload.get('policy_sha256')!=resume_policy() or prepared.get('followup') or prepared.get('resumed_from')
+            or 'workflow_plan' in prepared
             or prepared['stop_reason']!='verification_pending' or prepared['verification'] is not None
             or prepared['leakage_audit']['strict_issue_time_verified'] is not False
             or record['case_id']!=case['case_id'] or record['commit_sha']!=snapshot['commit_sha']

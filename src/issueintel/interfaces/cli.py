@@ -92,6 +92,8 @@ def main(argv=None) -> int:
     investigate.add_argument("--provider", choices=("none", "groq"), default="none")
     investigate.add_argument("--output", type=Path, default=Path("artifacts/investigations"))
     investigate.add_argument("--no-critic", action="store_true")
+    investigate.add_argument("--planned", action="store_true",
+        help="Product-only planned workflow: 1–3 search rounds, at most four generation passes and one critic; generation repair slots remain bounded")
     investigate.add_argument("--refinement-rounds", type=int, choices=(0,1), default=0,
                              help="At most one hypothesis-focused retrieval round; may add a generation call")
     batch = commands.add_parser("annotate", help="Resumable dev annotation, budget guarded")
@@ -267,6 +269,9 @@ def _investigate(args):
     from issueintel.investigation.pipeline import investigate, export_pack
     from issueintel.investigation.providers import GroqProvider
     from issueintel.repository.acquire import acquire_repository, fetch_github_issue
+    planned=getattr(args,'planned',False)
+    if planned and (args.case_id or args.refinement_rounds):
+        raise ValueError('--planned cannot use benchmark cases or --refinement-rounds')
     output_base = (args.root / args.output).resolve()
     if not output_base.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
@@ -304,7 +309,8 @@ def _investigate(args):
         pack = investigate(case, local, complete_json=provider if provider else None,
             provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
             max_output_tokens=provider.config.max_output_tokens if provider else 2048,
-            refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context)
+            refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context,
+            **({'planned_workflow':True} if planned else {}))
     except Exception:
         if stages.receipts:
             print(json.dumps({'completed_stage_checkpoints':stages.receipts,'automatic_retry':False}),file=sys.stderr)
