@@ -357,6 +357,27 @@ hoàn tất không được gọi lại theo luồng này. Không tự phục h�
 
 ## Ngân sách và bảo mật
 
+`investigation.check_plans` tạo phần bổ sung `product_check_plan_v1` cho báo cáo
+product có giả thuyết đã lưu. Nó dùng chung public source projection với câu
+hỏi thích nghi, thêm report SHA; không sinh lại giả thuyết hoặc đổi report v1.
+Output chỉ gồm 0–3 kiểm tra với procedure/controls/A–B/effort/citations và đúng
+một dự đoán A/B/unknown cho mọi giả thuyết. Validator đóng schema, kiểm đầy đủ
+refs/bounds/A–B khác nhau; `discriminating_checks.compare_proposed_checks`
+chọn nhiều cặp A/B do model nêu nhất, rồi effort/thứ tự lưu. Số cặp này không
+phải information gain, chất lượng ngữ nghĩa hoặc xác nhận nguyên nhân.
+
+`check_plan_jobs.CheckPlanJobs` khóa intent SQLite theo source job + pack bytes
+SHA. Kiểm authority toàn bộ lineage, report/query/annotation/evidence/snapshot;
+replay Git trước provider. Mỗi call (kể cả output repair) kiểm lại request,
+intent, nguồn và hủy; kiểm lại trước publish. Một call và tối đa một output
+repair, không retry transport/admission hoặc thay lượt lỗi/interrupted/hủy.
+Groq 120b dùng receipt/cận từng call/giá có ngày; không Jev. Lưu trong ignored
+`artifacts/demo/check_plan_runs`, tách khỏi investigation packs, benchmark và
+manual journal. GET/export replay nguồn và recommendation nhưng không cần
+Git/config/network/model. UI Việt/Anh render cùng bundle với JSON/Markdown,
+kiểm report/plan SHA khi tải. Nhật ký gốc vẫn chỉ ghi các bước của report v1;
+chưa có observation-driven child investigation cho check bổ sung.
+
 `runtime.typesafe` dùng endpoint chính thức cố định và pin `jev-1.13.0`, không
 dùng đường OpenAI-compatible hoặc credential Groq. `configs/typesafe.toml` có
 enable và trần request/ngày, USD/ngày, USD/tháng riêng; mặc định tắt/trần 0,

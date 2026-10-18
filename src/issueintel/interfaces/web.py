@@ -30,6 +30,8 @@ STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
 STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; charset=utf-8')
 STATIC['/check-journal.js'] = ('check-journal.js', 'text/javascript; charset=utf-8')
+STATIC['/product-checks.js'] = ('product-checks.js', 'text/javascript; charset=utf-8')
+STATIC['/product-checks.css'] = ('product-checks.css', 'text/css; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -42,8 +44,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None):
-            for checksum in (report_sha256, journal_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -59,6 +61,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Report-SHA256',report_sha256)
             if journal_sha256 is not None:
                 self.send_header('X-IssueIntel-Journal-SHA256',journal_sha256)
+            if check_plan_sha256 is not None:
+                self.send_header('X-IssueIntel-Check-Plan-SHA256',check_plan_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -124,6 +128,13 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                             download=parts[1],report_sha256=review['source']['report_sha256'])
                     elif len(parts)==2 and parts[1]=='adaptive-questions':
                         self._json(200,workbench.question_history(parts[0]))
+                    elif len(parts)==2 and parts[1]=='check-plans':
+                        self._json(200,workbench.check_plan_history(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'check-plan.json','check-plan.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        raw, report_sha, plan_sha=workbench.check_plan_export(parts[0],format)
+                        self._send(200,raw,'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',
+                                   download=parts[1],report_sha256=report_sha,check_plan_sha256=plan_sha)
                     elif len(parts)==2 and parts[1] in {'check-journal.json','check-journal.md'}:
                         format='json' if parts[1].endswith('.json') else 'md'
                         raw, report_sha, journal_sha=workbench.check_journal_export(parts[0],format)
@@ -189,6 +200,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202, workbench.submit(request))
                 elif route=='/api/adaptive-questions':
                     self._json(202,workbench.submit_questions(request))
+                elif route=='/api/check-plans':
+                    self._json(202,workbench.submit_check_plan(request))
                 elif route == '/api/repositories/sync':
                     self._json(202, workbench.submit_repository(request))
                 elif route == '/api/repositories/connect':

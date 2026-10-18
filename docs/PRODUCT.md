@@ -43,7 +43,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn; người dùng cũng có thể tìm/chọn chính xác nguồn đã đồng bộ để tái điều tra cùng query/commit. Record, receipt và repository ID được replay; dùng trong generation/critique/export. Current context không phải temporal proof. |
 | F05 | Job/trace/checklist có phiên bản; nhật ký quan sát theo từng saved check, điều kiện/mong đợi/quan sát và commit tự báo, đính chính append-only cùng nguồn. Deep thêm một vòng; Planned một đến ba vòng có budget và chain/stop reason replay được. Tool điều tra mở rộng vẫn còn roadmap. |
 | F06 | Adapter Typesafe nối tùy chọn vào Planned: bounded public context, choice allowlist, tối đa bốn quyết định, cấu hình/ledger/receipt riêng, fallback được ghi và replay. Đã kiểm kết nối thật 4/4 call tổng hợp ngày 17/10/2026 theo quyền thử riêng; chưa đánh giá chất lượng controller hoặc luồng GitHub thật. Cấu hình thường vẫn tắt/trần 0. |
-| F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Hiện nguồn dùng chung/citation khác vai trò, model critique, khoảng trống và saved checks; có citation, JSON/Markdown và source binding, không xếp hạng hay suy ra mâu thuẫn ngữ nghĩa. |
+| F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Product có kế hoạch bổ sung 0–3 kiểm tra phân biệt, điều kiện kiểm soát, kết quả A/B và dự đoán A/B/unknown cho từng giả thuyết. Gợi ý theo số cặp A/B do model nêu và công sức ước tính; chưa đo chất lượng phân biệt hoặc suy ra nguyên nhân. |
 | F08 | Kiểm citation/hash, tìm thêm code ở Deep/Planned, critique riêng và abstention. Bảng đối chiếu lộ các mục thiếu từ metadata và nhận xét model cần xem lại; chưa coi đây là đánh giá sufficiency/nguyên nhân. Planned dừng rõ khi query/evidence không đổi; counter có thể `not_found`. |
 | F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, tạo follow-up cùng commit, khóa và replay source pack/snapshot/question job/Q&A. Tạo câu hỏi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí, một intent cho mỗi nguồn. Chưa resume mọi stage; lỗi/interrupt không retry API ngầm. |
@@ -58,11 +58,19 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag, diff evidence và ancestry local; kiểm riêng một GitHub Release công khai theo tag với commit tham chiếu, giữ ID/receipt/hash và phân biệt draft/prerelease. Quan hệ hiện tại không chứng minh nội dung tag lúc công bố hoặc lỗi đã sửa. |
 
-Ưu tiên chất lượng tiếp theo có lõi CLI thử nghiệm cho kiểm tra phân biệt giả
-thuyết: dự đoán A/B/unknown, điều kiện kiểm soát và chọn theo asserted separation.
+Kiểm tra phân biệt giả thuyết đã được nối vào tab **Kế hoạch kiểm tra** cho
+điều tra product có giả thuyết lưu sẵn. Người dùng duyệt gửi nguồn tới Groq;
+mỗi nguồn có một tác vụ bền vững, tối đa hai call kể cả một lần sửa output.
+Kế hoạch là phần bổ sung riêng gắn pack/report/query/snapshot/annotation bằng
+hash; JSON/Markdown và UI đọc cùng nội dung, mở lại không gọi API hoặc Git.
+Report v1, pack và nhật ký cũ giữ nguyên. Nhật ký hiện ghi các bước của report
+gốc; chưa ghi quan sát cho check bổ sung hoặc tự đưa quan sát vào model.
+Main Dev/strict/nguồn có lineage benchmark không được dùng tính năng này.
+
+Lõi CLI diagnostic dùng chung quy tắc chọn theo asserted separation.
 DEV diagnostic 25 ca so hai prompt policy trong cùng harness/model/tool/budget;
-không phải benchmark toàn bộ workbench hoặc sản phẩm bên ngoài. Chưa nối output
-thử nghiệm vào báo cáo thường hoặc tự chuyển journal sang model. Có file Recall@5
+không phải benchmark toàn bộ workbench hoặc sản phẩm bên ngoài. Các artifact
+thử nghiệm không được nhập thành kết quả product. Có file Recall@5
 proxy/cost/latency và CSV chờ review ngữ nghĩa; kết quả thực tế chỉ ở artifacts
 private, không coi test tổng hợp hoặc số cặp dự đoán là chất lượng điều tra.
 
@@ -126,6 +134,9 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs/<id>/pack.json`, `.../report.md`: export kiểm hash.
 - `GET /api/jobs/<id>/investigation-report.json`, `.../investigation-report.md`: report v1 dựng từ pack đã replay, có raw-pack/query/snapshot SHA256; không model/Git/network.
 - `GET /api/investigation-report-schema`: JSON Schema 2020-12 của report v1; cùng session/origin guard như API đọc khác.
+- `GET /api/jobs/<source-id>/check-plans`: khả năng sử dụng và tác vụ kế hoạch bổ sung của đúng pack nguồn; không gọi model.
+- `POST /api/check-plans`: `source_job_id`, `source_pack_sha256`, `confirmation: generate_check_plan_with_api_cost`; một intent cho mỗi nguồn, gọi Groq với receipt và giới hạn từng call.
+- `GET /api/jobs/<plan-id>/check-plan.json`, `.../check-plan.md`: cùng kế hoạch đã validate; header `X-IssueIntel-Report-SHA256` và `X-IssueIntel-Check-Plan-SHA256` khóa export về nguồn đang xem. Đây là phần bổ sung riêng, không phải pack/report mới.
 - `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.

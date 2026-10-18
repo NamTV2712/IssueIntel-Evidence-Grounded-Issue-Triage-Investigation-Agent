@@ -116,6 +116,15 @@ hoặc lịch sử. Báo cáo và receipt gốc được giữ nguyên.
 Tab **Kế hoạch kiểm tra / Check plan** lưu trạng thái và ghi chú theo phiên bản,
 mở lại sau restart và xuất JSON riêng. Trạng thái hoàn tất là tự báo cáo, chưa
 xác minh bản sửa; hệ thống không chạy code/test của repository đích.
+Điều tra product có giả thuyết lưu sẵn còn có **Kiểm tra phân biệt giả thuyết**:
+duyệt gửi nguồn tới Groq để đề xuất 0–3 kiểm tra, gồm procedure, điều kiện kiểm
+soát, kết quả A/B và dự đoán A/B/unknown cho từng giả thuyết. Gợi ý bước xem
+trước dựa trên số cặp A/B do model nêu, rồi công sức ước tính; chưa đánh giá
+chất lượng kiểm tra hoặc xác nhận nguyên nhân. Một tác vụ cho mỗi nguồn, tối đa
+hai call gồm một output repair; lỗi/hủy/restart không tự gọi lại. Kế hoạch bổ
+sung khóa pack/report/query/snapshot/annotation, xuất JSON/Markdown và mở lại
+offline. Nó giữ nguyên report v1 và nhật ký gốc; chưa ghi quan sát cho các
+kiểm tra bổ sung này hoặc đưa quan sát vào model. Main Dev/strict bị chặn.
 Với điều tra product, tab này còn có **Nhật ký kiểm tra giả thuyết**: chọn đúng
 bước đề xuất trong báo cáo, ghi điều kiện/đầu vào, mong đợi, quan sát, diễn giải
 và full SHA của commit thực sự đã thử nếu biết. Commit này do người dùng cung
@@ -205,7 +214,9 @@ outcome A/B và dự đoán A/B/unknown cho từng giả thuyết. Code chọn c
 cặp giả thuyết được model dự đoán khác nhau nhất, rồi ưu tiên effort thấp hơn.
 Đây là quy tắc dựa trên khai báo model, không phải information gain đã hiệu
 chỉnh, độ đúng ngữ nghĩa hoặc bằng chứng đã chạy test. Nếu không có cặp phân
-biệt được thì không chọn check. Chưa thay generation/critic của workbench.
+biệt được thì không chọn check. Product dùng chung quy tắc trong kế hoạch bổ
+sung ở Workbench; không nhập artifact diagnostic hoặc đổi generation/critic
+gốc. Tính năng product không mở benchmark evaluation.
 
 ```powershell
 python -m issueintel register-policy-pilot

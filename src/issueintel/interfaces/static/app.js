@@ -188,12 +188,13 @@ function restorePlanDrafts(drafts) {
 }
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
-  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();if(!pack)return;
+  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();window.IssueIntelProductChecks?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
     pack_sha256:intake?.source_pack_sha256,commit_sha:pack.snapshot.commit_sha,
     snapshot_sha256:pack.snapshot.snapshot_sha256,query_sha256:intake?.query_sha256});
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
+  if(activeTab==='plan')window.IssueIntelProductChecks?.render(content,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
   if(activeTab==='plan')window.IssueIntelCheckJournal?.render(content,journalData,currentJob,reportView,hypothesisReviewSource(),{
     available:intake?.check_journal_available,reload:reloadCheckJournal,save:saveCheckObservation,export:exportCheckJournal,rerender:renderPlanPreservingDrafts});
   if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));

@@ -131,8 +131,20 @@ def compare_checks(value, evidence, paths):
     still be unjustified; a separate review must assess utility and grounding.
     """
     validate_findings(value,evidence,paths)
+    result={'schema':'discriminating_check_comparison_v1','findings_sha256':digest(value),
+            **compare_proposed_checks(value['checks'])}
+    return dict(result,sha256=digest(result))
+
+
+def compare_proposed_checks(checks):
+    """Compare validated proposals; callers own their source/reference validation.
+
+    Shared by the diagnostic findings contract and product checks over unchanged
+    saved hypotheses.  It counts asserted binary partitions, never information
+    gain or independently verified discriminating ability.
+    """
     rows=[]
-    for check in value['checks']:
+    for check in checks:
         predictions=check['predictions'];separated=[]
         for index,left in enumerate(predictions):
             for right in predictions[index+1:]:
@@ -143,9 +155,8 @@ def compare_checks(value, evidence, paths):
                      'estimated_effort':check['effort']})
     eligible=[row for row in rows if row['asserted_separated_pairs']]
     selected=min(eligible,key=lambda row:(-len(row['asserted_separated_pairs']),['low','medium','high'].index(row['estimated_effort']))) if eligible else None
-    result={'schema':'discriminating_check_comparison_v1','findings_sha256':digest(value),'checks':rows,
+    return {'checks':rows,
         'recommended_check_id':selected['check_id'] if selected else None,
         'rule':'max_asserted_separated_pairs_then_min_model_estimated_effort_saved_order_v1',
         'predictions_verified':False,'checks_executed':False,'semantic_quality':'unreviewed',
         'causal_correctness':'unverified','information_gain_estimated':False}
-    return dict(result,sha256=digest(result))

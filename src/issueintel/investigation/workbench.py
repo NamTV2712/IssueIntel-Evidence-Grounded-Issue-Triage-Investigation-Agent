@@ -135,6 +135,8 @@ class Workbench:
         self.typesafe_factory = typesafe_factory
         from .question_jobs import QuestionJobs
         self.questions=QuestionJobs(self)
+        from .check_plan_jobs import CheckPlanJobs
+        self.check_plans=CheckPlanJobs(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
@@ -244,7 +246,7 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
-            if row.get('mode') in {'version_comparison','adaptive_questions','release_check'}:
+            if row.get('mode') in {'version_comparison','adaptive_questions','release_check','check_plan'}:
                 continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
@@ -363,6 +365,14 @@ class Workbench:
     def question_history(self,identifier):return self.questions.history(identifier)
 
     def question_bytes(self,identifier):return self.questions.read_bytes(identifier)
+
+    def submit_check_plan(self,request):return self.check_plans.submit(request)
+
+    def check_plan_history(self,identifier):return self.check_plans.history(identifier)
+
+    def check_plan_bundle(self,identifier):return self.check_plans.bundle(identifier)
+
+    def check_plan_export(self,identifier,format='json'):return self.check_plans.export(identifier,format)
 
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source
