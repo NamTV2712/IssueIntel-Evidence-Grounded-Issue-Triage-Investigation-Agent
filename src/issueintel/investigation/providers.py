@@ -187,7 +187,7 @@ class GroqProvider:
                     raise ValueError('Expected exactly one allowed function proposal')
                 content=json.loads(calls[0]['function']['arguments'])
             else:
-                if choice.get("finish_reason") != "stop":
+                if choice.get("finish_reason") != "stop" or choice['message'].get('tool_calls'):
                     raise ValueError("incomplete output")
                 content = json.loads(choice["message"]["content"])
             if not isinstance(content, dict):

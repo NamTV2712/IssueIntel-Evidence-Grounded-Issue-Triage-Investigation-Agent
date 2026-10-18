@@ -17,10 +17,10 @@
   "new_freeze_authorized": false,
   "bulk_annotation_restart_authorized": false,
   "jev_spending_authorized": false,
-  "output_protocol_revision": 5,
+  "output_protocol_revision": 10,
   "repair_scope": "findings_only",
   "repair_slots_per_arm": 1,
-  "repair_author_request": "vậy sửa đi",
+  "repair_author_request": "vậy sửa tiếp đến khi nào test mà không bị lỗi nữa",
   "previous_diagnostic_commit": "d4567d83cafbcc6bef90160e9639cb3ab06d1444",
   "reliability_regression": {
     "parent_experiment_sha256": "4a0f871932b353fb858703eff1c2d8b40135e05f4c6499bddf0a2bd958b6a4e9",
@@ -32,9 +32,17 @@
       "verified:scikit-learn__scikit-learn-10297"
     ],
     "max_provider_calls": 40,
-    "synthetic_control_max_provider_calls": 30,
+    "synthetic_control_max_provider_calls": 40,
+    "clean_validation": {
+      "required_consecutive_runs": 2,
+      "completed_arms_per_run": 8,
+      "degraded_arms": 0,
+      "invalid_tool_actions": 0,
+      "repair_calls": 0,
+      "failed_call_records": 0
+    },
     "gold_scoring_authorized": false,
     "automatic_25_case_rerun": false,
-    "previous_revision_experiment": "d7e0fb279baab751483607cc7c5e7736c6b9176d7863bfcbca3a2b1a4aa12d86"
+    "previous_revision_experiment": "0f2188cc91fb42494fa4bd544b06b027e14e6bf3ee390df67994cef834ff9d37"
   }
 }

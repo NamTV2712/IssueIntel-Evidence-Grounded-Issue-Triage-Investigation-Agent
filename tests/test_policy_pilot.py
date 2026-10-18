@@ -9,8 +9,8 @@ import shutil
 
 import pytest
 
-from issueintel.investigation.discriminating_checks import validate_findings,compare_checks
-from issueintel.investigation.policy_agent import run_policy_agent,ARMS,LIMITS
+from issueintel.investigation.discriminating_checks import validate_findings,compare_checks,candidate_files
+from issueintel.investigation.policy_agent import run_policy_agent,ARMS,LIMITS,ACTION_SCHEMA
 from issueintel.benchmarks import policy_pilot as pilot
 from issueintel.repository.snapshot import build_snapshot
 from issueintel.runtime.budget import ModelPrice,BudgetPolicy
@@ -31,6 +31,13 @@ def findings(payload):
             'predictions':[{'hypothesis_id':'H'+str(i),'outcome':'A' if i==1 else 'B' if i==2 else 'unknown','reason':'Tentative prediction '+str(i)} for i in range(1,4)]}]}
 
 
+def wire_findings(payload):
+    value=findings(payload);del value['ranked_paths']
+    value['file_preferences']={row['id']:'rank_1' if row['path']=='parser.py' else 'omit'
+                               for row in payload['candidate_files']}
+    return value
+
+
 @pytest.fixture
 def context(repository):
     snapshot=build_snapshot(repository[0],repository[1])
@@ -41,8 +48,13 @@ def context(repository):
 def fake_call(stages,mode='finish'):
     def call(stage,messages,schema,maximum):
         stages.append((stage,messages,schema,maximum));payload=json.loads(messages[1]['content'])
-        if stage.endswith('findings'):return findings(payload)
-        return {'action':mode,'argument':'parser.py:1-2' if mode=='read_code' else 'parse_list','reason':'Inspect the parser implementation'}
+        if stage.endswith('findings'):return wire_findings(payload)
+        reads=[row for row in payload.get('catalog',[]) if row['id'].startswith('R')]
+        if mode=='read_code' and reads:
+            return {'choice_id':reads[0]['id'],'reason':'Inspect the parser implementation'}
+        searches=[row for row in payload.get('catalog',[]) if 'query' in row]
+        return {'choice_id':searches[0]['id'] if mode!='finish' and searches else 'STOP',
+                'reason':'Inspect the parser implementation'}
     return call
 
 
@@ -57,9 +69,54 @@ def test_both_arms_have_identical_tools_seed_and_bounds_and_never_execute_reposi
         assert json.loads(left[1][1]['content'])==json.loads(right[1][1]['content'])
         assert left[1][0]['content']!=right[1][0]['content']
     assert results[0]['evidence']==results[1]['evidence']
-    assert results[0]['actions'][1]['status']=='invalid_or_repeated_tool_request'
+    assert all(row['status']=='ok' for row in results[0]['actions'])
     assert results[0]['comparison']['recommended_check_id']=='check_1'
     assert results[0]['comparison']['predictions_verified'] is False
+
+
+def test_used_query_leaves_the_catalog_and_unknown_selection_never_executes(context):
+    stages=[];selected=[]
+    def call(stage,messages,schema,maximum):
+        stages.append(stage);payload=json.loads(messages[1]['content'])
+        if stage.endswith('findings'):return wire_findings(payload)
+        searches=[row for row in payload['catalog'] if 'query' in row]
+        if stage=='decision_1':
+            selected.append(searches[0]);return {'choice_id':searches[0]['id'],'reason':'Check parser references'}
+        assert selected[0]['query'] not in {row['query'] for row in searches}
+        return {'choice_id':'S999','reason':'An unoffered selection must be rejected'}
+    result=run_policy_agent(*context,ARMS[0],call)
+    assert stages==['decision_1','decision_2','findings']
+    assert result['actions'][0]['status']=='ok'
+    assert result['actions'][0]['argument']==selected[0]['query']
+    rejected=result['actions'][1]
+    assert rejected['action']=='finish' and rejected['status']=='degraded_stop'
+    assert rejected['new_evidence_ids']==[] and result['controller_degraded'] is True
+
+
+def test_backend_repeat_guard_remains_even_if_query_catalog_incorrectly_reoffers_used_query(context,monkeypatch):
+    monkeypatch.setattr('issueintel.investigation.policy_agent._search_options',lambda *args:['parse_list'])
+    def call(stage,messages,schema,maximum):
+        if stage.endswith('findings'):return wire_findings(json.loads(messages[1]['content']))
+        return {'choice_id':'STOP' if stage=='decision_3' else 'S1','reason':'Check parser references'}
+    result=run_policy_agent(*context,ARMS[0],call)
+    assert result['actions'][0]['status']=='ok'
+    rejected=result['actions'][1]
+    assert rejected['action']=='search_code' and rejected['argument']=='parse_list'
+    assert rejected['status']=='invalid_or_repeated_tool_request'
+    assert rejected['failure']['code']=='repeated_request' and rejected['new_evidence_ids']==[]
+    assert result['actions'][2]['status']=='finished' and result['controller_degraded'] is False
+
+
+def test_catalog_selection_uses_exact_program_query_and_never_accepts_free_query_override():
+    from issueintel.investigation.policy_agent import _decode_decision
+    proposal={'choice_id':'S1','reason':'Inspect the listed parser references'}
+    decoded=_decode_decision(proposal,['parser.py:1-2'],['parser.parse_list'])
+    assert decoded['action']=='search_code' and decoded['argument']=='parser.parse_list'
+    assert decoded['proposal']==proposal
+    with pytest.raises(ValueError,match='unexpected fields'):
+        _decode_decision({**proposal,'search_query':'an arbitrary replacement query'},['parser.py:1-2'],['parser.parse_list'])
+    with pytest.raises(ValueError):_decode_decision({'choice_id':'S2','reason':'Not offered'},[],['parser.parse_list'])
+    with pytest.raises(ValueError):_decode_decision({'choice_id':'FIND','reason':'Previous free-search protocol'},[],['parser.parse_list'])
 
 
 def test_unknown_predictions_produce_no_recommendation_and_lower_effort_is_only_a_tiebreak(context):
@@ -83,6 +140,81 @@ def test_invented_sources_predictions_hidden_fields_or_rank_paths_are_rejected(c
         with pytest.raises(ValueError):validate_findings(value,result['evidence'],['parser.py'])
     bad={**case,'human_rationale':'restricted'}
     with pytest.raises(ValueError):run_policy_agent(bad,snapshot,ARMS[0],lambda *a:pytest.fail('Provider created'))
+
+
+def test_repeated_ranked_path_is_rejected_even_when_both_entries_fit_the_array_bound(context):
+    from issueintel.annotations.structured import _validate_wire_schema
+    from issueintel.investigation.discriminating_checks import findings_schema
+    from issueintel.investigation.policy_agent import _read
+    case,snapshot=context
+    evidence=[_read('parser.py:1-2',snapshot),_read('unrelated.py:1-2',snapshot)]
+    schema=findings_schema(evidence);value=findings({'evidence':evidence})
+    # This matches the observed repeated-file failure: both entries are valid
+    # snapshot paths and their count is allowed; uniqueness is the violation.
+    value['ranked_paths']=['parser.py','parser.py']
+    assert len(value['ranked_paths'])<=schema['properties']['ranked_paths']['maxItems']
+    with pytest.raises(ValueError,match='ranked_paths has duplicate items'):
+        _validate_wire_schema(value,schema)
+    with pytest.raises(ValueError,match='ranked_paths has duplicate items'):
+        validate_findings(value,evidence,[row.path for row in snapshot.files])
+    value['ranked_paths']=['parser.py','unrelated.py']
+    assert validate_findings(value,evidence,[row.path for row in snapshot.files])==value
+
+
+def test_unique_object_items_compare_canonical_content_after_validating_each_item():
+    from issueintel.annotations.structured import _validate_wire_schema,obj
+    schema={'type':'array','uniqueItems':True,'items':obj({'name':{'type':'string'},'nested':obj({'value':{'type':'string'}})})}
+    original={'name':'parser','nested':{'value':'first'}}
+    reordered={'nested':{'value':'first'},'name':'parser'}
+    with pytest.raises(ValueError,match='duplicate items'):
+        _validate_wire_schema([original,reordered],schema)
+    _validate_wire_schema([original,{'nested':{'value':'second'},'name':'parser'}],schema)
+    with pytest.raises(ValueError,match=r'response\[1\].nested.value must be a string'):
+        _validate_wire_schema([original,{'name':'parser','nested':{'value':object()}}],schema)
+
+
+def test_keyed_file_preferences_bind_paths_and_record_stable_tie_breaking(context):
+    from issueintel.investigation.discriminating_checks import project_findings
+    from issueintel.investigation.policy_agent import _read
+    case,snapshot=context
+    evidence=[_read('unrelated.py:1-2',snapshot),_read('parser.py:1-2',snapshot)]
+    catalog=candidate_files(evidence)
+    assert catalog==[{'id':'P1','path':'parser.py'},{'id':'P2','path':'unrelated.py'}]
+    payload={'evidence':evidence,'candidate_files':catalog};wire=wire_findings(payload)
+    wire['file_preferences']={'P2':'rank_1','P1':'rank_2'}
+    original=deepcopy(wire)
+    result,projection=project_findings(wire,evidence,[row.path for row in snapshot.files])
+    assert result['ranked_paths']==['unrelated.py','parser.py']
+    assert projection['candidates']==catalog and projection['model_preferences']==wire['file_preferences']
+    assert projection['tied_groups']==[] and projection['quality']=='unreviewed'
+    assert 'file_preferences' not in result and wire==original
+    # Ties retain the saved candidate order, never object insertion order or
+    # evidence arrival order, and the projection declares that choice.
+    wire['file_preferences']={'P2':'rank_1','P1':'rank_1'}
+    tied,projection=project_findings(wire,evidence,[row.path for row in snapshot.files])
+    assert tied['ranked_paths']==['parser.py','unrelated.py']
+    assert projection['tied_groups']==[{'preference':'rank_1','candidate_ids':['P1','P2']}]
+    assert projection['ranked_paths']==tied['ranked_paths']
+    wire['file_preferences']={'P1':'omit','P2':'omit'}
+    assert project_findings(wire,evidence,[row.path for row in snapshot.files])[0]['ranked_paths']==[]
+
+
+@pytest.mark.parametrize('fault',['unknown_id','missing_id','invalid_rank','injected_paths','unbound_citation','wrong_snapshot'])
+def test_keyed_file_preferences_never_accept_unknown_candidates_or_bypass_full_findings_validation(context,fault):
+    from issueintel.investigation.discriminating_checks import project_findings
+    from issueintel.investigation.policy_agent import _read
+    case,snapshot=context
+    evidence=[_read('parser.py:1-2',snapshot),_read('unrelated.py:1-2',snapshot)]
+    value=wire_findings({'evidence':evidence,'candidate_files':candidate_files(evidence)})
+    paths=[row.path for row in snapshot.files]
+    if fault=='unknown_id':value['file_preferences']['P999']='rank_1'
+    elif fault=='missing_id':del value['file_preferences']['P2']
+    elif fault=='invalid_rank':value['file_preferences']['P1']='rank_6'
+    elif fault=='injected_paths':value['ranked_paths']=['invented.py']
+    elif fault=='unbound_citation':value['hypotheses'][0]['support_ids']=['invented']
+    else:
+        value['file_preferences']['P2']='rank_2';paths=['parser.py']
+    with pytest.raises(ValueError):project_findings(value,evidence,paths)
 
 
 def test_pilot_registration_round_robin_and_exactly_original_accepted_dev(tmp_path,context,monkeypatch):
@@ -112,15 +244,12 @@ def test_pilot_registration_round_robin_and_exactly_original_accepted_dev(tmp_pa
     calls=[]
     class Provider:
         def __init__(self,cfg,*,call_context,on_receipt):self.config=cfg;self.context=call_context;self.publish=on_receipt
-        def complete_function(self,messages,*,schema,max_output_tokens):
+        def complete_structured(self,messages,*,schema,max_output_tokens):
             assert 'required_output_schema' not in json.loads(messages[1]['content'])
-            return self.respond(messages,schema,max_output_tokens)
-        def complete_json(self,messages,*,max_output_tokens):
-            schema=json.loads(messages[-1]['content'])['required_output_schema']
             return self.respond(messages,schema,max_output_tokens)
         def respond(self,messages,schema,max_output_tokens):
             calls.append((messages,max_output_tokens));ledger=self.config.ledger();reserved=ledger.reserve(price,1000,max_output_tokens,context=self.context)
-            self.publish(ledger.receipt(reserved));response=fake_call([])('findings' if 'ranked_paths' in schema['properties'] else 'decision_1',messages,schema,max_output_tokens)
+            self.publish(ledger.receipt(reserved));response=fake_call([])('findings' if 'file_preferences' in schema['properties'] else 'decision_1',messages,schema,max_output_tokens)
             ledger.reconcile(reserved,price,{'prompt_tokens':10,'completion_tokens':10,'total_tokens':20});self.publish(ledger.receipt(reserved));return response
     with pytest.raises(FileNotFoundError):pilot.run_policy_pilot(tmp_path,identifier,limit=25,provider_factory=Provider)
     result=pilot.run_policy_pilot(tmp_path,identifier,limit=1,provider_factory=Provider)
@@ -177,22 +306,131 @@ def test_failed_or_incomplete_paid_intent_cannot_trigger_another_call(tmp_path,m
     with pytest.raises(ValueError,match='missing'):pilot._owned_call(tmp_path,directory,'a'*64,'verified:fixture',ARMS[0],'decision_1',messages,schema,100,lambda *a,**k:pytest.fail('Replacement'),allow_new=False)
 
 
-@pytest.mark.parametrize('fault',['native_tool','invalid_path','oversize_argument','invalid_citation'])
+@pytest.mark.parametrize('stage',['decision_1','findings','repair_findings'])
+def test_owned_calls_use_exact_strict_schema_without_prompt_duplication_and_replay_without_http(tmp_path,context,monkeypatch,stage):
+    from issueintel.investigation.discriminating_checks import wire_findings_schema
+    case,snapshot=context
+    evidence=run_policy_agent(case,snapshot,ARMS[0],fake_call([]))['evidence']
+    schema=deepcopy(ACTION_SCHEMA if stage.startswith('decision_') else wire_findings_schema(evidence))
+    if not stage.startswith('decision_'):
+        assert 'ranked_paths' not in schema['properties'] and '"uniqueItems"' not in json.dumps(schema)
+        assert set(schema['properties']['file_preferences']['properties'])=={row['id'] for row in candidate_files(evidence)}
+    payload={'case':case,'evidence':evidence,'candidate_files':candidate_files(evidence)}
+    messages=[{'role':'system','content':'Synthetic strict output test.'},
+              {'role':'user','content':json.dumps(payload)}]
+    if stage.startswith('repair_'):
+        messages.append({'role':'user','content':json.dumps({'instruction':'Recheck the original context and return a valid object.'})})
+    expected={'choice_id':'STOP','reason':'Summarize supplied evidence'} if stage.startswith('decision_') else wire_findings(payload)
+    maximum=LIMITS['decision_output_tokens'] if stage.startswith('decision_') else LIMITS['final_output_tokens']
+    config=RuntimeConfig(tmp_path,'openai/gpt-oss-120b',16384,BudgetPolicy(100000,Decimal('1')),tmp_path/'prices.json',tmp_path/'ledger.sqlite','high')
+    monkeypatch.setattr(RuntimeConfig,'load',classmethod(lambda cls,root:config))
+    price=ModelPrice(config.model,Decimal('.15'),Decimal('.6'),'2026-10-18','https://console.groq.com/docs',131072,65536)
+    calls=[]
+    class Provider:
+        def __init__(self,cfg,*,call_context,on_receipt):
+            self.config=cfg;self.context=call_context;self.publish=on_receipt
+            assert cfg.reasoning_effort=='medium'
+        def complete_function(self,*args,**kwargs):pytest.fail('Native tool transport must not be used')
+        def complete_json(self,*args,**kwargs):pytest.fail('Schema-free JSON transport must not be used')
+        def complete_structured(self,actual_messages,*,schema,max_output_tokens):
+            calls.append((deepcopy(actual_messages),deepcopy(schema),max_output_tokens))
+            assert schema==expected_schema and max_output_tokens==maximum
+            if not stage.startswith('decision_'):
+                assert 'ranked_paths' not in schema['properties'] and '"uniqueItems"' not in json.dumps(schema)
+                assert schema['properties']['file_preferences']['additionalProperties'] is False
+            assert len(actual_messages)==2
+            actual_payload=json.loads(actual_messages[1]['content'])
+            assert actual_payload['case']==case and actual_payload['evidence']==evidence
+            assert 'required_output_schema' not in actual_payload and 'schema' not in actual_payload
+            assert not any(isinstance(value,dict) and value==expected_schema for value in actual_payload.values())
+            if stage.startswith('repair_'):
+                assert actual_payload['repair_instructions']==['Recheck the original context and return a valid object.']
+            ledger=self.config.ledger();reserved=ledger.reserve(price,1000,max_output_tokens,context=self.context)
+            self.publish(ledger.receipt(reserved))
+            ledger.reconcile(reserved,price,{'prompt_tokens':10,'completion_tokens':10,'total_tokens':20})
+            self.publish(ledger.receipt(reserved))
+            return deepcopy(expected)
+    expected_schema=deepcopy(schema)
+    directory=tmp_path/'calls';directory.mkdir()
+    arguments=(tmp_path,directory,'a'*64,case['case_id'],ARMS[0],stage,messages,schema,maximum)
+    assert pilot._owned_call(*arguments,Provider)==expected
+    saved=pilot._read(directory/('call-'+stage+'.json'))
+    assert saved['status']=='returned' and saved['response_mode']=='strict_json_schema'
+    assert len(saved['receipts'])==1 and saved['response']==expected
+    assert pilot._owned_call(*arguments,lambda *a,**k:pytest.fail('Paid replay created a provider'),allow_new=False)==expected
+    assert len(calls)==1 and schema==expected_schema
+
+
+@pytest.mark.parametrize('fault',['degraded','repaired','invalid_action'])
+def test_reliability_first_case_gate_rejects_completed_arms_with_any_output_recovery(tmp_path,monkeypatch,fault):
+    identifier='a'*64;directory=tmp_path/'pilot';source={'synthetic':'source'}
+    cases=[{'case_id':'synthetic:gate','source':source},{'case_id':'synthetic:next','source':source}]
+    spec={'purpose':'output_reliability_regression','cases':cases}
+    monkeypatch.setattr(pilot,'load_registration',lambda root,chosen:(spec,directory))
+    monkeypatch.setattr(pilot,'_context',lambda *a:pytest.fail('A rejected first-case gate must stop before loading another case'))
+    for arm in ARMS:
+        result={'controller_degraded':False,'repairs':[],'actions':[{'status':'finished'}]}
+        if arm==ARMS[0]:
+            if fault=='degraded':result['controller_degraded']=True
+            elif fault=='repaired':result['repairs']=[{'stage':'findings'}]
+            else:result['actions'][0]['status']='invalid_or_repeated_tool_request'
+        target=pilot._case_dir(directory,cases[0]['case_id'])/arm/'result.json'
+        write_json(target,pilot._seal({'status':'completed','source':source,'result':result}))
+    with pytest.raises(ValueError,match='no degradation, repair or invalid tool action'):
+        pilot.run_policy_pilot(tmp_path,identifier,limit=2,provider_factory=lambda *a,**k:pytest.fail('Rejected gate spent tokens'))
+    assert not pilot._case_dir(directory,cases[1]['case_id']).exists()
+
+
+@pytest.mark.parametrize('fault',['none','degraded','repaired','invalid_action','failed_call','failed_arm'])
+def test_completed_reports_are_not_claimed_as_clean_regression_after_recovery_or_failed_calls(tmp_path,context,monkeypatch,fault):
+    case,snapshot=context;identifier='a'*64;directory=tmp_path/'pilot'
+    cases=[{'case_id':'synthetic:regression-'+str(i),'source':{'synthetic':i}} for i in range(4)]
+    monkeypatch.setattr(pilot,'load_registration',lambda root,chosen:({'purpose':'output_reliability_regression','cases':cases},directory))
+    monkeypatch.setattr(pilot,'_context',lambda root,row:({**case,'case_id':row['case_id']},snapshot))
+    def run(public,current_snapshot,arm,call):
+        result={'controller_degraded':False,'repairs':[],'actions':[{'status':'finished'}]}
+        # The first case passes the stage gate. A later case exposes each
+        # operational fault while still producing reports where possible.
+        if public['case_id']==cases[1]['case_id'] and arm==ARMS[0]:
+            if fault=='failed_arm':raise RuntimeError('Synthetic provider failure')
+            if fault=='degraded':result['controller_degraded']=True
+            elif fault=='invalid_action':result['actions'][0]['status']='invalid_or_repeated_tool_request'
+            elif fault in {'repaired','failed_call'}:
+                stage='repair_findings' if fault=='repaired' else 'decision_1'
+                target=pilot._case_dir(directory,public['case_id'])/arm/('call-'+stage+'.json')
+                write_json(target,pilot._seal({'binding':{'stage':stage},'status':'returned' if fault=='repaired' else 'failed'}))
+                if fault=='repaired':result['repairs']=[{'stage':'findings'}]
+        return result
+    monkeypatch.setattr(pilot,'run_policy_agent',run)
+    provider=lambda *a,**k:pytest.fail('Synthetic classification audit must not call a provider')
+    first=pilot.run_policy_pilot(tmp_path,identifier,limit=1,provider_factory=provider)
+    assert first['completed_arms']==2 and first['clean_regression'] is False
+    result=pilot.run_policy_pilot(tmp_path,identifier,limit=4,provider_factory=provider)
+    assert result['clean_regression'] is (fault=='none')
+    if fault=='none':assert result['completed_arms']==8 and result['inference_sealed'] is True
+    elif fault=='failed_arm':assert result['failed_arms']==1 and result['inference_sealed'] is False
+    else:
+        assert result['completed_arms']==8 and result['inference_sealed'] is True
+        key={'degraded':'degraded_arms','repaired':'repair_calls','invalid_action':'invalid_tool_actions','failed_call':'failed_call_records'}[fault]
+        assert result[key]==1
+
+
+@pytest.mark.parametrize('fault',['native_tool','invalid_path','wrong_choice','invalid_citation'])
 def test_final_repair_keeps_original_context_and_planner_preserves_the_slot(context,fault):
     from issueintel.investigation.providers import ProviderError
     case,snapshot=context;calls=[]
     def call(stage,messages,schema,maximum):
         calls.append((stage,messages));payload=json.loads(messages[1]['content'])
         if stage=='decision_1' and fault=='native_tool':raise ProviderError('untrusted upstream text',status=400,code='tool_use_failed')
-        if stage=='decision_1' and fault=='oversize_argument':return {'action':'search_code','argument':'x'*501,'reason':'bounded search'}
+        if stage=='decision_1' and fault=='wrong_choice':return {'choice_id':'S999','reason':'An unoffered selection'}
         if stage.endswith('findings'):
-            value=findings(payload)
-            if stage=='findings' and fault=='invalid_path':value['ranked_paths']=['made_up.py']
+            value=wire_findings(payload)
+            if stage=='findings' and fault=='invalid_path':value['file_preferences']['P999']='rank_1'
             if stage=='findings' and fault=='invalid_citation':value['hypotheses'][0]['support_ids']=['made_up']
             return value
-        return {'action':'finish','argument':'','reason':'Enough supplied code to summarize uncertainty'}
+        return {'choice_id':'STOP','reason':'Enough supplied code to summarize uncertainty'}
     result=run_policy_agent(case,snapshot,ARMS[0],call)
-    if fault in {'native_tool','oversize_argument'}:
+    if fault in {'native_tool','wrong_choice'}:
         assert result['controller_degraded'] is True and result['repairs']==[] and len(calls)==2
         return
     assert len(result['repairs'])==1 and len(calls)==3 and result['findings']['ranked_paths']==['parser.py']
@@ -206,11 +444,11 @@ def test_final_repair_is_reserved_after_planner_rejection_and_never_maps_unknown
     case,snapshot=context;stages=[]
     def call(stage,messages,schema,maximum):
         stages.append(stage)
-        if stage=='decision_1':return {'action':'search_code','argument':'x'*501,'reason':'too long'}
+        if stage=='decision_1':return {'choice_id':'S999','reason':'An unoffered selection'}
         if stage.endswith('findings'):
-            value=findings(json.loads(messages[1]['content']));value['hypotheses'][0]['support_ids']=['unknown']
+            value=wire_findings(json.loads(messages[1]['content']));value['hypotheses'][0]['support_ids']=['unknown']
             return value
-        return {'action':'finish','argument':'','reason':'Finish'}
+        return {'choice_id':'STOP','reason':'Finish'}
     with pytest.raises(ValueError):run_policy_agent(case,snapshot,ARMS[0],call)
     assert stages==['decision_1','findings','repair_findings']
 
@@ -240,9 +478,9 @@ def test_runner_stops_on_unfinished_paid_call_integrity_but_continues_after_outp
     provider_calls=[]
     class Provider:
         def __init__(self,*args,**kwargs):provider_calls.append(kwargs['call_context']['stage'])
-        def complete_function(self,messages,*,schema,max_output_tokens):
-            return {'action':'finish','argument':'','reason':'Summarize available evidence'}
-        def complete_json(self,messages,*,max_output_tokens):return findings(json.loads(messages[1]['content']))
+        def complete_structured(self,messages,*,schema,max_output_tokens):
+            if 'file_preferences' in schema['properties']:return wire_findings(json.loads(messages[1]['content']))
+            return {'choice_id':'STOP','reason':'Summarize available evidence'}
     errors={
         'missing':'Completed arm has a missing paid-call record; no automatic replacement',
         'binding_changed':'Saved paid call source changed',
@@ -256,7 +494,7 @@ def test_runner_stops_on_unfinished_paid_call_integrity_but_continues_after_outp
             # checks above: this unfinished arm has no saved result to replay.
             if fault!='output_contract':raise ValueError(errors[fault])
             if stage.endswith('findings'):return {}
-            return {'action':'finish','argument':'','reason':'Summarize available evidence'}
+            return {'choice_id':'STOP','reason':'Summarize available evidence'}
         return original(root,target,chosen,cid,arm,stage,messages,schema,maximum,provider_factory,allow_new=allow_new)
     monkeypatch.setattr(pilot,'_owned_call',owned)
     result=pilot.run_policy_pilot(tmp_path,identifier,limit=1,provider_factory=Provider)
@@ -289,7 +527,7 @@ def test_terminal_error_metadata_replays_without_http_or_exposing_upstream_conte
     monkeypatch.setattr(RuntimeConfig,'load',classmethod(lambda cls,root:config))
     class Provider:
         def __init__(self,*args,**kwargs):pass
-        def complete_json(self,*args,**kwargs):raise ProviderError('secret-source-and-token',status=400,code='json_validate_failed')
+        def complete_structured(self,*args,**kwargs):raise ProviderError('secret-source-and-token',status=400,code='json_validate_failed')
     directory=tmp_path/'calls';directory.mkdir();arguments=(tmp_path,directory,'a'*64,'verified:fixture',ARMS[0],'findings',[{'role':'user','content':'public'}],{'type':'object'},100)
     with pytest.raises(ProviderError):pilot._owned_call(*arguments,Provider)
     saved=pilot._read(directory/'call-findings.json')
@@ -306,10 +544,12 @@ def test_final_repair_reaches_five_call_bound_and_repaired_output_replays_withou
     def call(stage,messages,schema,maximum):
         stages.append(stage)
         if stage.endswith('findings'):
-            value=findings(json.loads(messages[1]['content']))
-            if stage=='findings':value['ranked_paths']=['invented.py']
+            value=wire_findings(json.loads(messages[1]['content']))
+            if stage=='findings':value['file_preferences']['P999']='rank_1'
             return value
-        return {'action':'read_code','argument':'parser.py:1-2','reason':'Read code'}
+        choices=[row for row in json.loads(messages[1]['content'])['catalog'] if 'query' in row]
+        assert choices
+        return {'choice_id':choices[0]['id'],'reason':'Find related code'}
     result=run_policy_agent(case,snapshot,ARMS[0],call)
     assert len(stages)==result['provider_call_count']==LIMITS['provider_calls']==5
     assert stages[-1]=='repair_findings'
@@ -319,13 +559,11 @@ def test_final_repair_reaches_five_call_bound_and_repaired_output_replays_withou
     requests=[]
     class Provider:
         def __init__(self,*args,**kwargs):pass
-        def complete_function(self,messages,*,schema,max_output_tokens):return self.respond(messages,schema)
-        def complete_json(self,messages,*,max_output_tokens):
-            return self.respond(messages,json.loads(messages[1]['content'])['required_output_schema'])
+        def complete_structured(self,messages,*,schema,max_output_tokens):return self.respond(messages,schema)
         def respond(self,messages,schema):
             payload=json.loads(messages[1]['content']);requests.append(payload)
             if len(requests)==1:raise ProviderError('hidden',status=400,code='tool_use_failed',retry_after=5,diagnostics={'native_call_marker':True})
-            return findings(payload) if 'ranked_paths' in schema['properties'] else {'reason':'Finish','argument':'','action':'finish'}
+            return wire_findings(payload) if 'file_preferences' in schema['properties'] else {'reason':'Finish','choice_id':'STOP'}
     directory=tmp_path/'calls';directory.mkdir()
     def owned(factory,allow_new):
         return lambda stage,messages,schema,maximum:pilot._owned_call(tmp_path,directory,'a'*64,case['case_id'],ARMS[0],stage,messages,schema,maximum,factory,allow_new=allow_new)
@@ -340,9 +578,9 @@ def test_exhausted_planner_output_stops_safely_but_final_contract_remains_mandat
     case,snapshot=context;stages=[]
     def call(stage,messages,schema,maximum):
         stages.append(stage)
-        if stage.endswith('findings'):return findings(json.loads(messages[1]['content']))
+        if stage.endswith('findings'):return wire_findings(json.loads(messages[1]['content']))
         if fault=='provider':raise ProviderError('hidden',status=400,code='tool_use_failed')
-        return {'action':'search_code','argument':'x'*501,'reason':'bad argument'}
+        return {'choice_id':'S999','reason':'An unoffered selection'}
     result=run_policy_agent(case,snapshot,ARMS[0],call)
     assert stages==['decision_1','findings']
     assert result['controller_degraded'] is True and len(result['controller_fallbacks'])==1
@@ -355,9 +593,9 @@ def test_invalid_final_report_is_never_replaced_with_a_synthetic_success(context
     def call(stage,messages,schema,maximum):
         stages.append(stage)
         if stage.endswith('findings'):
-            value=findings(json.loads(messages[1]['content']));value['hypotheses'][0]['support_ids']=['unknown']
+            value=wire_findings(json.loads(messages[1]['content']));value['hypotheses'][0]['support_ids']=['unknown']
             return value
-        return {'action':'finish','argument':'','reason':'Finish'}
+        return {'choice_id':'STOP','reason':'Finish'}
     with pytest.raises(ValueError):run_policy_agent(case,snapshot,ARMS[0],call)
     assert stages==['decision_1','findings','repair_findings']
 
@@ -368,8 +606,8 @@ def test_final_repair_still_available_when_planner_has_failed(context):
     def call(stage,messages,schema,maximum):
         stages.append(stage)
         if stage=='decision_1':raise ProviderError('hidden',status=400,code='tool_use_failed')
-        value=findings(json.loads(messages[1]['content']))
-        if stage=='findings':value['ranked_paths']=['invented.py']
+        value=wire_findings(json.loads(messages[1]['content']))
+        if stage=='findings':value['file_preferences']['P999']='rank_1'
         return value
     result=run_policy_agent(case,snapshot,ARMS[0],call)
     assert result['controller_degraded'] is True and len(result['repairs'])==1

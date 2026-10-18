@@ -59,3 +59,26 @@ def test_forced_function_is_exactly_one_typed_proposal_and_keeps_usage(tmp_path,
     else:
         with pytest.raises(ProviderError):provider.complete_function([{'role':'user','content':'Submit a response'}],schema=schema,max_output_tokens=256)
     assert provider.config.ledger().receipt(provider.last_reservation)['status']=='settled'
+
+
+@pytest.mark.parametrize('variant',['valid','unexpected_tool','truncated'])
+def test_strict_json_schema_has_one_output_channel_and_keeps_full_bounds(tmp_path,monkeypatch,variant):
+    from issueintel.investigation.providers import ProviderError
+    from issueintel.investigation.policy_agent import ACTION_SCHEMA
+    monkeypatch.setenv('GROQ_API_KEY','synthetic-test-key')
+    def transport(request,timeout):
+        body=json.loads(request.data)
+        assert body['response_format']=={'type':'json_schema','json_schema':{
+            'name':'issueintel_response','strict':True,'schema':ACTION_SCHEMA}}
+        assert not {'tools','tool_choice','parallel_tool_calls'} & body.keys()
+        assert body['stream'] is False
+        message={'content':json.dumps({'choice_id':'STOP','reason':'Evidence exhausted'})}
+        if variant=='unexpected_tool':message['tool_calls']=[{'type':'function','function':{'name':'read_code','arguments':'{}'}}]
+        return BytesIO(json.dumps({'choices':[{'finish_reason':'length' if variant=='truncated' else 'stop','message':message}],
+             'usage':{'prompt_tokens':100,'completion_tokens':20,'total_tokens':120}}).encode())
+    provider=GroqProvider(configured(tmp_path),transport=transport)
+    if variant=='valid':
+        assert provider.complete_structured([{'role':'user','content':'Classify a selection'}],schema=ACTION_SCHEMA,max_output_tokens=256)['choice_id']=='STOP'
+    else:
+        with pytest.raises(ProviderError):provider.complete_structured([{'role':'user','content':'Propose an action'}],schema=ACTION_SCHEMA,max_output_tokens=256)
+    assert provider.config.ledger().receipt(provider.last_reservation)['status']=='settled'

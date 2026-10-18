@@ -139,17 +139,16 @@ def _case_dir(directory,cid):return directory/'cases'/sha256(cid.encode()).hexdi
 
 def _owned_call(root,directory,identifier,cid,arm,stage,messages,schema,maximum,provider_factory,*,allow_new=True):
     path=directory/('call-'+stage+'.json')
-    function_mode=stage.startswith(('decision_','repair_decision_'))
+    decision_mode=stage.startswith(('decision_','repair_decision_'))
     # One user payload avoids conflicting successive user turns for GPT-OSS.
     try:payload=json.loads(messages[1]['content']) if len(messages)>1 else None
     except ValueError:payload=None
     if not isinstance(payload,dict):payload={'input_messages':messages}
     else:payload=dict(payload)
-    if not function_mode:payload['required_output_schema']=schema
-    payload['response_instruction']=('Submit only via issueintel_response, following its function parameter schema. Do not call any other native function.' if function_mode
+    payload['response_instruction']=('Return only the JSON classification selecting one catalog id. Use the response schema.' if decision_mode
         else 'Return only one final JSON object conforming to this complete schema. The action phase is closed; no native tool/function calls. The program validates every constraint afterward.')
     if len(messages)>2:
-        payload['repair_instructions']=[json.loads(row['content'])['instruction'] if function_mode else row['content'] for row in messages[2:]]
+        payload['repair_instructions']=[json.loads(row['content'])['instruction'] for row in messages[2:]]
     system=messages[0]['content'] if messages and messages[0]['role']=='system' else 'Return JSON only.'
     messages=[{'role':'system','content':system},{'role':'user','content':json.dumps(payload,ensure_ascii=False,allow_nan=False,sort_keys=True)}]
     request_hash=digest({'messages':messages,'schema':schema,'max_output_tokens':maximum,'output_protocol':OUTPUT_PROTOCOL})
@@ -168,7 +167,7 @@ def _owned_call(root,directory,identifier,cid,arm,stage,messages,schema,maximum,
             raise ProviderError('Saved rejected output; original call is never repeated',status=failure['http_status'],code=failure['provider_code'],retry_after=failure.get('retry_after_seconds'),diagnostics=failure)
         raise ValueError('Previous paid attempt incomplete/failed; never retry automatically')
     if not allow_new:raise ValueError('Completed arm has a missing paid-call record; no automatic replacement')
-    state={'schema':'policy_pilot_call_v2','binding':binding,'response_mode':'forced_function' if function_mode else 'json_object','status':'intent','receipts':{},'response':None,'latency_seconds':None}
+    state={'schema':'policy_pilot_call_v2','binding':binding,'response_mode':'strict_json_schema','status':'intent','receipts':{},'response':None,'latency_seconds':None}
     write_json(path,_seal(state))
     def receipt(record):
         state['receipts'][record['reservation_id']]=record
@@ -176,8 +175,7 @@ def _owned_call(root,directory,identifier,cid,arm,stage,messages,schema,maximum,
     started=time.monotonic()
     try:
         provider=provider_factory(config,call_context={'category':'ARTIFACT_GENERATION_COST','stage':'policy_pilot_'+stage,'reasoning_effort':effort,'diagnostic':True},on_receipt=receipt)
-        response=(provider.complete_function(messages,max_output_tokens=maximum,schema=schema) if function_mode
-                  else provider.complete_json(messages,max_output_tokens=maximum))
+        response=provider.complete_structured(messages,max_output_tokens=maximum,schema=schema)
         state.update(status='returned',response=response,latency_seconds=round(time.monotonic()-started,6))
         write_json(path,_seal(state));return response
     except Exception as error:
@@ -202,6 +200,10 @@ def run_policy_pilot(root,identifier,*,limit=25,provider_factory=GroqProvider):
                 gate=_read(_case_dir(directory,spec['cases'][0]['case_id'])/arm/'result.json')
                 if gate['status']!='completed' or gate['source']!=spec['cases'][0]['source']:
                     raise ValueError('Both first-case arms must pass the transport/contract pilot before the remaining cases')
+                if spec['purpose']=='output_reliability_regression' and (
+                        gate['result']['controller_degraded'] or gate['result']['repairs']
+                        or any(action['status']=='invalid_or_repeated_tool_request' for action in gate['result']['actions'])):
+                    raise ValueError('Reliability first-case arms must have no degradation, repair or invalid tool action')
         for index,row in enumerate(spec['cases'][:limit]):
             try:case,snapshot=_context(root,row)
             except (ValueError,OSError,KeyError):
@@ -242,9 +244,19 @@ def run_policy_pilot(root,identifier,*,limit=25,provider_factory=GroqProvider):
         if len(results)==len(spec['cases'])*len(ARMS):
             refs={str(path.relative_to(directory)):sha256(path.read_bytes()).hexdigest() for path in sorted((directory/'cases').rglob('*.json'))}
             write_json(directory/'inference-sealed.json',_seal({'experiment_sha256':identifier,'files':refs,'gold_read':False}))
-    return {'experiment_sha256':identifier,'completed_arms':sum(row['status']=='completed' for row in results),
+        arm_results=[_read(_case_dir(directory,row['case_id'])/row['arm']/'result.json') for row in results]
+        owned_calls=[_read(path) for row in results for path in (_case_dir(directory,row['case_id'])/row['arm']).glob('call-*.json')]
+    summary={'experiment_sha256':identifier,'completed_arms':sum(row['status']=='completed' for row in results),
             'degraded_arms':sum(row['degraded'] for row in results),
-            'failed_arms':sum(row['status']=='failed' for row in results),'stop_reason':stop,'inference_sealed':(directory/'inference-sealed.json').exists()}
+            'failed_arms':sum(row['status']=='failed' for row in results),
+            'invalid_tool_actions':sum(action['status']=='invalid_or_repeated_tool_request' for row in arm_results for action in row.get('result',{}).get('actions',[])),
+            'repair_calls':sum(row['binding']['stage'].startswith('repair_') for row in owned_calls),
+            'failed_call_records':sum(row['status']=='failed' for row in owned_calls),
+            'stop_reason':stop,'inference_sealed':(directory/'inference-sealed.json').exists()}
+    summary['clean_regression']=(spec.get('purpose')=='output_reliability_regression'
+        and summary['completed_arms']==8 and summary['inference_sealed'] and stop is None
+        and not any(summary[key] for key in ('degraded_arms','failed_arms','invalid_tool_actions','repair_calls','failed_call_records')))
+    return summary
 
 
 def score_policy_pilot(root,identifier):

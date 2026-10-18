@@ -218,15 +218,31 @@ Pilot chỉ chọn 25 Main Dev gốc đã accepted, round-robin repository rồi
 khi xem output/gold. Hai prompt policy dùng chung tool-agent harness, seed
 retrieval, model 120B medium, tối đa ba thao tác
 search/read và năm call mỗi arm,
-gồm tối đa một lượt sửa dành cho báo cáo cuối (protocol v5).
+gồm tối đa một lượt sửa dành cho báo cáo cuối (protocol v10).
 Baseline có tool thật; final schema giống nhau ở cả hai arm. Đây là ablation
 chính sách prompt, chưa so toàn bộ IssueIntel với coding agent thương mại.
 Hai arm ca đầu phải qua transport/contract trước khi chạy 24 ca còn lại.
-Transport v5 chọn action bằng đúng một function proposal `issueintel_response`,
-không chạy function do model tự chọn. Code kiểm enum/argument rồi mới search/read.
-Bước trả báo cáo dùng JSON object với schema đầy đủ rồi kiểm toàn bộ
+Transport v10 dùng `json_schema` với `strict: true` cho cả lựa chọn và báo cáo,
+không khai báo native tools. Đây là phương thức Groq hỗ trợ cho 120B;
+[tài liệu provider](https://console.groq.com/docs/structured-outputs).
+Planner phân loại một catalog ID: STOP, S1… hoặc R1…; chương trình mới thực hiện
+thao tác tương ứng. Mỗi lựa chọn R trỏ vào khoảng đọc đã kiểm 60 dòng/4.000 ký tự,
+tối đa 12 khoảng chưa dùng từ file trong evidence hiện tại. Mỗi S trỏ vào query
+do code tạo từ định danh/từ khóa issue và symbol trong evidence, tối đa 24 query
+không trống, không trùng và chưa dùng. Tìm kiếm vẫn trên toàn snapshot, có thể
+đưa file khác vào evidence/catalog round sau. Model không gửi query/range tự do;
+hai arm cùng catalog/rules. Đây là thay đổi phạm vi chọn search/read của harness,
+không phải chỉ đổi cách đóng gói request. Chất lượng heuristic query chưa được
+đánh giá. Backend vẫn kiểm lại bounds/lặp, không âm thầm cắt yêu cầu sai.
+Bước trả báo cáo nhận schema đầy đủ và vẫn kiểm toàn bộ
 schema/citation/độ dài bằng code; chỉ xếp hạng file đã truy xuất/đọc. Bước trả
-báo cáo đóng phase chọn tool. Output báo cáo sai có thể dùng đúng một stage repair
+báo cáo dùng `file_preferences`: một mức rank_1…rank_5/omit cho mỗi ID file đã
+khóa trong catalog. Code chọn tối đa năm file duy nhất; đồng hạng giữ thứ tự
+catalog đã lưu và được ghi rõ trong `ranking_projection`. Đây là ưu tiên tương
+đối do model khai báo cùng quy tắc code, không phải xác suất hay thứ tự model
+đã phân biệt hoàn toàn. Wire schema không dùng keyword uniqueItems bị provider
+từ chối; danh sách cuối vẫn phải qua validator không lặp và citation đầy đủ.
+Bước trả báo cáo đóng phase chọn tool. Output báo cáo sai có thể dùng đúng một stage repair
 riêng từ context gốc, có receipt riêng; không lấy output sai làm evidence hoặc
 tự sửa citation/path. Lỗi auth/rate limit/network/budget không được repair.
 Planner sai không dùng lượt sửa này: code dừng truy xuất và ghi rõ
@@ -248,10 +264,14 @@ Mọi registration, output, receipt và report nằm trong ignored
 đăng ký riêng bốn Main Dev từng lỗi được ghi trong authorization. Chạy cùng
 `run-policy-pilot --limit 1` trước, rồi `--limit 4`. Đây là regression có chọn
 ca theo lỗi cũ, không phải so sánh chất lượng; scorer từ chối đọc gold cho mode
-này. Tối đa 40 call trên bốn ca/hai arm, cộng control tổng hợp tối đa 30 call
-qua các revision sửa lỗi; mỗi revision có registration/receipt riêng.
-Bundle cũ và receipt giữ nguyên; không so trực tiếp điểm v1 với protocol v5
-vì transport, ranking scope và ngân sách đã đổi. Bundle cũ mở bằng report đã
+này. Tối đa 40 call trên bốn ca/hai arm mỗi registration; control tổng hợp giai đoạn sửa này
+tối đa 40 call qua các revision. Cổng ca đầu của regression yêu cầu không suy giảm, repair hoặc
+action sai/lặp. Runner báo riêng failed call, repair và invalid action; chỉ đặt
+`clean_regression=true` khi đủ tám nhánh và mọi bộ đếm lỗi bằng 0. Kiểm ổn định
+v10 yêu cầu hai registration mới liên tiếp đạt cổng này, cùng fingerprint;
+không chạy lại stage cũ đến khi nhận output thuận lợi.
+Bundle cũ và receipt giữ nguyên; không so trực tiếp điểm v1 với protocol v10
+vì transport, search/read/ranking contract và ngân sách đã đổi. Bundle cũ mở bằng report đã
 lưu hoặc checkout commit đã ghi; code hiện tại từ chối replay fingerprint cũ.
 
 **Phục hồi proof được giữ riêng: [107 pending ban đầu](docs/STRICT_RECOVERY.md).** Bulk LLM đã

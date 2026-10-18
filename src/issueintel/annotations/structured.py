@@ -91,6 +91,8 @@ def _validate_wire_schema(value, schema, path="response"):
             raise AnnotationError(f"{path} has invalid array length")
         for index, item in enumerate(value):
             _validate_wire_schema(item, schema["items"], f"{path}[{index}]")
+        if schema.get('uniqueItems') is True and len({json.dumps(item,sort_keys=True,ensure_ascii=False,allow_nan=False) for item in value})!=len(value):
+            raise AnnotationError(f"{path} has duplicate items")
     elif kind == "string":
         if not isinstance(value, str):
             raise AnnotationError(f"{path} must be a string")

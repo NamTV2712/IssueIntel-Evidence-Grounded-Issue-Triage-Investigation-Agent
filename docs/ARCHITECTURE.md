@@ -206,7 +206,7 @@ outcome khác nhau về label chưa chứng minh phân biệt về ngữ nghĩa.
 `investigation.policy_agent` cung cấp chung bounded search_code/read_code trên
 snapshot đã replay cho hai chính sách prompt. Seed/context, schema và budgets
 giống nhau; action chỉ đọc tối đa 60 dòng/4.000 ký tự, ba round. Error/repeated
-request vẫn tiêu hao round; final call tối đa 16.384 output tokens. Protocol v5
+request vẫn tiêu hao round; final call tối đa 16.384 output tokens. Protocol v10
 dành một repair slot cho final, tối đa năm call kể cả repair. Các stage dùng effort
 medium; cả hai policy cùng cấu hình. Chỉ output lỗi được
 sửa bằng một request mới từ context/schema gốc; auth/rate/network/budget và lỗi
@@ -220,15 +220,39 @@ JSON payload được canonical hóa trước hash/HTTP, nên key order trong re
 đã lưu không làm đổi request ở stage tiếp theo khi replay. Call intent giữ request
 hash và receipt ownership trước HTTP, response được giữ trước validation. Resume
 replay bằng saved calls, cấm tạo call thay thế khi receipt/output bị thiếu.
-Action dùng forced single function `issueintel_response`, `parallel_tool_calls=false`,
-không trộn response_format vào request. Provider chỉ nhận đúng một call/function
-hợp lệ rồi trả args, không tự execute. Native request chỉ dùng schema trong tool
-definition, tránh chỉ dẫn JSON object trùng trong user payload. Code vẫn kiểm
-toàn bộ contract/action. Planner có output không hợp lệ thì chuyển ngay
+Action và final dùng constrained `json_schema`, `strict:true`, schema đầy đủ
+đặt trong response_format; không thêm native tools/tool_choice/parallel_tool_calls.
+Planner được yêu cầu phân loại catalog entry thay vì sinh command. Schema choice_id
+chỉ nhận STOP hoặc R1…/S1…, cùng reason; không có raw query/range field. R ID ánh xạ chính xác
+về locator đã tính, không ánh xạ output sai về một file hợp lệ. Raw proposal được
+giữ trong action record và replay cùng catalog/hash; local schema/semantic guard
+từ chối ID lạ và field thừa. Code vẫn kiểm bounds trước search/read.
+Provider từ chối native tool_calls ngay cả khi có JSON content. Catalog cho tối đa
+12 locator hợp lệ, chưa dùng, mỗi locator tối đa 500 ký tự, tính từ file trong
+evidence hiện tại. S ID chọn trong tối đa 24 query đã loại trùng/đã dùng, sinh từ
+identifier/camel-case/underscore trong issue, class/def names trong evidence và
+từ khóa dài; heuristic không đọc gold/human rationale hoặc tạo bằng chứng mới.
+Model không được đặt query/range tùy ý; search vẫn tìm toàn snapshot và có thể
+cung cấp file mới cho round sau. Hai policy có cùng menu/rules; đây là phạm vi
+controller có catalog, không có quyền chọn query tự do như harness ban đầu. Lịch sử
+trước lựa chọn giữ ID, locator/query, status/failure và evidence IDs thay vì mời
+model gọi function. Không cắt yêu cầu đọc sai để làm thành công. ToolRequestError trả mã lỗi
+riêng cho range/EOF/character bound/path/empty/repeated request vào past_actions,
+để planner có thể sửa ở round tiếp theo; lỗi snapshot/retrieval không bị che thành
+lỗi argument. Planner có output không hợp lệ thì chuyển ngay
 deterministic finish với `controller_degraded`/failure trace và không execute
 proposal sai. Final vẫn phải qua tất cả validation; không synthesize success.
-Final dùng JSON-object kèm schema, đóng phase tool; payload gộp thành một user
-message. HTTP status, allowlisted
+Final dùng cùng strict schema, đóng phase tool; payload gộp thành một user
+message. Canonical findings_schema vẫn giới hạn năm ranked_paths duy nhất.
+wire_findings_schema thay mảng path bằng file_preferences object đóng, mỗi P ID
+khóa vào một file evidence, giá trị rank_1…rank_5/omit. Groq đã từ chối uniqueItems
+ở control v8 nên wire không dùng keyword này; local validator vẫn kiểm uniqueness.
+project_findings kiểm toàn bộ wire rồi sắp theo mức ưu tiên và thứ tự catalog đã
+lưu khi đồng hạng, lấy tối đa năm file và chạy validate_findings đầy đủ. Không
+nhận danh sách path lỗi để tự loại trùng/ánh xạ; ID lạ, key thiếu/thừa hoặc giá trị
+sai bị từ chối. Result giữ candidate catalog, raw preferences, các nhóm đồng
+hạng và rule ở ranking_projection; đây là quy tắc ưu tiên tương đối, không phải
+thứ tự model phân biệt hết hay confidence/causal truth. HTTP status, allowlisted
 error code, retry-after hữu hạn và classification được lưu; không lưu message,
 response body hoặc key vào error metadata. Saved terminal output errors được
 phát lại như exception để đi vào đúng repair stage đã ghi, không gửi lại HTTP.
@@ -243,8 +267,13 @@ bị bỏ qua để tiếp tục gọi trả phí ở arm khác sau lỗi receip
 Mode reliability regression đăng ký bốn ca đã accepted từ parent sealed,
 replay proof/source hiện tại và giữ bindings parent. Chỉ kiểm lỗi output, không
 đọc gold/scorer; selection theo lỗi cũ không phải thí nghiệm chất lượng độc lập.
-Không có bulk rerun tự động. Khác transport/ranking/budget được ghi trong spec
-v5; bundle v1 cần source commit v1 cho replay, report đã lưu vẫn đọc độc lập.
+Không có bulk rerun tự động. Regression chỉ mở gate sau hai arm đầu hoàn tất
+mà không degrade/repair/invalid action. Summary đếm failed call records, repair
+records và invalid/repeated tool actions riêng với valid final reports.
+clean_regression yêu cầu tám arm, inference sealed và mọi bộ đếm lỗi bằng 0;
+hai lượt ổn định phải dùng hai registration mới cùng fingerprint, không retry
+stage trả phí. Khác transport/search/read scope/ranking contract/budget được ghi trong spec v10; bundle cũ
+cần đúng source archive cho replay, report đã lưu vẫn đọc độc lập.
 
 `investigation.evidence_graph` là view của báo cáo đã lưu, khác với AST graph.
 Replay query/hash/citation/context bindings và validate critique trước khi chiếu
