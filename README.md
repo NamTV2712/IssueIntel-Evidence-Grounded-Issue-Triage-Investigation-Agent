@@ -116,6 +116,18 @@ hoặc lịch sử. Báo cáo và receipt gốc được giữ nguyên.
 Tab **Kế hoạch kiểm tra / Check plan** lưu trạng thái và ghi chú theo phiên bản,
 mở lại sau restart và xuất JSON riêng. Trạng thái hoàn tất là tự báo cáo, chưa
 xác minh bản sửa; hệ thống không chạy code/test của repository đích.
+Với điều tra product, tab này còn có **Nhật ký kiểm tra giả thuyết**: chọn đúng
+bước đề xuất trong báo cáo, ghi điều kiện/đầu vào, mong đợi, quan sát, diễn giải
+và full SHA của commit thực sự đã thử nếu biết. Commit này do người dùng cung
+cấp, không được kiểm Git hoặc tự điền bằng commit phân tích. Có thể ghi chưa
+chạy/chưa rõ; đính chính tạo bản ghi mới trỏ về bản cũ, không xóa lịch sử.
+Nhật ký khóa vào report/pack/query/snapshot, có tối đa 100 bản ghi mỗi phiên và
+chống hai nơi ghi cùng phiên bản. JSON xuất riêng; Markdown gồm báo cáo cùng
+toàn bộ quan sát và đính chính. Nháp giữ trong bộ nhớ browser khi đổi ngôn ngữ
+hoặc lưu lỗi; đóng/reload trang sẽ mất phần chưa lưu. Dữ liệu đã lưu ở SQLite
+private, mở lại không cần repo/network/model. Không đưa quan sát vào prompt,
+nhãn benchmark hoặc trạng thái xác nhận nguyên nhân/bản sửa. Main Dev/strict
+và hậu duệ có nguồn benchmark bị chặn, checklist cũ giữ riêng.
 
 Tab **Đồ thị bằng chứng / Evidence graph** đọc báo cáo đã lưu, phân biệt nguồn
 truy xuất, citation hỗ trợ/phản bác và nhận xét model. Chọn nút bằng chuột hoặc

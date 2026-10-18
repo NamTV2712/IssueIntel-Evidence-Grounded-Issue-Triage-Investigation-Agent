@@ -43,6 +43,25 @@ không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite
 riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
 PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
 
+`investigation.check_journal.CheckJournalStore` lưu manual observations trong
+table riêng cùng DB checklist, giữ nguyên plan v1. Check IDs lấy từ
+`InvestigationReport.next_checks` đã dedup, không ánh xạ theo vị trí `step_N`
+của checklist. Mỗi event khóa report/pack/query/snapshot/job, text SHA và đúng
+hypothesis/evidence IDs do server lấy; recorded_at là lúc ghi, không proof chạy.
+Full SHA người dùng tự báo đã thử giữ riêng commit phân tích, không resolve Git
+hoặc mặc định bằng source SHA. Outcome là not_run/inconclusive/reported_match/
+reported_difference; không chuyển thành semantic/causal/fix verification hoặc
+independent human labels. Correction append-only cùng check, trỏ về record chưa
+bị supersede; mọi record cũ còn trong export. `BEGIN IMMEDIATE` và expected SHA
+chặn ghi đè/gửi lặp cùng phiên bản; giới hạn 100 event mỗi journal. Replay kiểm
+schema/type, source/check bindings và toàn chuỗi, không xác thực danh tính tác
+giả hay bảo đảm chống người kiểm soát toàn DB viết lại lịch sử. Workbench replay
+product authority xuyên follow-up/context/resume, cấm benchmark/strict trước
+đọc hoặc ghi journal. Read/export không lấy Git/network/model, không sửa nguồn.
+JSON journal và Markdown report+journal có header report SHA và journal SHA;
+UI kiểm cả hai khi tải để không xuất nhầm revision. Observations không tự đi
+vào inference, GitHub draft hoặc dataset; pack/report v1/receipts giữ nguyên.
+
 `investigation.report` tạo projection `investigation_report_v1` có JSON Schema
 riêng từ pack đã lưu và SHA256 của đúng bytes nguồn. Projection không đọc Git,
 network, gold hoặc gọi model; Workbench replay export và lineage trước khi dựng.

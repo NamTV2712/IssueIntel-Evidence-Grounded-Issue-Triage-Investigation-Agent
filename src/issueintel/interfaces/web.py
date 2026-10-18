@@ -29,6 +29,7 @@ STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
 STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
 STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; charset=utf-8')
+STATIC['/check-journal.js'] = ('check-journal.js', 'text/javascript; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -41,9 +42,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None):
-            if report_sha256 is not None and (not isinstance(report_sha256,str) or len(report_sha256)!=64 or any(char not in '0123456789abcdef' for char in report_sha256)):
-                raise ValueError('Invalid report source binding')
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None):
+            for checksum in (report_sha256, journal_sha256):
+                if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
+                    raise ValueError('Invalid export source binding')
             self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(raw)))
@@ -55,6 +57,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('Content-Disposition', f'attachment; filename="{download}"')
             if report_sha256 is not None:
                 self.send_header('X-IssueIntel-Report-SHA256',report_sha256)
+            if journal_sha256 is not None:
+                self.send_header('X-IssueIntel-Journal-SHA256',journal_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -120,6 +124,11 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                             download=parts[1],report_sha256=review['source']['report_sha256'])
                     elif len(parts)==2 and parts[1]=='adaptive-questions':
                         self._json(200,workbench.question_history(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'check-journal.json','check-journal.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        raw, report_sha, journal_sha=workbench.check_journal_export(parts[0],format)
+                        self._send(200,raw,'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',
+                                   download=parts[1],report_sha256=report_sha,journal_sha256=journal_sha)
                     elif len(parts)==2 and parts[1]=='questions.json':
                         self._send(200,workbench.question_bytes(parts[0]),download='questions.json')
                     elif len(parts) == 2 and parts[1] == 'evidence-graph':
@@ -200,6 +209,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.related(request))
                 elif route == '/api/context-search':
                     self._json(200, workbench.context_search(request))
+                elif route.startswith('/api/jobs/') and route.endswith('/check-journal'):
+                    if len(route.split('/')) != 5:
+                        raise ValueError('Invalid journal request')
+                    self._json(200,workbench.check_journal(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid plan request')

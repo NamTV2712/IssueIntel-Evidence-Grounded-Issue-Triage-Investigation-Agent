@@ -141,6 +141,8 @@ class Workbench:
         self.active = set()
         self.cancelled = set()
         self.plans = PlanStore(self.directory/'plans.sqlite')
+        from .check_journal import CheckJournalStore
+        self.check_journals = CheckJournalStore(self.directory/'plans.sqlite')
         from issueintel.integrations.github_sync import GitHubSync
         self.github_sync = GitHubSync(self.root)
         # Reconcile changes that might have occurred while the local server was off.
@@ -993,6 +995,27 @@ class Workbench:
               else render_markdown(review))
         return text.encode('utf-8')
 
+    def _check_journal_source(self, identifier):
+        from .report import build_report
+        pack, raw, _ = self._load_pack(identifier)
+        self._clarification_product(identifier, pack)
+        return build_report(pack, source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier)
+
+    def check_journal(self, identifier, request=None):
+        report = self._check_journal_source(identifier)
+        return (self.check_journals.load(report) if request is None
+                else self.check_journals.append(report, request))
+
+    def check_journal_export(self, identifier, format='json'):
+        from .check_journal import render_journal_markdown
+        if format not in {'json', 'md'}:
+            raise ValueError('Choose JSON or Markdown check journal')
+        report = self._check_journal_source(identifier)
+        journal = self.check_journals.load(report)
+        text = (json.dumps(journal, ensure_ascii=False, sort_keys=True, indent=2)+'\n'
+                if format == 'json' else render_journal_markdown(journal, report))
+        return text.encode('utf-8'), report['sha256'], journal['sha256']
+
     def _export_bytes(self, identifier, name='pack.json'):
         if name not in {'pack.json', 'report.md'}:
             raise ValueError('Unsupported export')
@@ -1126,11 +1149,14 @@ class Workbench:
         try:
             self._clarification_product(identifier,pack)
             available=depth<8
+            journal_available=True
         except (ValueError,KeyError,TypeError,OSError):
             available=False
+            journal_available=False
         return dict(self._inspect_query(pack['case']['problem_statement'],cue_text),
                     source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier,
                     clarifications_available=available,
+                    check_journal_available=journal_available,
                     clarifications=self._questions_for_pack(pack) if available else None)
 
     def evidence_graph(self, identifier):

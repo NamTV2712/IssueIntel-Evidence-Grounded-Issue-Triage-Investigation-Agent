@@ -41,7 +41,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F02 | Tìm ứng viên liên quan trong lịch sử local; repository memory ở UI/CLI thêm FTS trên issue/PR/comment đã đồng bộ. Chưa xác nhận duplicate, chưa tự đưa kết quả vào model. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn; người dùng cũng có thể tìm/chọn chính xác nguồn đã đồng bộ để tái điều tra cùng query/commit. Record, receipt và repository ID được replay; dùng trong generation/critique/export. Current context không phải temporal proof. |
-| F05 | Job/trace/checklist có phiên bản; Deep thêm một vòng. Planned mới chạy một đến ba vòng có budget, tránh lặp query/evidence, chỉ sinh lại khi có nguồn mới và lưu chain/stop reason replay được. Tool điều tra mở rộng vẫn còn roadmap. |
+| F05 | Job/trace/checklist có phiên bản; nhật ký quan sát theo từng saved check, điều kiện/mong đợi/quan sát và commit tự báo, đính chính append-only cùng nguồn. Deep thêm một vòng; Planned một đến ba vòng có budget và chain/stop reason replay được. Tool điều tra mở rộng vẫn còn roadmap. |
 | F06 | Adapter Typesafe nối tùy chọn vào Planned: bounded public context, choice allowlist, tối đa bốn quyết định, cấu hình/ledger/receipt riêng, fallback được ghi và replay. Đã kiểm kết nối thật 4/4 call tổng hợp ngày 17/10/2026 theo quyền thử riêng; chưa đánh giá chất lượng controller hoặc luồng GitHub thật. Cấu hình thường vẫn tắt/trần 0. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị tương tác và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Hiện nguồn dùng chung/citation khác vai trò, model critique, khoảng trống và saved checks; có citation, JSON/Markdown và source binding, không xếp hạng hay suy ra mâu thuẫn ngữ nghĩa. |
 | F08 | Kiểm citation/hash, tìm thêm code ở Deep/Planned, critique riêng và abstention. Bảng đối chiếu lộ các mục thiếu từ metadata và nhận xét model cần xem lại; chưa coi đây là đánh giá sufficiency/nguyên nhân. Planned dừng rõ khi query/evidence không đổi; counter có thể `not_found`. |
@@ -53,7 +53,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
 | F16 | Preview comment có code links; exact-body approval, target binding và durable one-attempt intent trước POST. Không tự đăng. |
-| F17 | Tổng quan và JSON/Markdown/nháp GitHub dùng chung report contract có schema/hash về pack/query/snapshot; tách model critique, citation và kiểm người, giữ nguyên unknown. Xem evidence/hypotheses/trace và pack JSON gốc; đồ thị có lọc quan hệ, chọn bằng bàn phím và mở citation về báo cáo. |
+| F17 | Tổng quan và JSON/Markdown/nháp GitHub dùng chung report contract; có Markdown bàn giao kèm mọi quan sát/đính chính thủ công và JSON journal riêng. Khóa nguồn và version; phân biệt model critique, citation, user report và kiểm người. Đồ thị có lọc/keyboard/citation; không tự đưa journal vào nháp GitHub hoặc model. |
 | F18 | Reservation trước HTTP gắn về job, cập nhật usage/price date sau call; tab chi phí/export riêng, không nhận tổng ledger thành chi phí phiên. Phiên cũ thiếu receipt giữ unknown. |
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag, diff evidence và ancestry local; kiểm riêng một GitHub Release công khai theo tag với commit tham chiếu, giữ ID/receipt/hash và phân biệt draft/prerelease. Quan hệ hiện tại không chứng minh nội dung tag lúc công bố hoặc lỗi đã sửa. |
@@ -95,6 +95,8 @@ localhost; server không cung cấp CORS hay duyệt filesystem. Source excerpts
 render bằng `textContent`, không thực thi HTML/Markdown từ repository hoặc issue.
 
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
+- `GET /api/jobs/{id}/check-journal.json` hoặc `.md`: journal source-bound hoặc toàn report kèm journal; hai header `X-IssueIntel-Report-SHA256` và `X-IssueIntel-Journal-SHA256` bind đúng body. Chỉ product ngoài benchmark và lineage đã replay; không network/model.
+- `POST /api/jobs/{id}/check-journal`: `{expected_sha256, observation}` gồm `check_id`, `outcome`, `conditions`, `expected_result`, `observed_result`, `interpretation`, `tested_commit_sha` nullable và `supersedes` nullable. `not_run` cần lý do, cấm observed result/tested SHA; các outcome khác cần điều kiện, mong đợi và quan sát. Đính chính cùng check còn active, tối đa 100 event; xung đột trả input error, tải lại để giữ bản nháp và xem phiên bản mới.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
 - `POST /api/versions`: `job_id`, `revision`, tùy chọn `reference_revision`; job đối chiếu code và ancestry dùng chung queue/worker, không model hoặc thực thi code/test.

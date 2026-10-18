@@ -7,6 +7,7 @@ let catalogInfo=null, jobRows=[], comparisonResult=null, lastMessage=null;
 let intake=null;
 let reportView=null;
 let hypothesisReview=null;
+let journalData=null;
 let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
@@ -102,12 +103,14 @@ async function runJob(request,existingJob=null) {
 async function openJob(id) {
   const generation=++viewGeneration;
   window.IssueIntelHypothesisReview?.cancel();
+  window.IssueIntelCheckJournal?.cancel();
   const loaded=await api('/api/jobs/'+id+'/pack.json');
-  const [inspected,plan,cost,report,review]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json'),readHypothesisReview(id)]);
+  const [inspected,plan,cost,report,review,journal]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json'),readHypothesisReview(id),readCheckJournal(id)]);
   if(generation!==viewGeneration)return;
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   reportView=report.status==='fulfilled'?report.value:null;
   hypothesisReview=review.status==='fulfilled'?review.value:null;
+  journalData=journal.status==='fulfilled'?journal.value:null;
   relatedResult=null;
   usageInfo=cost.status==='fulfilled'?cost.value:null;
   showUsage({id,accounting:usageInfo,...savedTypesafeUsage()});
@@ -185,14 +188,17 @@ function restorePlanDrafts(drafts) {
 }
 function renderTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
-  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();if(!pack)return;
+  const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
     pack_sha256:intake?.source_pack_sha256,commit_sha:pack.snapshot.commit_sha,
     snapshot_sha256:pack.snapshot.snapshot_sha256,query_sha256:intake?.query_sha256});
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
+  if(activeTab==='plan')window.IssueIntelCheckJournal?.render(content,journalData,currentJob,reportView,hypothesisReviewSource(),{
+    available:intake?.check_journal_available,reload:reloadCheckJournal,save:saveCheckObservation,export:exportCheckJournal,rerender:renderPlanPreservingDrafts});
   if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan' && planData){
+    const checklist=node('details',undefined,'journal-checklist');checklist.append(node('summary',t('Trạng thái các bước trong kế hoạch')));content.append(checklist);
     const reload=node('button',t('Tải lại kế hoạch'));reload.onclick=async()=>{
       const selected=currentJob;
       try{const plan=await api('/api/jobs/'+selected+'/plan');if(currentJob===selected){planData=plan;renderTab();}}
@@ -202,7 +208,7 @@ function renderTab() {
       const url=URL.createObjectURL(new Blob([JSON.stringify(planData,null,2)],{type:'application/json'}));
       const link=node('a');link.href=url;link.download='issueintel-'+planData.job_id+'-plan.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     };
-    content.append(node('p',t('Phiên bản kế hoạch: {revision}',{revision:planData.revision}),'notice'),
+    checklist.append(node('p',t('Phiên bản kế hoạch: {revision}',{revision:planData.revision}),'notice'),
       node('p',t('Trạng thái và ghi chú do người dùng tự báo cáo; hệ thống không chạy code và chưa xác minh bản sửa.'),'notice'),reload,exportPlan);
     for(const step of planData.steps){
       const form=node('form',undefined,'hypothesis-card');form.dataset.planStep=step.id;form.append(node('h3',recommendedText(step.description)));
@@ -220,9 +226,9 @@ function renderTab() {
           if(currentJob===selected){const drafts=planDrafts().filter(d=>d.id!==step.id);planData=plan;renderTab();restorePlanDrafts(drafts);message(t('Đã lưu phiên bản kế hoạch mới.'));}
         }catch(error){message(t('Chưa lưu được. Kiểm tra ghi chú hoặc tải lại kế hoạch nếu phiên bản đã đổi.'),true);save.disabled=false;}
       };
-      content.append(form);
+      checklist.append(form);
     }
-    const history=node('details');history.append(node('summary',t('Lịch sử thay đổi kế hoạch')),node('pre',JSON.stringify({source_pack_sha256:planData.source_pack_sha256,sha256:planData.sha256,history:planData.history},null,2)));content.append(history);
+    const history=node('details');history.append(node('summary',t('Lịch sử thay đổi kế hoạch')),node('pre',JSON.stringify({source_pack_sha256:planData.source_pack_sha256,sha256:planData.sha256,history:planData.history},null,2)));checklist.append(history);
   }
   if(activeTab==='related') {
     const search=node('button',t('Tìm issue liên quan trong lịch sử local'));
@@ -413,6 +419,62 @@ async function exportHypothesisReview(format){
     if(!current())return;
     const url=URL.createObjectURL(body),link=node('a');link.href=url;link.download='issueintel-'+selected+'-hypothesis-review.'+format;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(error){if(current())message(error.message,true);}
+}
+function renderPlanPreservingDrafts(){const drafts=planDrafts();renderTab();restorePlanDrafts(drafts);}
+async function readCheckJournal(id){
+  const response=await fetch('/api/jobs/'+id+'/check-journal.json',{headers:{'X-IssueIntel-Token':token}});
+  if(!response.ok)throw new Error('Journal unavailable');
+  const value=await response.json();
+  if(response.headers.get('X-IssueIntel-Report-SHA256')!==value?.source?.report_sha256
+    ||response.headers.get('X-IssueIntel-Journal-SHA256')!==value?.sha256)throw new Error('Journal source changed');
+  return value;
+}
+async function reloadCheckJournal(){
+  const selected=currentJob,generation=viewGeneration,sourceReport=reportView;
+  try{
+    const [loaded,loadedReport,loadedIntake]=await Promise.all([readCheckJournal(selected),
+      sourceReport?Promise.resolve(sourceReport):api('/api/jobs/'+selected+'/investigation-report.json'),
+      intake?Promise.resolve(intake):api('/api/jobs/'+selected+'/intake')]);
+    if(selected!==currentJob||generation!==viewGeneration||sourceReport!==reportView)return;
+    const expected={...hypothesisReviewSource(),pack_sha256:loadedIntake?.source_pack_sha256,query_sha256:loadedIntake?.query_sha256};
+    if(!window.IssueIntelCheckJournal.valid(loaded,selected,loadedReport,expected))throw new Error('Journal source changed');
+    if(journalData&&loaded.revision<journalData.revision)return;
+    journalData=loaded;reportView=loadedReport;intake=loadedIntake;renderPlanPreservingDrafts();
+  }catch(_){if(selected===currentJob&&generation===viewGeneration)message(t('Chưa tải được nhật ký; bản ghi gốc vẫn được giữ.'),true);}
+}
+async function saveCheckObservation(request){
+  const selected=currentJob,generation=viewGeneration,sourceReport=reportView,previous=journalData,expected=hypothesisReviewSource();
+  try{
+    const saved=await api('/api/jobs/'+selected+'/check-journal',request);
+    if(!window.IssueIntelCheckJournal.valid(saved,selected,sourceReport,expected)
+      ||saved.revision!==previous.revision+1||saved.parent_sha256!==request.expected_sha256)throw new Error('Journal source changed');
+    window.IssueIntelCheckJournal.completed(selected,sourceReport);
+    if(selected!==currentJob||generation!==viewGeneration||sourceReport!==reportView)return;
+    journalData=saved;renderPlanPreservingDrafts();message(t('Đã lưu quan sát thủ công; chưa xác minh kết quả.'));
+  }catch(error){
+    window.IssueIntelCheckJournal.failed(selected,sourceReport);
+    if(selected===currentJob&&generation===viewGeneration&&sourceReport===reportView){
+      if(activeTab==='plan')renderPlanPreservingDrafts();
+      message(t('Chưa lưu được. Tải lại nhật ký nếu phiên bản đã đổi; nội dung đang nhập vẫn được giữ.'),true);
+    }
+    throw error;
+  }
+}
+async function exportCheckJournal(format){
+  const selected=currentJob,generation=viewGeneration,sourceReport=reportView,journal=journalData,expected=hypothesisReviewSource();
+  const current=()=>selected===currentJob&&generation===viewGeneration&&sourceReport===reportView&&journal===journalData;
+  if(!['json','md'].includes(format)||!window.IssueIntelCheckJournal.valid(journal,selected,sourceReport,expected))return;
+  try{
+    const response=await fetch('/api/jobs/'+selected+'/check-journal.'+format,{headers:{'X-IssueIntel-Token':token}});
+    if(!response.ok||response.headers.get('X-IssueIntel-Report-SHA256')!==sourceReport.sha256
+      ||response.headers.get('X-IssueIntel-Journal-SHA256')!==journal.sha256)throw new Error('Journal changed');
+    let body;if(format==='json'){
+      const value=await response.json();if(value.sha256!==journal.sha256||!window.IssueIntelCheckJournal.valid(value,selected,sourceReport,expected))throw new Error('Journal source changed');
+      body=new Blob([JSON.stringify(value,null,2)],{type:'application/json'});
+    }else body=await response.blob();
+    if(!current())return;
+    const url=URL.createObjectURL(body),link=node('a');link.href=url;link.download='issueintel-'+selected+'-check-journal.'+format;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(_){if(current())message(t('Chưa xuất được nhật ký đúng phiên bản; tải lại để nhận bản mới.'),true);}
 }
 $('mode').onchange=switchMode;$('depth').onchange=updateDepthControls;$('use-groq').onchange=updateTypesafeControls;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;
