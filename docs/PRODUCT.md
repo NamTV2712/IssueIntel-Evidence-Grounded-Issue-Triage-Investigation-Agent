@@ -58,6 +58,14 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F19 | HTTP API, một worker, hàng đợi tối đa 4; benchmark CLI có concurrency bounded. |
 | F20 | Đối chiếu commit/tag, diff evidence và ancestry local; kiểm riêng một GitHub Release công khai theo tag với commit tham chiếu, giữ ID/receipt/hash và phân biệt draft/prerelease. Quan hệ hiện tại không chứng minh nội dung tag lúc công bố hoặc lỗi đã sửa. |
 
+Ưu tiên chất lượng tiếp theo có lõi CLI thử nghiệm cho kiểm tra phân biệt giả
+thuyết: dự đoán A/B/unknown, điều kiện kiểm soát và chọn theo asserted separation.
+DEV diagnostic 25 ca so hai prompt policy trong cùng harness/model/tool/budget;
+không phải benchmark toàn bộ workbench hoặc sản phẩm bên ngoài. Chưa nối output
+thử nghiệm vào báo cáo thường hoặc tự chuyển journal sang model. Có file Recall@5
+proxy/cost/latency và CSV chờ review ngữ nghĩa; kết quả thực tế chỉ ở artifacts
+private, không coi test tổng hợp hoặc số cặp dự đoán là chất lượng điều tra.
+
 Đồ thị mặc định tập trung vào một giả thuyết và các cạnh trực tiếp; có tổng quan,
 thẻ nguồn chữ thật, màu/nét theo loại quan hệ và cửa sổ phóng rộng với inspector.
 Escape trả về báo cáo, chọn nút/đổi chế độ không gọi lại API hoặc LLM. Trên màn

@@ -198,6 +198,40 @@ Trạng thái implementation theo proposal nằm trong [docs/PRODUCT.md](docs/PR
 
 ## Dữ liệu: 400 Main Dev gốc
 
+### Diagnostic chính sách điều tra và kiểm tra phân biệt giả thuyết
+
+Lõi `investigation.discriminating_checks` biểu diễn procedure, assumptions, hai
+outcome A/B và dự đoán A/B/unknown cho từng giả thuyết. Code chọn check có nhiều
+cặp giả thuyết được model dự đoán khác nhau nhất, rồi ưu tiên effort thấp hơn.
+Đây là quy tắc dựa trên khai báo model, không phải information gain đã hiệu
+chỉnh, độ đúng ngữ nghĩa hoặc bằng chứng đã chạy test. Nếu không có cặp phân
+biệt được thì không chọn check. Chưa thay generation/critic của workbench.
+
+```powershell
+python -m issueintel register-policy-pilot
+python -m issueintel run-policy-pilot --experiment <SHA> --limit 1
+python -m issueintel run-policy-pilot --experiment <SHA> --limit 25
+python -m issueintel score-policy-pilot --experiment <SHA>
+```
+
+Pilot chỉ chọn 25 Main Dev gốc đã accepted, round-robin repository rồi ID trước
+khi xem output/gold. Hai prompt policy dùng chung tool-agent harness, seed
+retrieval, model 120B high, tối đa ba thao tác search/read và bốn call mỗi arm.
+Baseline có tool thật; final schema giống nhau ở cả hai arm. Đây là ablation
+chính sách prompt, chưa so toàn bộ IssueIntel với coding agent thương mại.
+Hai arm ca đầu phải qua transport/contract trước khi chạy 24 ca còn lại.
+Receipt/intent ghi trước HTTP; failed/incomplete không tự gọi lại. Output và
+sources được replay trước resume. Không chạy code đích, Jev, Holdout hay Live.
+
+Scorer chạy riêng sau khi seal inference, chỉ đọc patch columns của đúng 25
+Main Dev để tính file Recall@5/MRR proxy; file ngoài snapshot giữ trong mẫu số.
+Contract failures vẫn thuộc 25 ca, không loại để làm đẹp số. Một trial/case/arm
+chỉ cho diagnostic mô tả, không chứng minh ưu thế hoặc statistical significance.
+CSV review có ID được xáo thứ tự, không ghi arm; đánh giá ý nghĩa dự đoán/độ hữu
+ích còn trống cho reviewer, không tự gọi model agreement là human validation.
+Mọi registration, output, receipt và report nằm trong ignored
+`artifacts/experiments/policy_pilot/`; không phải cohort freeze hay bulk labels.
+
 **Phục hồi proof được giữ riêng: [107 pending ban đầu](docs/STRICT_RECOVERY.md).** Bulk LLM đã
 tạm dừng theo tác giả; giữ 69 pack đã hoàn tất và mọi receipt. Không kết thúc
 strict dưới 400 chỉ vì tìm giới hạn chưa thấy proof. Kiểm Tier B rồi Tier C,

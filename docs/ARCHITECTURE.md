@@ -196,6 +196,27 @@ Target issue là truy vấn tại thời điểm mở nên có ngoại lệ `<=`
 
 ## Controller và verifier
 
+`investigation.discriminating_checks` có output contract cho kiểm tra đề xuất:
+procedure/assumptions, outcomes A/B, predictions đầy đủ cho 3–5 hypothesis và
+code citations hợp lệ. Selector đếm cặp có prediction A/B khác nhau, bỏ unknown,
+rồi dùng model-estimated effort làm tie-break; tất cả giữ unreviewed/unverified.
+Không gán xác suất, chạy check hoặc chứng nhận causal correctness. Khai báo
+outcome khác nhau về label chưa chứng minh phân biệt về ngữ nghĩa.
+
+`investigation.policy_agent` cung cấp chung bounded search_code/read_code trên
+snapshot đã replay cho hai chính sách prompt. Seed/context, schema và budgets
+giống nhau; action chỉ đọc tối đa 60 dòng/4.000 ký tự, ba round. Error/repeated
+request vẫn tiêu hao round; final call tối đa 16.384 output tokens, không repair.
+`benchmarks.policy_pilot` preregister 25 accepted original Main Dev cùng source/
+query/snapshot/code/config hashes và thứ tự arm luân phiên. Call intent giữ request
+hash và receipt ownership trước HTTP, response được giữ trước validation. Resume
+replay bằng saved calls, cấm tạo call thay thế khi receipt/output bị thiếu.
+Ca đầu cần hai arm hoàn tất trước full diagnostic. Provider/storage errors dừng;
+contract failure ở ca sau giữ denominator và không retry. Separate scorer chỉ
+đọc exact DEV patch rows sau sealed inference; localization là file proxy gồm
+unavailable files. Không chạy holdout capability, đọc Live, nới strict contract
+hoặc sửa artifact/receipt cũ. Human/semantic check scoring giữ unreviewed.
+
 `investigation.evidence_graph` là view của báo cáo đã lưu, khác với AST graph.
 Replay query/hash/citation/context bindings và validate critique trước khi chiếu
 ra query, hypotheses, evidence và model reviews. Quan hệ truy xuất, asserted

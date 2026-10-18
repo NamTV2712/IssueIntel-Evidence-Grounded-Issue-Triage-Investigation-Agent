@@ -56,6 +56,12 @@ def main(argv=None) -> int:
     pilot_run = commands.add_parser("run-dev-pilot", help="Resume registered DEV-only diagnostic; never evaluates holdout")
     pilot_run.add_argument("--pilot", required=True)
     pilot_run.add_argument("--limit", type=int)
+    commands.add_parser('register-policy-pilot',help='Preregister 25 accepted original Main Dev cases for a shared-tool policy diagnostic')
+    policy_run=commands.add_parser('run-policy-pilot',help='Run source-bound paired DEV diagnostic; first run --limit 1, no automatic paid retry')
+    policy_run.add_argument('--experiment',required=True)
+    policy_run.add_argument('--limit',type=int,default=25)
+    policy_score=commands.add_parser('score-policy-pilot',help='Separate sealed DEV-only patch-file scoring and blank blind check review export')
+    policy_score.add_argument('--experiment',required=True)
     dev_assets = commands.add_parser("prepare-dev-artifacts", help="Accepted Main Dev graph/retrieval and isolated localization; no LLM")
     dev_assets.add_argument("--cohort", required=True)
     dev_assets.add_argument("--limit", type=int)
@@ -164,6 +170,16 @@ def main(argv=None) -> int:
             from issueintel.benchmarks.dev_generation import run_dev_artifacts
             report = run_dev_artifacts(args.root, args.recipe, limit=args.limit, concurrency=args.concurrency)
             print(json.dumps({k: v for k, v in report.items() if k != "results"}, indent=2))
+        elif args.command=='register-policy-pilot':
+            from issueintel.benchmarks.policy_pilot import register_policy_pilot
+            print(json.dumps(register_policy_pilot(args.root),indent=2))
+        elif args.command=='run-policy-pilot':
+            from issueintel.benchmarks.policy_pilot import run_policy_pilot
+            print(json.dumps(run_policy_pilot(args.root,args.experiment,limit=args.limit),indent=2))
+        elif args.command=='score-policy-pilot':
+            from issueintel.benchmarks.policy_pilot import score_policy_pilot
+            report=score_policy_pilot(args.root,args.experiment)
+            print(json.dumps({key:value for key,value in report.items() if key!='cases'},indent=2))
         elif args.command == "register-dev-pilot":
             from issueintel.benchmarks.dev_pilot import register_pilot
             print(json.dumps(register_pilot(args.root, args.cohort, count=args.count), indent=2))

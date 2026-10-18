@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-18",
+  "author_request": "vậy làm đi",
+  "request_context": "Implement discriminating checks and a fair 20–30 accepted Main Dev diagnostic discussed immediately before this confirmation.",
+  "scope": "accepted_original_main_dev_paired_policy_diagnostic_v1",
+  "selected_case_count": 25,
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "reasoning_effort": "high",
+  "max_provider_calls_per_arm": 4,
+  "max_tool_rounds_per_arm": 3,
+  "first_case_transport_and_contract_pilot_required": true,
+  "gold_allowed_only_in_separate_dev_scoring": true,
+  "budget_parent": "configs/author_decisions.json",
+  "holdout_access_authorized": false,
+  "live_access_authorized": false,
+  "new_freeze_authorized": false,
+  "bulk_annotation_restart_authorized": false,
+  "jev_spending_authorized": false
+}
