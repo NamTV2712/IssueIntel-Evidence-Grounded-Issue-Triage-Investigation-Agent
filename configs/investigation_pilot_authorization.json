@@ -6,8 +6,8 @@
   "selected_case_count": 25,
   "provider": "groq",
   "model": "openai/gpt-oss-120b",
-  "reasoning_effort": "high",
-  "max_provider_calls_per_arm": 4,
+  "reasoning_effort": {"decision": "medium", "findings": "medium", "repair": "medium"},
+  "max_provider_calls_per_arm": 5,
   "max_tool_rounds_per_arm": 3,
   "first_case_transport_and_contract_pilot_required": true,
   "gold_allowed_only_in_separate_dev_scoring": true,
@@ -16,5 +16,25 @@
   "live_access_authorized": false,
   "new_freeze_authorized": false,
   "bulk_annotation_restart_authorized": false,
-  "jev_spending_authorized": false
+  "jev_spending_authorized": false,
+  "output_protocol_revision": 5,
+  "repair_scope": "findings_only",
+  "repair_slots_per_arm": 1,
+  "repair_author_request": "vậy sửa đi",
+  "previous_diagnostic_commit": "d4567d83cafbcc6bef90160e9639cb3ab06d1444",
+  "reliability_regression": {
+    "parent_experiment_sha256": "4a0f871932b353fb858703eff1c2d8b40135e05f4c6499bddf0a2bd958b6a4e9",
+    "selection": "four fixed accepted Main Dev cases covering prior native tool, JSON, path and length failures; purposive regression, not quality evaluation",
+    "case_ids": [
+      "verified:pallets__flask-5014",
+      "verified:mwaskom__seaborn-3069",
+      "verified:pytest-dev__pytest-10051",
+      "verified:scikit-learn__scikit-learn-10297"
+    ],
+    "max_provider_calls": 40,
+    "synthetic_control_max_provider_calls": 30,
+    "gold_scoring_authorized": false,
+    "automatic_25_case_rerun": false,
+    "previous_revision_experiment": "d7e0fb279baab751483607cc7c5e7736c6b9176d7863bfcbca3a2b1a4aa12d86"
+  }
 }

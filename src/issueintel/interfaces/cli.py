@@ -56,8 +56,9 @@ def main(argv=None) -> int:
     pilot_run = commands.add_parser("run-dev-pilot", help="Resume registered DEV-only diagnostic; never evaluates holdout")
     pilot_run.add_argument("--pilot", required=True)
     pilot_run.add_argument("--limit", type=int)
-    commands.add_parser('register-policy-pilot',help='Preregister 25 accepted original Main Dev cases for a shared-tool policy diagnostic')
-    policy_run=commands.add_parser('run-policy-pilot',help='Run source-bound paired DEV diagnostic; first run --limit 1, no automatic paid retry')
+    policy_register=commands.add_parser('register-policy-pilot',help='Preregister paired DEV policies or the four-case output reliability regression')
+    policy_register.add_argument('--reliability-parent',help='Exact sealed parent experiment SHA for the authorized four-case regression (no gold scoring)')
+    policy_run=commands.add_parser('run-policy-pilot',help='Run registered DEV policies; first --limit 1, one receipted output repair per arm, no transport retry')
     policy_run.add_argument('--experiment',required=True)
     policy_run.add_argument('--limit',type=int,default=25)
     policy_score=commands.add_parser('score-policy-pilot',help='Separate sealed DEV-only patch-file scoring and blank blind check review export')
@@ -172,7 +173,7 @@ def main(argv=None) -> int:
             print(json.dumps({k: v for k, v in report.items() if k != "results"}, indent=2))
         elif args.command=='register-policy-pilot':
             from issueintel.benchmarks.policy_pilot import register_policy_pilot
-            print(json.dumps(register_policy_pilot(args.root),indent=2))
+            print(json.dumps(register_policy_pilot(args.root,reliability_parent=args.reliability_parent),indent=2))
         elif args.command=='run-policy-pilot':
             from issueintel.benchmarks.policy_pilot import run_policy_pilot
             print(json.dumps(run_policy_pilot(args.root,args.experiment,limit=args.limit),indent=2))

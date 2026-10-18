@@ -216,11 +216,23 @@ python -m issueintel score-policy-pilot --experiment <SHA>
 
 Pilot chỉ chọn 25 Main Dev gốc đã accepted, round-robin repository rồi ID trước
 khi xem output/gold. Hai prompt policy dùng chung tool-agent harness, seed
-retrieval, model 120B high, tối đa ba thao tác search/read và bốn call mỗi arm.
+retrieval, model 120B medium, tối đa ba thao tác
+search/read và năm call mỗi arm,
+gồm tối đa một lượt sửa dành cho báo cáo cuối (protocol v5).
 Baseline có tool thật; final schema giống nhau ở cả hai arm. Đây là ablation
 chính sách prompt, chưa so toàn bộ IssueIntel với coding agent thương mại.
 Hai arm ca đầu phải qua transport/contract trước khi chạy 24 ca còn lại.
-Receipt/intent ghi trước HTTP; failed/incomplete không tự gọi lại. Output và
+Transport v5 chọn action bằng đúng một function proposal `issueintel_response`,
+không chạy function do model tự chọn. Code kiểm enum/argument rồi mới search/read.
+Bước trả báo cáo dùng JSON object với schema đầy đủ rồi kiểm toàn bộ
+schema/citation/độ dài bằng code; chỉ xếp hạng file đã truy xuất/đọc. Bước trả
+báo cáo đóng phase chọn tool. Output báo cáo sai có thể dùng đúng một stage repair
+riêng từ context gốc, có receipt riêng; không lấy output sai làm evidence hoặc
+tự sửa citation/path. Lỗi auth/rate limit/network/budget không được repair.
+Planner sai không dùng lượt sửa này: code dừng truy xuất và ghi rõ
+`controller_degraded`, dùng evidence đã có để thử báo cáo cuối. Không thực thi
+action sai. Báo cáo cuối vẫn phải đạt toàn bộ validator; không tạo success giả.
+Receipt/intent ghi trước HTTP; stage failed/incomplete không tự gọi lại. Output và
 sources được replay trước resume. Không chạy code đích, Jev, Holdout hay Live.
 
 Scorer chạy riêng sau khi seal inference, chỉ đọc patch columns của đúng 25
@@ -231,6 +243,16 @@ CSV review có ID được xáo thứ tự, không ghi arm; đánh giá ý nghĩ
 ích còn trống cho reviewer, không tự gọi model agreement là human validation.
 Mọi registration, output, receipt và report nằm trong ignored
 `artifacts/experiments/policy_pilot/`; không phải cohort freeze hay bulk labels.
+
+Để kiểm bản sửa đầu ra, `register-policy-pilot --reliability-parent <SHA>`
+đăng ký riêng bốn Main Dev từng lỗi được ghi trong authorization. Chạy cùng
+`run-policy-pilot --limit 1` trước, rồi `--limit 4`. Đây là regression có chọn
+ca theo lỗi cũ, không phải so sánh chất lượng; scorer từ chối đọc gold cho mode
+này. Tối đa 40 call trên bốn ca/hai arm, cộng control tổng hợp tối đa 30 call
+qua các revision sửa lỗi; mỗi revision có registration/receipt riêng.
+Bundle cũ và receipt giữ nguyên; không so trực tiếp điểm v1 với protocol v5
+vì transport, ranking scope và ngân sách đã đổi. Bundle cũ mở bằng report đã
+lưu hoặc checkout commit đã ghi; code hiện tại từ chối replay fingerprint cũ.
 
 **Phục hồi proof được giữ riêng: [107 pending ban đầu](docs/STRICT_RECOVERY.md).** Bulk LLM đã
 tạm dừng theo tác giả; giữ 69 pack đã hoàn tất và mọi receipt. Không kết thúc

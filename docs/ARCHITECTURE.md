@@ -206,16 +206,45 @@ outcome khác nhau về label chưa chứng minh phân biệt về ngữ nghĩa.
 `investigation.policy_agent` cung cấp chung bounded search_code/read_code trên
 snapshot đã replay cho hai chính sách prompt. Seed/context, schema và budgets
 giống nhau; action chỉ đọc tối đa 60 dòng/4.000 ký tự, ba round. Error/repeated
-request vẫn tiêu hao round; final call tối đa 16.384 output tokens, không repair.
+request vẫn tiêu hao round; final call tối đa 16.384 output tokens. Protocol v5
+dành một repair slot cho final, tối đa năm call kể cả repair. Các stage dùng effort
+medium; cả hai policy cùng cấu hình. Chỉ output lỗi được
+sửa bằng một request mới từ context/schema gốc; auth/rate/network/budget và lỗi
+integrity ở call store không đi vào repair. Record cũ giữ nguyên, không bịa hoặc
+ánh xạ lại citation/path. Ranked paths chỉ thuộc file đã đọc/truy xuất; schema
+và local validator cùng kiểm enum, độ dài và đủ prediction. Action/final dùng
+instruction riêng, final không còn danh sách tool/file index mời gọi hành động.
 `benchmarks.policy_pilot` preregister 25 accepted original Main Dev cùng source/
-query/snapshot/code/config hashes và thứ tự arm luân phiên. Call intent giữ request
+query/snapshot/code/config hashes và thứ tự arm luân phiên.
+JSON payload được canonical hóa trước hash/HTTP, nên key order trong response
+đã lưu không làm đổi request ở stage tiếp theo khi replay. Call intent giữ request
 hash và receipt ownership trước HTTP, response được giữ trước validation. Resume
 replay bằng saved calls, cấm tạo call thay thế khi receipt/output bị thiếu.
+Action dùng forced single function `issueintel_response`, `parallel_tool_calls=false`,
+không trộn response_format vào request. Provider chỉ nhận đúng một call/function
+hợp lệ rồi trả args, không tự execute. Native request chỉ dùng schema trong tool
+definition, tránh chỉ dẫn JSON object trùng trong user payload. Code vẫn kiểm
+toàn bộ contract/action. Planner có output không hợp lệ thì chuyển ngay
+deterministic finish với `controller_degraded`/failure trace và không execute
+proposal sai. Final vẫn phải qua tất cả validation; không synthesize success.
+Final dùng JSON-object kèm schema, đóng phase tool; payload gộp thành một user
+message. HTTP status, allowlisted
+error code, retry-after hữu hạn và classification được lưu; không lưu message,
+response body hoặc key vào error metadata. Saved terminal output errors được
+phát lại như exception để đi vào đúng repair stage đã ghi, không gửi lại HTTP.
 Ca đầu cần hai arm hoàn tất trước full diagnostic. Provider/storage errors dừng;
-contract failure ở ca sau giữ denominator và không retry. Separate scorer chỉ
+output failure sau repair ở ca sau giữ denominator và không retry. Separate scorer chỉ
 đọc exact DEV patch rows sau sealed inference; localization là file proxy gồm
 unavailable files. Không chạy holdout capability, đọc Live, nới strict contract
 hoặc sửa artifact/receipt cũ. Human/semantic check scoring giữ unreviewed.
+Lỗi integrity hoặc runtime ngoài output rejection cũng dừng cả runner. Stop reason
+được giữ trong arm record và kiểm lại khi resume, nên một failed arm không thể
+bị bỏ qua để tiếp tục gọi trả phí ở arm khác sau lỗi receipt/request binding.
+Mode reliability regression đăng ký bốn ca đã accepted từ parent sealed,
+replay proof/source hiện tại và giữ bindings parent. Chỉ kiểm lỗi output, không
+đọc gold/scorer; selection theo lỗi cũ không phải thí nghiệm chất lượng độc lập.
+Không có bulk rerun tự động. Khác transport/ranking/budget được ghi trong spec
+v5; bundle v1 cần source commit v1 cho replay, report đã lưu vẫn đọc độc lập.
 
 `investigation.evidence_graph` là view của báo cáo đã lưu, khác với AST graph.
 Replay query/hash/citation/context bindings và validate critique trước khi chiếu

@@ -1,6 +1,5 @@
 """Preregistered DEV-only policy ablation. Inference never loads restricted gold."""
 from collections import defaultdict
-from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime,timezone
 from hashlib import sha256
@@ -10,12 +9,10 @@ import json
 import re
 import time
 
-from issueintel.annotations.structured import dispatch
-from issueintel.investigation.policy_agent import ARMS,LIMITS,POLICIES,run_policy_agent,context_binding
+from issueintel.investigation.policy_agent import ARMS,LIMITS,POLICIES,OUTPUT_PROTOCOL,run_policy_agent,context_binding
 from issueintel.investigation.discriminating_checks import FINAL_INSTRUCTION
 from issueintel.investigation.providers import GroqProvider
-from issueintel.investigation.providers import ProviderError
-from issueintel.runtime.budget import BudgetDenied
+from issueintel.investigation.providers import ProviderError,failure_metadata
 from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest,write_json
 from .dev_context import public_catalog,accepted_context,PARENT,development_catalog
@@ -44,7 +41,10 @@ def _authorization(root):
     value=json.loads((root/'configs/investigation_pilot_authorization.json').read_bytes())
     if (value['scope']!=SCOPE or value['provider']!='groq' or value['model']!='openai/gpt-oss-120b'
         or value['selected_case_count']!=25 or value['max_provider_calls_per_arm']!=LIMITS['provider_calls']
-        or value['max_tool_rounds_per_arm']!=LIMITS['tool_rounds'] or value['reasoning_effort']!='high'
+        or value['max_tool_rounds_per_arm']!=LIMITS['tool_rounds'] or value['reasoning_effort']!=OUTPUT_PROTOCOL['effort_by_stage']
+        or value.get('output_protocol_revision')!=OUTPUT_PROTOCOL['version']
+        or value.get('repair_slots_per_arm')!=OUTPUT_PROTOCOL['repair_slots_per_arm']
+        or value.get('repair_scope')!=OUTPUT_PROTOCOL['repair_scope']
         or any(value.get(key) is not False for key in ('holdout_access_authorized','live_access_authorized','new_freeze_authorized','bulk_annotation_restart_authorized','jev_spending_authorized'))
         or value.get('gold_allowed_only_in_separate_dev_scoring') is not True):
         raise ValueError('Missing matching DEV diagnostic authorization')
@@ -58,8 +58,8 @@ def _directory(root,identifier):
     return path
 
 
-def register_policy_pilot(root):
-    root=Path(root).resolve();_authorization(root)
+def register_policy_pilot(root,*,reliability_parent=None):
+    root=Path(root).resolve();authorization=_authorization(root)
     catalog=public_catalog(root);groups=defaultdict(list)
     for row in catalog['cases']:groups[row['repository']].append(row)
     selected=[]
@@ -67,20 +67,41 @@ def register_policy_pilot(root):
         for repo in sorted(groups):
             if groups[repo] and len(selected)<25:selected.append(groups[repo].pop(0))
     if len(selected)!=25:raise ValueError('Need 25 accepted original Main Dev cases')
+    parent=None
+    if reliability_parent is not None:
+        repair=authorization['reliability_regression']
+        if (reliability_parent!=repair['parent_experiment_sha256'] or repair['gold_scoring_authorized'] is not False
+                or repair['max_provider_calls']!=4*len(ARMS)*LIMITS['provider_calls']):
+            raise ValueError('No matching output reliability pilot authorization')
+        parent_dir=_directory(root,reliability_parent);parent=_read(parent_dir/'registration.json')
+        sealed=_read(parent_dir/'inference-sealed.json')
+        if parent['sha256']!=reliability_parent or sealed['experiment_sha256']!=reliability_parent or sealed['gold_read'] is not False:
+            raise ValueError('Parent inference is not sealed')
+        for name,checksum in sealed['files'].items():
+            path=(parent_dir/name).resolve()
+            if not path.is_relative_to(parent_dir) or sha256(path.read_bytes()).hexdigest()!=checksum:raise ValueError('Parent inference changed')
+        members={row['case_id']:row for row in parent['cases']}
+        ids=repair['case_ids']
+        if len(ids)!=4 or len(set(ids))!=4 or set(ids)-set(members):raise ValueError('Choose the four authorized original DEV regression cases')
+        selected=[members[cid] for cid in ids]
     cases=[]
     for row in selected:
         case,snapshot,receipt=accepted_context(root,row['case_id'])
         if case['split']!='main_dev' or snapshot.protocol!='issue_time':raise ValueError('Diagnostic must retain accepted strict Main Dev')
+        if parent and (context_binding(case,snapshot)!=row['source'] or digest(receipt)!=row['query_receipt_sha256']):
+            raise ValueError('Parent accepted context changed')
         cases.append({'case_id':row['case_id'],'repository':row['repository'],
                       'source':context_binding(case,snapshot),'query_receipt_sha256':digest(receipt)})
-    spec={'schema':'paired_policy_pilot_v1','scope':SCOPE,'registered_at':datetime.now(timezone.utc).isoformat(),
+    spec={'schema':'paired_policy_pilot_v2','scope':SCOPE,'registered_at':datetime.now(timezone.utc).isoformat(),
+          'purpose':'output_reliability_regression' if parent else 'paired_policy_diagnostic',
+          'parent_experiment_sha256':reliability_parent,'output_protocol':OUTPUT_PROTOCOL,
           'parent_cohort':PARENT,'checkpoint_sha256':catalog['checkpoint_sha256'],
-          'selection':'first_25_round_robin_repository_then_case_id_among_current_accepted_original_dev_no_outcome_filter',
+          'selection':'four_fixed_prior_failure_cases_purposive_regression_no_gold' if parent else 'first_25_round_robin_repository_then_case_id_among_current_accepted_original_dev_no_outcome_filter',
           'cases':cases,'fingerprint':_fingerprint(root),'policies':POLICIES,'final_instruction':FINAL_INSTRUCTION,
-          'limits':LIMITS,'model':'openai/gpt-oss-120b','reasoning_effort':'high',
+          'limits':LIMITS,'model':'openai/gpt-oss-120b','reasoning_effort':OUTPUT_PROTOCOL['effort_by_stage'],
           'tools':['search_code','read_code'],'order':'alternate_first_arm_by_selected_case_index',
-          'comparison_scope':'prompt_policy_ablation_on_shared_harness_not_complete_product_or_external_agent_comparison',
-          'primary_metrics':['file_recall_at_5_all_selected','completion_coverage','tokens_and_cost','provider_and_total_latency'],
+          'comparison_scope':'output_contract_regression_not_quality_evaluation' if parent else 'prompt_policy_ablation_on_shared_harness_not_complete_product_or_external_agent_comparison',
+          'primary_metrics':['completion_coverage','first_attempt_contract_validity','tokens_and_cost'] if parent else ['file_recall_at_5_all_selected','completion_coverage','tokens_and_cost','provider_and_total_latency'],
           'secondary_metrics':['model_asserted_check_separation_not_semantic_quality'],
           'semantic_quality':'requires_separate_review_unreviewed_by_default','trials_per_case_arm':1,
           'holdout_or_live_access':False,'new_cohort_freeze':False,'bulk_annotation':False}
@@ -90,13 +111,19 @@ def register_policy_pilot(root):
 
 
 def load_registration(root,identifier):
-    root=Path(root).resolve();_authorization(root);directory=_directory(root,identifier)
+    root=Path(root).resolve();authorization=_authorization(root);directory=_directory(root,identifier)
     spec=_read(directory/'registration.json')
+    purpose=spec.get('purpose');expected=25 if purpose=='paired_policy_diagnostic' else 4
     if (spec['sha256']!=identifier or spec['scope']!=SCOPE or spec['fingerprint']!=_fingerprint(root)
         or spec['policies']!=POLICIES or spec['final_instruction']!=FINAL_INSTRUCTION or spec['limits']!=LIMITS
+        or purpose not in {'paired_policy_diagnostic','output_reliability_regression'} or spec.get('output_protocol')!=OUTPUT_PROTOCOL
         or spec['holdout_or_live_access'] is not False or spec['new_cohort_freeze'] is not False
-        or spec['bulk_annotation'] is not False or len(spec['cases'])!=25
-        or len({row['case_id'] for row in spec['cases']})!=25):raise ValueError('Diagnostic registration/policy changed')
+        or spec['bulk_annotation'] is not False or len(spec['cases'])!=expected
+        or len({row['case_id'] for row in spec['cases']})!=expected):raise ValueError('Diagnostic registration/policy changed')
+    if purpose=='output_reliability_regression':
+        repair=authorization['reliability_regression']
+        if spec['parent_experiment_sha256']!=repair['parent_experiment_sha256'] or [row['case_id'] for row in spec['cases']]!=repair['case_ids']:
+            raise ValueError('Output regression source changed')
     return spec,directory
 
 
@@ -112,30 +139,57 @@ def _case_dir(directory,cid):return directory/'cases'/sha256(cid.encode()).hexdi
 
 def _owned_call(root,directory,identifier,cid,arm,stage,messages,schema,maximum,provider_factory,*,allow_new=True):
     path=directory/('call-'+stage+'.json')
-    request_hash=digest({'messages':messages,'schema':schema,'max_output_tokens':maximum})
+    function_mode=stage.startswith(('decision_','repair_decision_'))
+    # One user payload avoids conflicting successive user turns for GPT-OSS.
+    try:payload=json.loads(messages[1]['content']) if len(messages)>1 else None
+    except ValueError:payload=None
+    if not isinstance(payload,dict):payload={'input_messages':messages}
+    else:payload=dict(payload)
+    if not function_mode:payload['required_output_schema']=schema
+    payload['response_instruction']=('Submit only via issueintel_response, following its function parameter schema. Do not call any other native function.' if function_mode
+        else 'Return only one final JSON object conforming to this complete schema. The action phase is closed; no native tool/function calls. The program validates every constraint afterward.')
+    if len(messages)>2:
+        payload['repair_instructions']=[json.loads(row['content'])['instruction'] if function_mode else row['content'] for row in messages[2:]]
+    system=messages[0]['content'] if messages and messages[0]['role']=='system' else 'Return JSON only.'
+    messages=[{'role':'system','content':system},{'role':'user','content':json.dumps(payload,ensure_ascii=False,allow_nan=False,sort_keys=True)}]
+    request_hash=digest({'messages':messages,'schema':schema,'max_output_tokens':maximum,'output_protocol':OUTPUT_PROTOCOL})
     binding={'experiment_sha256':identifier,'case_id':cid,'arm':arm,'stage':stage,'request_sha256':request_hash}
-    config=replace(RuntimeConfig.load(root),max_output_tokens=LIMITS['final_output_tokens'],reasoning_effort='high')
+    phase='repair' if stage.startswith('repair_') else 'findings' if stage=='findings' else 'decision'
+    effort=OUTPUT_PROTOCOL['effort_by_stage'][phase]
+    config=replace(RuntimeConfig.load(root),max_output_tokens=LIMITS['final_output_tokens'],reasoning_effort=effort)
     if path.exists():
         saved=_read(path)
         if saved['binding']!=binding:raise ValueError('Saved paid call source changed')
         for receipt in saved['receipts'].values():
             if config.ledger().receipt(receipt['reservation_id'])!=receipt:raise ValueError('Paid receipt changed')
         if saved['status']=='returned':return saved['response']
+        failure=saved.get('failure',{})
+        if saved['status']=='failed' and failure.get('terminal_output_error') is True:
+            raise ProviderError('Saved rejected output; original call is never repeated',status=failure['http_status'],code=failure['provider_code'],retry_after=failure.get('retry_after_seconds'),diagnostics=failure)
         raise ValueError('Previous paid attempt incomplete/failed; never retry automatically')
     if not allow_new:raise ValueError('Completed arm has a missing paid-call record; no automatic replacement')
-    state={'schema':'policy_pilot_call_v1','binding':binding,'status':'intent','receipts':{},'response':None,'latency_seconds':None}
+    state={'schema':'policy_pilot_call_v2','binding':binding,'response_mode':'forced_function' if function_mode else 'json_object','status':'intent','receipts':{},'response':None,'latency_seconds':None}
     write_json(path,_seal(state))
     def receipt(record):
         state['receipts'][record['reservation_id']]=record
         write_json(path,_seal(state))  # Ownership must persist before HTTP.
-    provider=provider_factory(config,call_context={'category':'ARTIFACT_GENERATION_COST','stage':'policy_pilot_'+stage,'reasoning_effort':'high','diagnostic':True},on_receipt=receipt)
     started=time.monotonic()
     try:
-        response=dispatch(provider,messages,max_output_tokens=maximum,schema=schema)
+        provider=provider_factory(config,call_context={'category':'ARTIFACT_GENERATION_COST','stage':'policy_pilot_'+stage,'reasoning_effort':effort,'diagnostic':True},on_receipt=receipt)
+        response=(provider.complete_function(messages,max_output_tokens=maximum,schema=schema) if function_mode
+                  else provider.complete_json(messages,max_output_tokens=maximum))
         state.update(status='returned',response=response,latency_seconds=round(time.monotonic()-started,6))
         write_json(path,_seal(state));return response
-    except Exception:
-        state.update(status='failed',latency_seconds=round(time.monotonic()-started,6));write_json(path,_seal(state));raise
+    except Exception as error:
+        state.update(status='failed',failure=failure_metadata(error),latency_seconds=round(time.monotonic()-started,6));write_json(path,_seal(state));raise
+
+
+def _failure_stop_reason(failure):
+    # Only validated output rejection may fail one arm without stopping paid work.
+    if (failure.get('error_type')=='OutputContractRejected'
+            or failure.get('error_type')=='ProviderError' and failure.get('terminal_output_error') is True):
+        return None
+    return 'provider_storage_or_integrity_failure_no_automatic_retry'
 
 
 def run_policy_pilot(root,identifier,*,limit=25,provider_factory=GroqProvider):
@@ -163,7 +217,11 @@ def run_policy_pilot(root,identifier,*,limit=25,provider_factory=GroqProvider):
                         replay=run_policy_agent(case,snapshot,arm,lambda stage,messages,schema,maximum:_owned_call(
                             root,target,identifier,row['case_id'],arm,stage,messages,schema,maximum,provider_factory,allow_new=False))
                         if replay!=saved['result']:raise ValueError('Completed arm does not replay from saved calls and snapshot')
-                    results.append({'case_id':row['case_id'],'arm':arm,'status':saved['status']});continue
+                    results.append({'case_id':row['case_id'],'arm':arm,'status':saved['status'],'degraded':saved.get('result',{}).get('controller_degraded',False)})
+                    if saved['status']=='failed':
+                        stop=saved.get('stop_reason') or _failure_stop_reason(saved.get('failure',{}))
+                        if stop:break
+                    continue
                 started=time.monotonic()
                 try:
                     response=run_policy_agent(case,snapshot,arm,lambda stage,messages,schema,maximum:_owned_call(
@@ -173,19 +231,19 @@ def run_policy_pilot(root,identifier,*,limit=25,provider_factory=GroqProvider):
                            'total_latency_seconds':round(time.monotonic()-started,6)}
                 except Exception as error:
                     saved={'schema':'policy_pilot_arm_v1','experiment_sha256':identifier,'case_id':row['case_id'],
-                           'arm':arm,'source':row['source'],'status':'failed','error_type':type(error).__name__,
+                           'arm':arm,'source':row['source'],'status':'failed','error_type':type(error).__name__,'failure':failure_metadata(error),
                            'total_latency_seconds':round(time.monotonic()-started,6)}
-                    if isinstance(error,(ProviderError,BudgetDenied,OSError)):
-                        stop='provider_or_storage_failure_no_automatic_retry'
-                write_json(path,_seal(saved));results.append({'case_id':row['case_id'],'arm':arm,'status':saved['status']})
+                    stop=_failure_stop_reason(saved['failure']);saved['stop_reason']=stop
+                write_json(path,_seal(saved));results.append({'case_id':row['case_id'],'arm':arm,'status':saved['status'],'degraded':saved.get('result',{}).get('controller_degraded',False)})
                 if stop:break
             progress=_seal({'experiment_sha256':identifier,'results':results,'stop_reason':stop})
             write_json(directory/'progress.json',progress)
             if stop:break
-        if len(results)==50:
+        if len(results)==len(spec['cases'])*len(ARMS):
             refs={str(path.relative_to(directory)):sha256(path.read_bytes()).hexdigest() for path in sorted((directory/'cases').rglob('*.json'))}
             write_json(directory/'inference-sealed.json',_seal({'experiment_sha256':identifier,'files':refs,'gold_read':False}))
     return {'experiment_sha256':identifier,'completed_arms':sum(row['status']=='completed' for row in results),
+            'degraded_arms':sum(row['degraded'] for row in results),
             'failed_arms':sum(row['status']=='failed' for row in results),'stop_reason':stop,'inference_sealed':(directory/'inference-sealed.json').exists()}
 
 
@@ -195,6 +253,7 @@ def score_policy_pilot(root,identifier):
     from issueintel.evaluation.metrics import localization_metrics
     from .localization import _path
     root=Path(root).resolve();spec,directory=load_registration(root,identifier)
+    if spec['purpose']!='paired_policy_diagnostic':raise ValueError('Reliability regression never reads or scores gold')
     seal=_read(directory/'inference-sealed.json')
     if seal['experiment_sha256']!=identifier or seal['gold_read'] is not False:raise ValueError('Inference not sealed')
     for name,checksum in seal['files'].items():
@@ -235,6 +294,7 @@ def score_policy_pilot(root,identifier):
                 'total_latency_seconds':saved['total_latency_seconds'],
                 'recommended_check':result['comparison']['recommended_check_id'] if result else None,
                 'semantic_check_quality':'unreviewed'})
+            details[-1]['controller_degraded']=bool(result and result.get('controller_degraded'))
             if not result:continue
             review.append({'review_id':digest({'experiment':identifier,'case':item['case_id'],'arm':arm})[:20],
                 'case_id':item['case_id'],'findings_json':json.dumps(result['findings'],ensure_ascii=False),
@@ -245,6 +305,7 @@ def score_policy_pilot(root,identifier):
         values=[row for row in details if row['arm']==arm]
         recall=[row['localization']['recall_at_k'] for row in values if row['localization']['recall_at_k'] is not None]
         aggregates[arm]={'cases':len(values),'scorable_cases':len(recall),'completed':sum(row['status']=='completed' for row in values),'file_recall_at_5':sum(recall)/len(recall) if recall else None,
+            'degraded_completed':sum(row['controller_degraded'] for row in values),
             'mrr':sum(row['localization']['mrr'] for row in values if row['localization']['mrr'] is not None)/len(recall) if recall else None,
             'provider_calls':sum(row['provider_calls'] for row in values),'tokens':sum(row['charged_or_reserved_tokens'] for row in values),
             'usd_charged_or_reserved':sum(row['charged_or_reserved_micro_usd'] for row in values)/1000000,
