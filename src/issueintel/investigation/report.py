@@ -201,6 +201,9 @@ def _provenance(pack):
         details = {key: link[key] for key in ('parent_job_id', 'parent_pack_sha256',
             'context_sha256', 'historical_verified') if key in link}
         rows.append({'kind': 'context_selection', 'details': json.dumps(details, ensure_ascii=False, sort_keys=True)})
+    if pack.get('finalized_from'):
+        # Keep the report v1 provenance enum; distinguish recovery in details.
+        rows.append({'kind': 'resume', 'details': json.dumps(pack['finalized_from'], ensure_ascii=False, sort_keys=True)})
     if pack.get('repository_context'):
         context = pack['repository_context']
         rows.append({'kind': 'repository_context', 'details': json.dumps({
@@ -508,7 +511,13 @@ def _markdown(report, *, compact, detail_limit=None, text_limit=None):
         'repository_context': 'Current repository context', 'focused_retrieval': 'Bounded hypothesis-focused retrieval',
         'planned_workflow': 'Planned investigation workflow', 'typesafe_controller':'Typesafe Jev controller'}
     for row in report['provenance']:
-        lines += ['', '## ' + names[row['kind']], '',
+        title = names[row['kind']]
+        if row['kind']=='resume':
+            try: details = json.loads(row['details'])
+            except (ValueError,TypeError): details = None
+            if isinstance(details,dict) and details.get('schema')=='product_export_finalization_v1':
+                title = 'Export recovery from completed generation and verifier'
+        lines += ['', '## ' + title, '',
                   quoted(row['details']) if not compact else 'Details preserved in the full source-bound report; user/model context remains unverified.']
     if detail_limit is not None:
         lines += ['', '**Presentation truncated:** candidate/evidence detail omitted to fit the comment bound. '

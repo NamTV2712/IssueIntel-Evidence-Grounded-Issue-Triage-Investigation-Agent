@@ -103,6 +103,21 @@ khỏi lexical cues: intake lưu projection nội dung người dùng, hash và 
 riêng; query SHA vẫn khóa toàn bộ đầu vào. “Có cue” và “đã trả lời” không chứng
 minh thông tin đầy đủ/đúng. Template v1 phải được giữ để replay artifact cũ.
 
+`investigation.finalization` và `finalization_jobs.FinalizationJobs` phục hồi
+export khi generation/verifier product Quick/Deep đã lưu nhưng job thất bại,
+ngắt hoặc bị hủy. Service xác thực source request, stage paths/bytes/SHA,
+canonical type/schema và policy trước khi nhận, trong worker và trước publish.
+Assembly dùng `finish_pack` với annotation và verifier nguyên vẹn; không gọi
+provider, đọc config/API key hoặc truy cập Git. Snapshot chỉ replay descriptor
+đã lưu, receipt ghi `full_git_replay_performed: false` và 0 call mới. SQLite
+intent khóa một child cho mỗi source, enqueue/cancel dùng queue chung; export
+sang child directory mới và không sở hữu stage/usage receipts của nguồn.
+`finalized_from` khóa source request, hai raw stage SHA, prepared/verifier
+payload và policy; mọi lần đọc dựng lại pack dự kiến rồi so toàn bộ digest.
+Admission dùng policy hiện tại, bản đã hoàn tất dùng policy được ghi, không
+recertify theo code mới. Product authority traversal không đòi pack nguồn đã
+export; benchmark/Planned/follow-up và quyền GitHub write không đi qua luồng này.
+
 `investigation.adaptive_clarifications` thêm câu hỏi riêng dựa trên public issue,
 evidence và hypotheses đã lưu, với prompt v1/hash và bilingual structured output.
 Mỗi câu trỏ tới ít nhất hai hypothesis ID và một code citation; validation kiểm

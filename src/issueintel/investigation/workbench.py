@@ -141,6 +141,8 @@ class Workbench:
         self.observation_journals=CheckObservationStore(self.directory/'plans.sqlite')
         from .check_followups import CheckFollowups
         self.check_followups=CheckFollowups(self)
+        from .finalization_jobs import FinalizationJobs
+        self.finalizations=FinalizationJobs(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
@@ -301,6 +303,12 @@ class Workbench:
                 if link.get('parent_job_id')!=request.get('parent_job_id'):
                     raise ValueError('Clarification context authority changed')
                 identifier=link['parent_job_id']
+            elif mode=='finalization':
+                # The original export may never have existed. Replay its saved
+                # request and two stages rather than loading a failed pack.
+                self.finalizations.validate_child(identifier,pack,request)
+                validate_product_case(pack['case'],pack['snapshot']['protocol'])
+                return
             elif mode=='resume':
                 link=pack.get('resumed_from') or {}
                 if link.get('source_job_id')!=request.get('source_job_id'):
@@ -479,6 +487,12 @@ class Workbench:
                 'hypotheses':len(prepared['annotation']['hypotheses']),'max_output_tokens':maximum,
                 'resumes':'verification_only','generation_reused':True,'automatic_retry':False,
                 'prior_usage_may_remain_charged':True}
+
+    def finalization_preview(self, identifier):
+        return self.finalizations.preview(identifier)
+
+    def submit_finalization(self, identifier, request):
+        return self.finalizations.submit(identifier,request)
 
     def _resume_db(self):
         path=self.directory/'resumes.sqlite'
@@ -1153,6 +1167,11 @@ class Workbench:
             validate_planned(pack)
         saved_job=json.loads(self._job_path(identifier).read_bytes())
         saved_request=saved_job['request']
+        if saved_request.get('mode')=='finalization' or 'finalized_from' in pack:
+            if saved_request.get('mode')!='finalization' or not pack.get('finalized_from'):
+                raise ValueError('Finalization receipt and job authority must match')
+            self.finalizations.validate_child(identifier,pack,saved_request)
+            return pack,raw,0
         if 'controller_decisions' in pack:
             from .typesafe_controller import validate_controller_decisions
             validate_controller_decisions(pack)

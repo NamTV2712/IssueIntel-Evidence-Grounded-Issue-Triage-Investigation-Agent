@@ -85,6 +85,13 @@ generation cùng receipt cũ. Mỗi phiên nguồn chỉ có một intent tiếp
 không tạo thêm call. Chỉ áp dụng checkpoint product Quick/Deep mới đủ proof,
 không Main Dev hoặc Planned. Thay đổi policy/source code có thể làm checkpoint
 cũ không còn đủ điều kiện tiếp tục; bytes và receipt cũ vẫn được giữ nguyên.
+Nếu **generation và verifier đều hoàn tất nhưng xuất báo cáo lỗi**, chọn
+**Kết xuất từ checkpoint đã hoàn tất** ở phiên lỗi. Preview và xác nhận khóa cả
+hai SHA, rồi tạo bản xuất mới từ dữ liệu đã lưu với **0 call mới**, không cần
+API key hay repository Git còn trên máy. Hệ thống kiểm bytes/hash, schema và
+nguồn request; đây không phải đọc lại toàn bộ Git. Một intent cho mỗi phiên
+nguồn chặn xuất trùng qua restart. Chi phí cũ vẫn thuộc phiên nguồn. Luồng này
+chỉ hỗ trợ product Quick/Deep, giữ nguyên generation/verifier và không tự retry.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

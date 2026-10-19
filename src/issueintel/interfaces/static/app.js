@@ -79,9 +79,11 @@ async function submit(event) {
 }
 async function runJob(request,existingJob=null) {
   if($('run-button').disabled)return;
+  window.IssueIntelFinalization?.show(null);
+  const finalizing=request.mode==='finalization';
   try {
     stageView=null;$('stage-artifacts').hidden=true;
-    $('run-button').disabled=true;$('followup-button').disabled=true;message(t("Đang chuẩn bị snapshot và bằng chứng…"));
+    $('run-button').disabled=true;$('followup-button').disabled=true;message(t(finalizing?'Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…':"Đang chuẩn bị snapshot và bằng chứng…"));
     const job=existingJob||await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
       const state=await api('/api/jobs/'+job.id);
@@ -94,7 +96,7 @@ async function runJob(request,existingJob=null) {
         else {message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);showStageArtifacts(state);}
         break;
       }
-      message(state.stage==='prepare_snapshot'?t("Đang kiểm query và snapshot…"):t("Đang truy xuất, điều tra và kiểm chứng…"));
+      message(finalizing?t('Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…'):state.stage==='prepare_snapshot'?t("Đang kiểm query và snapshot…"):t("Đang truy xuất, điều tra và kiểm chứng…"));
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
   } catch(error) {message(error.message,true);}
@@ -102,6 +104,7 @@ async function runJob(request,existingJob=null) {
 }
 async function openJob(id) {
   const generation=++viewGeneration;
+  window.IssueIntelFinalization?.show(null);
   window.IssueIntelHypothesisReview?.cancel();
   window.IssueIntelCheckJournal?.cancel();
   const loaded=await api('/api/jobs/'+id+'/pack.json');
@@ -153,6 +156,7 @@ function recommendedText(text) {
 function showStageArtifacts(row) {
   stageView=row;
   window.IssueIntelResume?.show(row);
+  window.IssueIntelFinalization?.show(row);
   const refs=row.stage_checkpoints || {},container=$('stage-list');container.replaceChildren();
   $('stage-artifacts').hidden=!Object.keys(refs).length;
   if(!Object.keys(refs).length)return;
@@ -317,7 +321,7 @@ function renderTab() {
   if(activeTab==='trace') {
     window.IssueIntelWorkflow?.render(content,pack.workflow_plan,currentJob,pack);
     if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
-    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,controller_decisions:pack.controller_decisions,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
+    content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,controller_decisions:pack.controller_decisions,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,finalized_from:pack.finalized_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
   if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo,{id:currentJob,...savedTypesafeUsage()});
@@ -346,7 +350,7 @@ async function history() {
   try {jobRows=await api('/api/jobs');renderHistory();}catch(error){message(error.message,true);}
 }
 function renderHistory() {
-  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=['queued','running'].includes(row.status);el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
+  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):row.mode==='finalization'?t("Kết xuất từ checkpoint"):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=['queued','running'].includes(row.status);el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
 }
 function comparisonChoices(rows) {
   const completed=rows.filter(row=>row.status==='completed');
@@ -506,6 +510,9 @@ $('export-json').onclick=()=>download('pack.json');
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{activeTab=button.dataset.tab;renderTab();});
 document.addEventListener('issueintel:resumecreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'resume'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:finalizationcreated',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'finalization'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:contextcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'context'},{id:event.detail.job_id});

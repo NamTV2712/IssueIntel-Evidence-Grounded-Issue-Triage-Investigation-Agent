@@ -46,7 +46,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Product có kế hoạch bổ sung 0–3 kiểm tra phân biệt, điều kiện kiểm soát, kết quả A/B và dự đoán A/B/unknown cho từng giả thuyết. Gợi ý theo số cặp A/B do model nêu và công sức ước tính; chưa đo chất lượng phân biệt hoặc suy ra nguyên nhân. |
 | F08 | Kiểm citation/hash, tìm thêm code ở Deep/Planned, critique riêng và abstention. Bảng đối chiếu lộ các mục thiếu từ metadata và nhận xét model cần xem lại; chưa coi đây là đánh giá sufficiency/nguyên nhân. Planned dừng rõ khi query/evidence không đổi; counter có thể `not_found`. |
 | F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, tạo follow-up cùng commit, khóa và replay source pack/snapshot/question job/Q&A. Tạo câu hỏi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
-| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí, một intent cho mỗi nguồn. Chưa resume mọi stage; lỗi/interrupt không retry API ngầm. |
+| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí. Khi verifier đã xong nhưng export lỗi, kết xuất mới từ hai checkpoint với 0 call mới. Mỗi luồng giữ một intent cho mỗi nguồn; chưa resume mọi stage hoặc retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep thêm tối đa một lượt. Planned chọn một đến ba vòng theo dấu hiệu file/gap/counter còn thiếu từ seed; tối đa chín Groq calls kể cả repair. Đây là heuristic quan sát, chưa phải đánh giá độ khó/chất lượng. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái/hủy, token và USD theo phiên từ receipt riêng; đang chạy/lỗi/interrupted vẫn xem được cận giữ chỗ. |
@@ -147,6 +147,8 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/jobs/<plan-id>/check-observations`: `expected_sha256` và `observation` để append với optimistic lock; không gọi model.
 - `POST /api/check-followups`: exact `plan_job_id`, `plan_sha256`, `journal_sha256`, `observation_ids` (1–3), `provider` (`none`/`groq`), `depth` (`quick`/`deep`). Một durable intent cho mỗi yêu cầu; chỉ nhận quan sát đang hiệu lực và không phải `not_run`.
 - `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
+- `GET /api/jobs/<id>/finalization`: preview khả năng kết xuất từ generation/verifier đã hoàn tất; không gọi model, đọc Git hoặc cấu hình API.
+- `POST /api/jobs/<id>/finalization`: `verification_input_sha256`, `verification_sha256`, `confirmation: finalize_saved_checkpoints_without_api`; một intent bền vững cho nguồn, tạo job `provider: none` và `depth: export`.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.
 - `POST /api/github/webhook`: GitHub signature/event/delivery guards riêng; không tự gọi model hay đăng comment.
@@ -339,6 +341,22 @@ Checkpoint cũ thiếu payload này không được suy diễn thành đầu và
 áp dụng Main Dev/strict, follow-up, generation lỗi hoặc verifier đã hoàn tất;
 không kế thừa quyền đăng comment của phiên GitHub. Đây là phần tiếp tục verifier
 của F10, chưa phải resume tùy ý tại mọi stage hoặc phục hồi bulk benchmark.
+
+Nếu đã có cả `verification_input` và `verification` nhưng export bị lỗi/ngắt,
+luồng **Kết xuất từ checkpoint đã hoàn tất** kiểm hai bytes/hash nguồn, request
+product gốc, snapshot descriptor, annotation/citations và critique theo schema.
+Admission và worker yêu cầu policy hiện tại khớp checkpoint. Không đọc API key,
+runtime budget, repo Git hoặc gọi lại model. Nó tạo pack/report trong thư mục
+phiên mới, giữ annotation/verifier nguyên vẹn, ghi `finalized_from` và trace tái
+sử dụng với `model_calls: 0`; chi phí và checkpoint cũ không chuyển quyền sở hữu.
+Đây là replay dữ liệu đã lưu, `full_git_replay_performed: false`, không phải
+tái xác nhận nội dung Git hoặc nguyên nhân lỗi. Bản đã hoàn tất vẫn đọc bằng
+policy được ghi lúc tạo, kể cả khi policy hiện tại đổi. Mọi lần đọc xác minh
+source request, hai checkpoint, durable intent và toàn bộ child pack; không sửa
+hash để bỏ qua lỗi. Chỉ nhận nguồn product Quick/Deep gốc failed/interrupted/
+cancelled; không Main Dev, Planned hoặc follow-up, không kế thừa GitHub write.
+UI không tự preview hoặc xuất khi mở lịch sử. Người dùng chủ động kiểm rồi xác
+nhận; gửi lặp/restart trả cùng child ID và không retry một attempt đã lỗi.
 
 ## Tích hợp GitHub
 
