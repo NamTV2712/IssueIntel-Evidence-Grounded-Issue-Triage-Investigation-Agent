@@ -1018,7 +1018,7 @@ class Workbench:
                 top_k=4 if request['depth'] == 'quick' else 12,
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
-                **({'planned_workflow':True} if request['depth']=='planned' else {}),
+                **({'planned_workflow':True,'planner_policy':'bounded_planner_v2'} if request['depth']=='planned' else {}),
                 **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
             self._check_cancelled(row['id'])
             validate_controller_ownership(pack,row)

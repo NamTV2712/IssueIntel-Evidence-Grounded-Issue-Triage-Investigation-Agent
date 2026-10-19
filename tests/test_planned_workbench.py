@@ -46,15 +46,17 @@ def test_planned_job_accounts_numbered_calls_and_reads_without_repeating(planned
     job=completed(wb,wb.submit(request_for(planned_repository))['id'])
     assert job['status']=='completed',job
     pack=json.loads(wb.result_bytes(job['id']));plan=pack['workflow_plan']
-    assert len(plan['rounds'])==3 and model.generations==4 and len(calls)==5
+    assert plan['schema']=='planned_investigation_v2' and plan['policy']=='bounded_planner_v2'
+    assert len(plan['rounds'])==3 and model.generations==3 and len(calls)==4
+    assert not plan['rounds'][-1]['added_ids'] and plan['rounds'][-1]['output_annotation'] is None
     usage=wb.usage(job['id'])
-    assert usage['all_usage_settled'] and usage['tokens_charged_or_reserved']==75
+    assert usage['all_usage_settled'] and usage['tokens_charged_or_reserved']==60
     assert [row['stage'] for row in usage['receipts']]==[
-        'seed_generation','planned_generation_1','planned_generation_2','planned_generation_3','verification']
+        'seed_generation','planned_generation_1','planned_generation_2','verification']
     assert set(job['stage_checkpoints'])=={'planned_input','seed_generation','planned_retrieval_1',
         'planned_generation_1','planned_retrieval_2','planned_generation_2','planned_retrieval_3',
-        'planned_generation_3','verification','planned_complete'}
-    assert b'planned_investigation_v1' in wb.stage_bytes(job['id'],'planned_complete')
+        'verification','planned_complete'}
+    assert b'planned_investigation_v2' in wb.stage_bytes(job['id'],'planned_complete')
     report=wb.investigation_report(job['id'])
     provenance=next(row for row in report['provenance'] if row['kind']=='planned_workflow')
     assert json.loads(provenance['details'])['completed_retrieval_rounds']==3
@@ -66,7 +68,7 @@ def test_planned_job_accounts_numbered_calls_and_reads_without_repeating(planned
         assert wb2.investigation_report(job['id'])==report
         assert wb2.resume_preview(job['id'])['available'] is False
     finally:wb2.close()
-    assert len(calls)==5 and 'synthetic-secret' not in json.dumps(usage)
+    assert len(calls)==4 and 'synthetic-secret' not in json.dumps(usage)
 
 
 def test_numbered_generation_failure_keeps_receipt_and_does_not_resume(planned_repository,planned_workbench):
@@ -81,6 +83,26 @@ def test_numbered_generation_failure_keeps_receipt_and_does_not_resume(planned_r
     assert usage['receipts'][-1]['status']=='failed_bound' and usage['retained_bounds']==1
     assert wb.resume_preview(job['id'])['available'] is False
     assert 'private response' not in json.dumps(job) and 'synthetic-secret' not in json.dumps(usage)
+
+
+def test_saved_v1_workbench_job_still_replays_after_v2_becomes_default(planned_repository,planned_workbench,monkeypatch):
+    # Simulate the old producer, then read its immutable bytes using current code.
+    import issueintel.investigation.workbench as module
+    wb,_,calls,_=planned_workbench
+    original=module.investigate
+    monkeypatch.setattr(module,'investigate',lambda *a,**kw:original(*a,**(kw|{'planner_policy':'bounded_planner_v1'})))
+    job=completed(wb,wb.submit(request_for(planned_repository))['id'])
+    assert job['status']=='completed',job
+    raw=wb.result_bytes(job['id']);report=wb.report_bytes(job['id'])
+    assert json.loads(raw)['workflow_plan']['schema']=='planned_investigation_v1'
+    before=len(calls)
+    other=Workbench(wb.root,provider_factory=lambda *a,**k:pytest.fail('Read of old Planned pack called a model'))
+    try:
+        assert other.result_bytes(job['id'])==raw
+        assert other.report_bytes(job['id'])==report
+        assert other.resume_preview(job['id'])['available'] is False
+    finally:other.close()
+    assert len(calls)==before
 
 
 @pytest.mark.parametrize('mode',['main_dev','followup','context','clarification'])
@@ -168,6 +190,7 @@ def test_cli_planned_offline_and_early_benchmark_guard(tmp_path,planned_reposito
     output=capsys.readouterr().out.strip()
     pack=json.loads((Path(output).parent/'pack.json').read_bytes())
     assert pack['workflow_plan']['provider_calls']==0
+    assert pack['workflow_plan']['policy']=='bounded_planner_v2'
     monkeypatch.setattr('issueintel.benchmarks.store.load_dev_cases',lambda *a:pytest.fail('Opened Dev data'))
     for invalid in [dict(case_id='verified:test-1'),dict(refinement_rounds=1)]:
         with pytest.raises(ValueError,match='--planned'):_investigate(SimpleNamespace(**(vars(args)|invalid)))

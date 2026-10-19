@@ -407,6 +407,29 @@ quyền thực thi tool/code hoặc benchmark evaluation. Các stage cố địn
 `planned_input`, `planned_retrieval_1..3`, `planned_generation_1..3`,
 `planned_complete` giữ tiến độ khi lỗi; receipt chi phí gắn đúng stage.
 
+Web/CLI Planned mới dùng `planned_investigation_v2` / `bounded_planner_v2`;
+library `investigate` giữ v1 mặc định cho caller cũ và nhận explicit
+`planner_policy='bounded_planner_v2'`. Cả hai đi qua cùng pipeline/validator,
+version pair phải khớp; không sửa hoặc chuyển đổi pack v1 đã lưu. V2 dùng
+`retrieval.gap_directed` thay focused query chung: mỗi action khóa purpose,
+gap/reason, input hypothesis, query/hash và source IDs. Support/counter tìm code
+theo statement hoặc falsification; caller chỉ đi ngược cạnh `call` exact tới
+symbol trong code đang dẫn; documentation/history lọc đường dẫn của snapshot.
+History cũng có thể ghi nhận đã xem context issue/PR có receipt trong inventory
+gốc. Không chèn history chưa có receipt, không acquisition/network và không đổi
+context hiện tại thành historical availability proof. Các unavailable reason chỉ
+mô tả scope hiện có; không phải khẳng định phủ định về toàn repository.
+
+Action order deterministic luân phiên các purpose trong cận ba action/vòng;
+query đã attempted kể cả unavailable không chạy lại. Chỉ thêm excerpt cùng
+snapshot, exact bytes/span và không overlap. Khi không thêm excerpt, v2 có thể
+thử purpose tiếp trong số vòng còn lại mà không generation; v1 giữ stop behavior
+gốc. Pure replay đối chiếu query/action/source/provenance, exact caller edge và
+lọc loại đường dẫn bên cạnh source/inventory/budget validation chung. UI render
+cùng action receipt, giữ candidate/counter status chưa xác nhận. Đây là phần
+typed retrieval của D05; persisted waiting và explicit continuation giữ tổng
+budget qua lineage chưa được cung cấp, không dùng follow-up reset budget thay.
+
 `investigation.stages` ghi checkpoint private sau từng stage đã hoàn tất, giữ
 seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid calls.
 WorkBench/CLI cung cấp callback lưu, pipeline chịu trách nhiệm nội dung và

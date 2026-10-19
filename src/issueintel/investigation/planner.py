@@ -16,6 +16,9 @@ from .controller import Action, DecisionState, RuleController
 
 SCHEMA='planned_investigation_v1'
 POLICY='bounded_planner_v1'
+GAP_SCHEMA='planned_investigation_v2'
+GAP_POLICY='bounded_planner_v2'
+VERSIONS={POLICY:SCHEMA,GAP_POLICY:GAP_SCHEMA}
 STOP_REASONS={'provider_not_configured','insufficient_evidence','no_new_queries',
               'no_new_evidence','round_limit','controller_stopped','controller_skipped_retrieval'}
 _HASH=re.compile(r'[a-f0-9]{64}')
@@ -77,9 +80,11 @@ def limits(maximum):
             'max_verifier_passes':1,'max_provider_calls':2*(maximum+1)+1}
 
 
-def start_plan(case, snapshot, graph, evidence, annotation, *, provider, model):
+def start_plan(case, snapshot, graph, evidence, annotation, *, provider, model, policy=POLICY):
+    if policy not in VERSIONS:
+        raise ValueError('Unsupported Planned workflow policy')
     route=routing(evidence,snapshot,graph,annotation)
-    return {'schema':SCHEMA,'policy':POLICY,'source':{
+    return {'schema':VERSIONS[policy],'policy':policy,'source':{
                 'query_sha256':hashlib.sha256(case['problem_statement'].encode()).hexdigest(),
                 'commit_sha':snapshot.commit_sha,'snapshot_sha256':snapshot.snapshot_sha256},
             'provider':provider,'model':model,'routing':route,'limits':limits(route['max_retrieval_rounds']),
@@ -235,7 +240,7 @@ def _validate_planned(pack):
     if (set(plan)!={'schema','policy','source','provider','model','routing','limits','seed_evidence_ids',
                    'seed_annotation','rounds','generation_passes','verifier_passes','provider_calls',
                    'final_decision','stop_reason','sha256'}
-            or plan.get('schema')!=SCHEMA or plan.get('policy')!=POLICY
+            or plan.get('policy') not in VERSIONS or plan.get('schema')!=VERSIONS[plan['policy']]
             or not isinstance(plan.get('sha256'),str) or not _HASH.fullmatch(plan['sha256'])
             or digest({key:value for key,value in plan.items() if key!='sha256'})!=plan['sha256']
             or not isinstance(plan.get('provider'),str) or not plan['provider']
@@ -291,7 +296,12 @@ def _validate_planned(pack):
                 raise ValueError('Skipped planned search cannot generate evidence')
             terminal='controller_stopped' if step['action']=='stop' else 'controller_skipped_retrieval'
             continue
-        outcome=_validate_search(step['search'],annotation['hypotheses'],current,added,known,source,used)
+        if plan['policy']==GAP_POLICY:
+            from issueintel.retrieval.gap_directed import validate_search
+            outcome=validate_search(step['search'],annotation['hypotheses'],current,added,known,
+                                    source,used,pack['graph'],snapshot)
+        else:
+            outcome=_validate_search(step['search'],annotation['hypotheses'],current,added,known,source,used)
         prior_spans=[_code_path(known[identifier]) for identifier in current if known[identifier]['kind']=='code']
         for identifier in added:
             record=known[identifier]
@@ -310,7 +320,7 @@ def _validate_planned(pack):
             annotation=output;generations+=1;calls+=1+output['provenance']['repair_count']
         elif step['output_annotation'] is not None or step['output_annotation_sha256'] is not None:
             raise ValueError('Planned generation requires new evidence')
-        if not added:
+        if not added and (plan['policy']==POLICY or outcome=='no_new_queries'):
             terminal=outcome
     final=plan['final_decision'];_decision(final,final=True)
     if steps and steps[-1]['action']!='retrieve' and final!={

@@ -52,10 +52,15 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 controller=None, protocol="benchmark_base", availability=None, top_k=8,
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
-                repository_context=None, resumable=False, planned_workflow=False) -> dict:
+                repository_context=None, resumable=False, planned_workflow=False,
+                planner_policy='bounded_planner_v1') -> dict:
     case = public_case(case)
     if type(planned_workflow) is not bool:
         raise ValueError('Planned workflow must be an explicit boolean')
+    from .planner import POLICY as LEGACY_PLANNER_POLICY, GAP_POLICY, VERSIONS
+    if (not isinstance(planner_policy,str) or planner_policy not in VERSIONS
+            or not planned_workflow and planner_policy!=LEGACY_PLANNER_POLICY):
+        raise ValueError('Unsupported Planned workflow policy')
     if controller is not None:
         from .typesafe_controller import TypesafePlannedController
         if isinstance(controller,TypesafePlannedController) and not planned_workflow:
@@ -194,8 +199,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                                            workflow_plan,repository_context)
         return pack
     if planned_workflow:
-        from .planner import POLICY as PLANNER_POLICY
-        checkpoint('planned_input',{'case':case,'evidence':evidence,'policy':PLANNER_POLICY})
+        checkpoint('planned_input',{'case':case,'evidence':evidence,'policy':planner_policy})
     code_count = sum(e["kind"] == "code" for e in evidence)
     if code_count == 0:
         stop_reason = "insufficient_evidence"
@@ -212,7 +216,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if planned_workflow:
             from .planner import start_plan, choose_action, seal_plan
             from issueintel.annotations.public_inputs import model_hypotheses
-            workflow_plan=start_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model)
+            workflow_plan=start_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model,
+                                     policy=planner_policy)
             maximum=workflow_plan['limits']['max_retrieval_rounds']
             used_queries={workflow_plan['source']['query_sha256']}
             planned_stop=None;decision=None;decision_record=None
@@ -232,17 +237,24 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 if decision!=Action.RETRIEVE:
                     planned_stop='controller_stopped' if decision==Action.STOP else 'controller_skipped_retrieval'
                     break
-                added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,
-                                                  exclude_query_sha256s=used_queries)
+                if planner_policy==GAP_POLICY:
+                    from issueintel.retrieval.gap_directed import expand_for_gaps
+                    added,search=expand_for_gaps(annotation['hypotheses'],evidence,snapshot,graph,
+                                               exclude_query_sha256s=used_queries)
+                else:
+                    added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,
+                                                      exclude_query_sha256s=used_queries)
                 step.update(search=search,added_ids=[row['id'] for row in added])
                 used_queries.update(row['query_sha256'] for row in search['queries'])
                 checkpoint(f'planned_retrieval_{number}',{'round':number,'search':search,
                     'added_evidence':added,'input_annotation_sha256':step['input_annotation_sha256'],
                     'input_evidence_ids':step['input_evidence_ids']})
-                trace.append({'stage':'planned_retrieval','round':number,'policy':FOCUSED_POLICY,
+                trace.append({'stage':'planned_retrieval','round':number,'policy':search['policy'],
                     'query_count':len(search['queries']),'added_ids':search['added_ids'],
                     'stop_reason':search['stop_reason'],'rounds_remaining':maximum-number})
                 if not added:
+                    if planner_policy==GAP_POLICY and search['stop_reason']!='no_new_queries':
+                        continue
                     planned_stop=search['stop_reason']
                     break
                 evidence.extend(added)
@@ -315,7 +327,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         stop_reason = "controller_stopped" if decision==Action.STOP else "bounded_workflow_complete"
     if planned_workflow:
         from .planner import start_plan, seal_plan, validate_planned
-        workflow_plan=start_plan(case,snapshot,graph,evidence,None,provider=provider,model=model)
+        workflow_plan=start_plan(case,snapshot,graph,evidence,None,provider=provider,model=model,
+                                 policy=planner_policy)
         workflow_plan.update(stop_reason=stop_reason,final_decision={
             'action':'stop','reason':stop_reason,'controller':'rules','fallback':False})
         workflow_plan=seal_plan(workflow_plan)

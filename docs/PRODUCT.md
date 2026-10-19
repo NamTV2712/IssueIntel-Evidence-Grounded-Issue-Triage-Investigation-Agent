@@ -414,8 +414,8 @@ công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, syntheti
 nghiệm thu tương ứng. Sau khi tác giả cấp quyền Issues, đã tạo đủ 17 GitHub issue
 ngày 19/10/2026: D01–D13 tương ứng #1–#13, V01–V04 tương ứng #14–#17 tại
 [backlog GitHub](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues).
-D01 đã đóng với commit `c3f764e`; D02 đã đóng với commit `30fb2f0`. Cả hai CI
-thành công; mục chưa nghiệm thu vẫn mở.
+D01 đã đóng với commit `c3f764e`; D02 đã đóng với commit `30fb2f0`; D03 đã đóng
+với commit `7e9c5b0`. Cả ba CI thành công; mục chưa nghiệm thu vẫn mở.
 
 | Mã | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
 |---|---|---|---|
@@ -423,7 +423,7 @@ thành công; mục chưa nghiệm thu vẫn mở.
 | D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
-| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Chưa triển khai |
+| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đang triển khai: typed retrieval v2 dùng snapshot/caller exact/pinned context và action receipts; waiting/continuation giữ budget toàn chuỗi còn thiếu, issue vẫn mở |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Chưa triển khai |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
 | D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |

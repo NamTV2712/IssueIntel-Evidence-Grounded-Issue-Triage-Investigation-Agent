@@ -350,7 +350,7 @@ def _investigate(args):
             provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
             max_output_tokens=provider.config.max_output_tokens if provider else 2048,
             refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context,
-            **({'planned_workflow':True} if planned else {}),
+            **({'planned_workflow':True,'planner_policy':'bounded_planner_v2'} if planned else {}),
             **({'controller':controller} if controller is not None else {}))
     except Exception:
         if stages.receipts:

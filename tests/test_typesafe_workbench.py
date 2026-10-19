@@ -46,10 +46,11 @@ def test_opt_in_planned_job_has_separate_controller_receipts_and_saved_replay(pl
     pack=json.loads(wb.result_bytes(job['id']))
     sidecar=pack['controller_decisions']
     assert sidecar['schema']=='typesafe_controller_v1'
-    assert len(typesafe_calls)==4 and len(groq_calls)==5
-    assert pack['workflow_plan']['provider_calls']==5
+    assert pack['workflow_plan']['policy']=='bounded_planner_v2'
+    assert len(typesafe_calls)==4 and len(groq_calls)==4
+    assert pack['workflow_plan']['provider_calls']==4
     assert len(sidecar['records'])==4 and all(not row['fallback'] for row in sidecar['records'])
-    assert len(job['typesafe_receipts'])==4 and len(wb.usage(job['id'])['receipts'])==5
+    assert len(job['typesafe_receipts'])==4 and len(wb.usage(job['id'])['receipts'])==4
     assert all(receipt['provider']=='typesafe' and receipt['status']=='settled' for receipt in job['typesafe_receipts'].values())
     assert 'synthetic-typesafe-secret' not in json.dumps(job) and 'parser.parse_list crashes' not in json.dumps(job['typesafe_receipts'])
     before=len(typesafe_calls)

@@ -61,6 +61,17 @@ Chọn Planned không tự bật Groq; có thể chạy offline với zero call.
 hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; routing này chưa phải
 điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
 Planned chưa hỗ trợ Main Dev, follow-up hoặc tiếp tục paid stage sau lỗi.
+Planned mới trên Web/CLI lưu policy `bounded_planner_v2`: mỗi hành động chỉ rõ
+giả thuyết, khoảng trống và mục tiêu support/counter/caller/documentation/history.
+Caller đi ngược cạnh call tĩnh có đích exact; tài liệu và changelog chỉ tìm trong
+snapshot đã khóa. Lịch sử issue/PR chỉ xem context có receipt đã được chọn, không
+tự tải nguồn mới hoặc coi lịch sử hiện tại là proof trước ngày issue. Không có
+nguồn thì ghi unavailable; chưa tìm thấy không chứng minh nguồn không tồn tại.
+Vòng không có excerpt mới có thể chuyển sang mục tiêu kế tiếp trong budget còn
+lại, không gọi generation. Hồ sơ v1 vẫn đọc/replay nguyên bản; API Python giữ
+policy v1 mặc định, có thể chọn v2 bằng `planner_policy='bounded_planner_v2'`.
+Trạng thái waiting-for-user và continuation giữ budget toàn chuỗi vẫn thuộc D05
+chưa hoàn tất; hiện có câu hỏi/follow-up riêng, chưa phải continuation Planned.
 Planned có tùy chọn **Jev / Typesafe** để chọn retrieve/verify/stop từ các bước
 được code cho phép. Mặc định vẫn dùng rules. API key là `TYPESAFE_API_KEY` trong
 `.env`; cấu hình riêng ở `configs/typesafe.toml` mặc định tắt, trần request và

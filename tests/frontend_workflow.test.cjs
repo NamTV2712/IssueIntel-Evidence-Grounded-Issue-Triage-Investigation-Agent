@@ -27,6 +27,29 @@ function fixture(){
     evidence:[{id:'I1',kind:'issue',sha256:source.query_sha256},{id:'E1',kind:'code'},{id:'E2',kind:'code'},{id:'E3',kind:'code'}],workflow_plan:plan};
   return {plan,pack};
 }
+function gapFixture(){
+  const value=fixture(),{plan,pack}=value;
+  plan.schema='planned_investigation_v2';plan.policy='bounded_planner_v2';
+  plan.seed_evidence_ids.push('R1');pack.evidence.push({id:'R1',kind:'repository_context'});
+  const query=(purpose,gap,number,extra={})=>({action_id:'gap:'+purpose+':'+number,purpose,gap_code:gap,
+    reason:'Inspect this recorded gap within the pinned source scope.',query:'Query for '+purpose+' '+number,
+    query_sha256:hash(String(number)),seed_hypothesis_id:'H1',source_ids:['E1'],target_node_ids:[],
+    inspected_ids:[],returned_ids:[],added_ids:[],status:'executed',unavailable_reason:null,...extra});
+  const search=(queries,added,excluded=[])=>({policy:'gap_directed_retrieval_v1',max_queries:3,max_added_evidence:6,
+    queries,added_ids:added,counter_evidence_confirmed:false,snapshot_sha256:plan.source.snapshot_sha256,
+    excluded_query_sha256s:[plan.source.query_sha256,...excluded],skipped_queries:[],stop_reason:'new_candidates_added'});
+  plan.rounds[0].input_evidence_ids=['I1','E1','R1'];
+  plan.rounds[0].search=search([
+    query('support','support_scope_incomplete',1,{returned_ids:['E2'],added_ids:['E2']}),
+    query('counter','missing_counter_evidence',2,{returned_ids:['candidate-outside-final-evidence']}),
+    query('caller','uninspected_callers',3,{status:'unavailable',unavailable_reason:'no_exact_callers_in_available_graph',target_node_ids:['module.py:function:parse']})],['E2']);
+  plan.rounds[1].input_evidence_ids=['I1','E1','R1','E2'];
+  plan.rounds[1].search=search([
+    query('documentation','uninspected_documentation',4,{returned_ids:['E3'],added_ids:['E3']}),
+    query('history','uninspected_history',5,{inspected_ids:['R1'],source_ids:['E1','R1'],returned_ids:['R1']}),
+    query('support','support_scope_incomplete',6,{status:'unavailable',unavailable_reason:'no_matching_snapshot_evidence'})],['E3'],[hash('1'),hash('2'),hash('3')]);
+  return value;
+}
 function boot(){
   const dispatched=[],events=new Map();
   class Element{
@@ -94,6 +117,103 @@ test('literal controller notes and query text remain inert while authored labels
   assert.match(output,/Investigation workflow/);assert.match(output,/Search round limit reached/);
   assert.match(output,/<img src=x onerror=alert\(1\)>/);assert.match(output,/<img src=x> do not run/);
   assert.match(output,/not human validation/);
+});
+
+test('gap-directed workflow presents distinct actions, source gaps and unavailable scope without inventing findings',()=>{
+  const app=boot(),value=gapFixture();app.render(value);let output=app.text(app.target);
+  for(const label of ['Tìm nguồn hỗ trợ','Tìm nguồn phản bác','Lần theo caller tĩnh','Tìm tài liệu trong snapshot','Tìm lịch sử trong nguồn đã khóa'])assert.match(output,new RegExp(label));
+  assert.match(output,/2 hành động đã chạy · 1 hành động chưa khả dụng · 1 trích đoạn mới/);
+  assert.match(output,/Caller tĩnh chưa được xem/);assert.match(output,/Chưa tìm thấy caller chính xác trong graph được cung cấp/);
+  assert.match(output,/1 ứng viên trả về · 1 nguồn lịch sử đã xem · 0 trích đoạn mới/);
+  assert.match(output,/chưa xác minh tính sẵn có trước thời điểm issue/);
+  assert.match(output,/candidate-outside-final-evidence/);
+  assert.equal(app.all(app.target).some(item=>item.tag==='button'&&item.textContent==='candidate-outside-final-evidence'),false);
+  assert.match(output,/Giới hạn sinh\/verifier: 7 call/);assert.match(output,/chưa phải phản bác đã xác nhận/);
+  app.language('en');app.render(value);output=app.text(app.target);
+  for(const label of ['Search for supporting sources','Search for counter-evidence','Trace static callers','Search snapshot documentation','Search source-bound history'])assert.ok(output.includes(label),label);
+  assert.match(output,/Static callers have not been inspected/);assert.match(output,/No exact caller was found in the supplied graph/);
+  assert.match(output,/availability before the issue time has not been verified/);
+  assert.match(output,/2 actions executed · 1 actions unavailable · 1 new excerpts/);
+  assert.match(output,/Gap code: uninspected_history/);assert.match(output,/not human validation/);
+  assert.doesNotMatch(output,/waiting for user|verified cause|verified fix/i);
+});
+
+test('gap action summaries localize authored purposes while recorded reasons remain verbatim in source details',()=>{
+  const app=boot(),value=gapFixture();
+  const visible=item=>item.tag==='details'?'':item.textContent+' '+item.children.map(visible).join(' ');
+  app.render(value);let output=visible(app.target);
+  assert.match(output,/Tìm code bổ sung trong cùng snapshot/);assert.match(output,/Tìm theo điều kiện bác bỏ đã đề xuất/);
+  assert.match(output,/Xem caller tĩnh chính xác/);assert.match(output,/Tìm tài liệu trong cùng snapshot/);
+  assert.match(output,/Xem context có receipt và changelog/);
+  assert.doesNotMatch(output,/Inspect this recorded gap within the pinned source scope/);
+  assert.match(app.text(app.target),/Lý do đã ghi: Inspect this recorded gap within the pinned source scope/);
+  app.language('en');app.render(value);output=visible(app.target);
+  assert.match(output,/Search for additional code in the same snapshot/);assert.match(output,/Search the proposed falsification condition/);
+  assert.match(output,/Inspect exact static callers/);assert.match(output,/Search documentation in the same snapshot/);
+  assert.match(output,/Inspect receipt-bound context and snapshot changelog/);
+  assert.doesNotMatch(output,/Inspect this recorded gap within the pinned source scope/);
+  assert.match(app.text(app.target),/Recorded reason: Inspect this recorded gap within the pinned source scope/);
+});
+
+test('every unavailable gap reason describes its supplied source scope and never appears as executed',()=>{
+  const variants=[['support','support_scope_incomplete','no_matching_snapshot_evidence','No matching evidence'],
+    ['counter','missing_counter_evidence','no_matching_snapshot_evidence','No matching evidence'],
+    ['caller','uninspected_callers','no_exact_callers_in_available_graph','No exact caller'],
+    ['caller','uninspected_callers','no_matching_snapshot_evidence','No matching evidence'],
+    ['documentation','uninspected_documentation','no_documentation_in_snapshot','No matching documentation'],
+    ['history','uninspected_history','no_history_in_available_sources','No matching history']];
+  for(const [purpose,gap_code,unavailable_reason,label] of variants){
+    const app=boot(),value=gapFixture(),row=value.plan.rounds[0];
+    row.search.queries=[{...row.search.queries[0],purpose,gap_code,status:'unavailable',unavailable_reason,returned_ids:[],added_ids:[]}];
+    row.search.added_ids=[];row.search.stop_reason='no_new_evidence';row.added_ids=[];row.output_annotation=null;row.output_annotation_sha256=null;
+    value.plan.rounds=[row];value.plan.generation_passes=1;value.plan.provider_calls=2;value.plan.stop_reason='no_new_evidence';
+    value.pack.evidence=value.pack.evidence.filter(item=>!['E2','E3'].includes(item.id));app.language('en');app.render(value);
+    const output=app.text(app.target);assert.match(output,new RegExp(label));assert.match(output,/0 actions executed · 1 actions unavailable · 0 new excerpts/);
+    assert.match(output,/unavailable describes only the scope of the supplied sources/);assert.match(output,/No new evidence found/);
+  }
+});
+
+test('gap-directed source citations become inert after navigation and source text never becomes markup',()=>{
+  const app=boot(),value=gapFixture(),query=value.plan.rounds[1].search.queries[1];
+  query.query='<script>never execute</script>';query.reason='<img src=x onerror=alert(1)>';
+  query.action_id='<iframe src=https://example.invalid>';query.returned_ids=['<img candidate>'];
+  app.render(value);const output=app.text(app.target);
+  for(const literal of [query.query,query.reason,query.action_id,query.returned_ids[0]])assert.ok(output.includes(literal));
+  assert.equal(app.all(app.target).some(item=>['script','img','iframe'].includes(item.tag)),false);
+  const history=app.all(app.target).find(item=>item.tag==='button'&&item.textContent==='R1');assert.ok(history);
+  assert.equal(history.attributes['aria-label'],'Xem bằng chứng R1');history.onclick();
+  assert.equal(app.dispatched[0].detail.job_id,job('a'));assert.equal(app.dispatched[0].detail.evidence_id,'R1');
+  app.render(gapFixture(),job('b'));history.onclick();assert.equal(app.dispatched.length,1);
+  const fresh=app.all(app.target).find(item=>item.tag==='button'&&item.textContent==='R1');
+  app.events.get('issueintel:packchange')({detail:{job_id:job('c')}});fresh.onclick();assert.equal(app.dispatched.length,1);
+});
+
+test('malformed gap actions cannot expose citations or be relabeled as a different source search',()=>{
+  const mutations=[value=>value.plan.policy='bounded_planner_v1',value=>value.plan.rounds[0].search.policy='hypothesis_focused_retrieval_v1',
+    value=>value.plan.rounds[0].search.max_queries=4,value=>value.plan.rounds[0].search.max_added_evidence=7,
+    value=>value.plan.rounds[0].search.excluded_query_sha256s=['bad'],value=>value.plan.rounds[0].search.excluded_query_sha256s=Array.from({length:11},(_,index)=>String(index).padStart(64,'0')),
+    value=>value.plan.rounds[0].search.skipped_queries=[{executed:true}],value=>value.plan.rounds[0].search.stop_reason='confirmed_counter_evidence',
+    value=>value.plan.rounds[0].search.queries[0].purpose='web',value=>value.plan.rounds[0].search.queries[0].gap_code='missing_counter_evidence',
+    value=>value.plan.rounds[0].search.queries[0].reason='',value=>value.plan.rounds[0].search.queries[0].reason='x'.repeat(201),
+    value=>value.plan.rounds[0].search.queries[0].query='x'.repeat(4001),value=>value.plan.rounds[0].search.queries[0].source_ids=['foreign'],
+    value=>value.plan.rounds[0].search.queries[0].target_node_ids=['same','same'],value=>value.plan.rounds[0].search.queries[0].inspected_ids=['R1'],
+    value=>value.plan.rounds[1].search.queries[1].inspected_ids=['E1'],value=>value.plan.rounds[0].search.queries[0].status='verified',
+    value=>value.plan.rounds[0].search.queries[0].unavailable_reason='no_matching_snapshot_evidence',
+    value=>value.plan.rounds[0].search.queries[2].returned_ids=['E1'],value=>value.plan.rounds[0].search.queries[2].added_ids=['E2'],
+    value=>value.plan.rounds[0].search.queries[2].unavailable_reason='no_history_in_available_sources',
+    value=>value.plan.rounds[0].search.queries[1].action_id=value.plan.rounds[0].search.queries[0].action_id,
+    value=>value.plan.rounds[0].search.queries[0]=null];
+  for(const mutate of mutations){const app=boot(),value=gapFixture();mutate(value);app.render(value);
+    assert.match(app.text(app.target),/Không thể gắn kế hoạch/);assert.equal(app.all(app.target).filter(item=>item.tag==='button').length,0);}
+});
+
+test('skipped gap actions are not counted as searches and their recorded duplicate intent stays inert',()=>{
+  const app=boot(),value=gapFixture(),row=value.plan.rounds[0];
+  row.search.skipped_queries=[{action_id:'gap:counter:old',purpose:'counter',seed_hypothesis_id:'H1',query_sha256:hash('0'),reason:'already_executed',executed:false}];
+  app.language('en');app.render(value);const output=app.text(app.target);
+  assert.match(output,/1 repeated queries skipped; they were not executed again/);
+  assert.match(output,/2 actions executed · 1 actions unavailable/);
+  assert.doesNotMatch(output,/3 actions executed/);
 });
 
 test('every saved stop reason is distinct and legacy reports never invent a planner trace',()=>{

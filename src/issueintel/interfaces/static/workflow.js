@@ -13,12 +13,58 @@
     no_new_queries:'Không còn truy vấn mới trong giới hạn',no_new_evidence:'Không tìm thêm bằng chứng mới',round_limit:'Đã chạm giới hạn vòng tìm thêm',
     controller_stopped:'Controller chọn dừng',controller_skipped_retrieval:'Controller chuyển thẳng sang verifier'};
   const actions={retrieve:'Tìm thêm bằng chứng',verify:'Chuyển sang verifier',stop:'Dừng điều tra'};
+  const purposes={support:'Tìm nguồn hỗ trợ',counter:'Tìm nguồn phản bác',caller:'Lần theo caller tĩnh',
+    documentation:'Tìm tài liệu trong snapshot',history:'Tìm lịch sử trong nguồn đã khóa'};
+  const purposeReasons={support:'Tìm code bổ sung trong cùng snapshot; độ liên quan từ vựng chưa xác nhận hỗ trợ ngữ nghĩa.',
+    counter:'Tìm theo điều kiện bác bỏ đã đề xuất; kết quả khớp chưa phải phản bác đã xác nhận.',
+    caller:'Xem caller tĩnh chính xác của symbol trong code đã trích; chưa biết luồng thực thi.',
+    documentation:'Tìm tài liệu trong cùng snapshot về hành vi và ràng buộc có thể áp dụng.',
+    history:'Xem context có receipt và changelog trong snapshot; tính sẵn có theo thời gian chưa được xác minh.'};
+  const gaps={missing_counter_evidence:'Chưa có nguồn phản bác được gắn',uninspected_callers:'Caller tĩnh chưa được xem',
+    uninspected_documentation:'Tài liệu trong snapshot chưa được xem',uninspected_history:'Lịch sử đã khóa nguồn chưa được xem',
+    missing_code_support:'Chưa có code hỗ trợ được gắn',support_scope_incomplete:'Phạm vi nguồn hỗ trợ còn thiếu'};
+  const purposeGaps={support:['missing_code_support','support_scope_incomplete'],counter:['missing_counter_evidence'],
+    caller:['uninspected_callers'],documentation:['uninspected_documentation'],history:['uninspected_history']};
+  const unavailable={no_exact_callers_in_available_graph:'Chưa tìm thấy caller chính xác trong graph được cung cấp',
+    no_documentation_in_snapshot:'Chưa có tài liệu phù hợp trong snapshot được cung cấp',
+    no_history_in_available_sources:'Chưa có lịch sử phù hợp trong nguồn đã khóa',
+    no_matching_snapshot_evidence:'Chưa có bằng chứng phù hợp trong snapshot được cung cấp'};
+  const purposeUnavailable={support:['no_matching_snapshot_evidence'],counter:['no_matching_snapshot_evidence'],
+    caller:['no_exact_callers_in_available_graph','no_matching_snapshot_evidence'],
+    documentation:['no_documentation_in_snapshot'],history:['no_history_in_available_sources']};
   const attemptLabels={settled:'Đã ghi nhận usage',failed_bound:'Lời gọi lỗi; giữ cận chi phí',missing_usage_bound:'Thiếu usage; giữ cận chi phí',
     breach:'Usage vượt cận chi phí',blocked:'Đã chặn trước khi gọi',unreceipted_error:'Chưa có receipt hợp lệ'};
   let active=null;
 
+  function gapSearchValid(search,known,added,hypothesisIds,evidence){
+    const boundedText=(value,maximum)=>text(value)&&value.length>0&&value.length<=maximum;
+    const ids=(values,maximum)=>strings(values)&&values.length<=maximum&&values.every(value=>boundedText(value,2000));
+    if(search.policy!=='gap_directed_retrieval_v1'||search.max_queries!==3||search.max_added_evidence!==6
+      ||!ids(search.excluded_query_sha256s,10)||search.excluded_query_sha256s.some(value=>!digest(value))
+      ||!Array.isArray(search.skipped_queries)||search.skipped_queries.length>15
+      ||!['new_candidates_added','no_new_evidence','no_new_queries'].includes(search.stop_reason))return false;
+    if(search.skipped_queries.some(query=>!query||!boundedText(query.action_id,2000)||!Object.hasOwn(purposes,query.purpose)
+      ||!hypothesisIds.has(query.seed_hypothesis_id)||!digest(query.query_sha256)||query.reason!=='already_executed'||query.executed!==false))return false;
+    const actionIds=new Set();
+    for(const query of search.queries){
+      if(!boundedText(query.action_id,2000)||actionIds.has(query.action_id)||!Object.hasOwn(purposes,query.purpose)
+        ||!purposeGaps[query.purpose].includes(query.gap_code)||!boundedText(query.reason,200)||!boundedText(query.query,4000)
+        ||!digest(query.query_sha256)||!hypothesisIds.has(query.seed_hypothesis_id)
+        ||!ids(query.source_ids,100)||query.source_ids.some(id=>!known.has(id))||!ids(query.target_node_ids,100)
+        ||!ids(query.inspected_ids,100)||query.inspected_ids.some(id=>!known.has(id)||evidence.get(id).kind!=='repository_context')
+        ||!ids(query.returned_ids,100)||!ids(query.added_ids,6)||query.added_ids.some(id=>!added.has(id))
+        ||!['executed','unavailable'].includes(query.status))return false;
+      if(query.status==='executed'&&query.unavailable_reason!==null)return false;
+      if(query.status==='unavailable'&&(!purposeUnavailable[query.purpose].includes(query.unavailable_reason)||query.returned_ids.length||query.added_ids.length))return false;
+      if(query.purpose!=='history'&&query.inspected_ids.length)return false;
+      actionIds.add(query.action_id);
+    }
+    return true;
+  }
+
   function valid(plan,job,pack){
-    if(!plan||plan!==pack?.workflow_plan||plan.schema!=='planned_investigation_v1'||plan.policy!=='bounded_planner_v1'
+    if(!plan||plan!==pack?.workflow_plan||!((plan.schema==='planned_investigation_v1'&&plan.policy==='bounded_planner_v1')
+      ||(plan.schema==='planned_investigation_v2'&&plan.policy==='bounded_planner_v2'))
       ||!/^[a-f0-9]{24}$/.test(job||'')||!digest(plan.sha256)||!Array.isArray(pack.evidence)
       ||!digest(plan.source?.query_sha256)||!digest(plan.source?.snapshot_sha256)
       ||plan.source.commit_sha!==pack.snapshot?.commit_sha||plan.source.snapshot_sha256!==pack.snapshot.snapshot_sha256
@@ -54,6 +100,7 @@
         if(row.action!=='retrieve'||search.counter_evidence_confirmed!==false||search.snapshot_sha256!==plan.source.snapshot_sha256
           ||!refs(search.added_ids,added)||search.added_ids.length!==added.size||!Array.isArray(search.queries)||search.queries.length>3
           ||search.queries.some(query=>!text(query.query)||!digest(query.query_sha256)||!hypothesisIds.has(query.seed_hypothesis_id)||!refs(query.added_ids,added)))return false;
+        if(plan.schema==='planned_investigation_v2'&&!gapSearchValid(search,known,added,hypothesisIds,evidence))return false;
       }else if(row.added_ids.length)return false;
       row.added_ids.forEach(id=>known.add(id));
       if(row.output_annotation!==null&&!hypotheses(row.output_annotation?.hypotheses,known))return false;
@@ -66,6 +113,30 @@
     for(const id of ids){const button=node('button',id,'citation');button.type='button';button.setAttribute('aria-label',t('Xem bằng chứng {id}',{id}));
       button.onclick=()=>{if(active!==binding)return;document.dispatchEvent(new CustomEvent('issueintel:showevidence',{detail:{job_id:binding.job,evidence_id:id}}));};row.append(button);}
     return row;
+  }
+  function gapActions(target,search,binding){
+    for(const query of search?.queries||[]){
+      const action=node('section',undefined,'workflow-routing');
+      action.append(node('h4',t(purposes[query.purpose])),node('p',t('Giả thuyết đầu vào: {id}',{id:query.seed_hypothesis_id}),'hash-note'),
+        node('p',t('Khoảng trống: {gap}',{gap:t(gaps[query.gap_code])}),'workflow-source-text'),
+        node('p',t('Lý do: {reason}',{reason:t(purposeReasons[query.purpose])}),'workflow-source-text'),
+        node('p',t(query.status==='executed'?'Đã chạy trên nguồn đã khóa':'Chưa khả dụng trong phạm vi nguồn đã khóa'),'notice'));
+      if(query.status==='unavailable')action.append(node('p',t(unavailable[query.unavailable_reason]),'notice'));
+      action.append(node('p',t('{returned} ứng viên trả về · {inspected} nguồn lịch sử đã xem · {added} trích đoạn mới',
+        {returned:query.returned_ids.length,inspected:query.inspected_ids.length,added:query.added_ids.length}),'notice'));
+      if(query.purpose==='history')action.append(node('p',t('Lịch sử là context đã khóa nguồn, chưa xác minh tính sẵn có trước thời điểm issue.'),'notice'));
+      if(query.added_ids.length)action.append(citations(query.added_ids,binding));
+      const source=node('details');source.append(node('summary',t('Truy vấn và nguồn của hành động')),
+        node('p',t('Lý do đã ghi: {reason}',{reason:query.reason}),'workflow-source-text'),
+        node('pre',query.query),node('p','Query SHA256 '+query.query_sha256,'hash-note'),
+        node('p',t('Định danh hành động: {id}',{id:query.action_id}),'hash-note'),
+        node('p',t('Mã khoảng trống: {code}',{code:query.gap_code}),'hash-note'));
+      if(query.source_ids.length)source.append(node('p',t('Nguồn dẫn tới khoảng trống'),'notice'),citations(query.source_ids,binding));
+      if(query.inspected_ids.length)source.append(node('p',t('Nguồn lịch sử đã xem'),'notice'),citations(query.inspected_ids,binding));
+      if(query.target_node_ids.length)source.append(node('p',t('Node đích tĩnh: {ids}',{ids:query.target_node_ids.join(', ')}),'workflow-source-text'));
+      if(query.returned_ids.length)source.append(node('p',t('Ứng viên trả về: {ids}',{ids:query.returned_ids.join(', ')}),'workflow-source-text'));
+      action.append(source);target.append(action);
+    }
   }
   function controllerPanel(area,sidecar,plan,job){
     if(!sidecar)return;
@@ -110,6 +181,8 @@
     if(!matches){area.append(node('p',t('Không thể gắn kế hoạch với query và snapshot của báo cáo này. Citation đã ẩn; có thể xem JSON gốc để kiểm tra.'),'notice'));return;}
     const binding={job,plan,pack};active=binding;
     area.append(node('p',t('Kế hoạch hữu hạn theo tín hiệu quan sát; chưa đánh giá độ khó hoặc chất lượng. Nguồn tìm thêm chưa phải phản bác đã xác nhận.'),'notice'));
+    const gapDirected=plan.schema==='planned_investigation_v2';
+    if(gapDirected)area.append(node('p',t('Mỗi hành động gắn với một khoảng trống đã ghi. Caller là quan hệ tĩnh; chưa khả dụng chỉ nói về phạm vi nguồn hiện có.'),'notice'));
     const route=node('div',undefined,'workflow-routing');route.append(node('h4',t('Vì sao có giới hạn này?')));
     for(const reason of plan.routing.reason_codes)route.append(node('p',t(reasons[reason]),'workflow-reason'));
     const signal=plan.routing.signals;
@@ -127,12 +200,19 @@
     const steps=node('ol',undefined,'workflow-rounds');
     for(const row of plan.rounds){
       const item=node('li',undefined,'workflow-round');item.append(node('h4',t('Bước {round}: {action}',{round:row.round,action:t(actions[row.action])})));
-      item.append(node('p',t('{queries} truy vấn đã chạy · {added} trích đoạn mới',{queries:row.search?.queries.length||0,added:row.added_ids.length}),'notice'));
-      if(row.added_ids.length)item.append(citations(row.added_ids,binding));
+      if(gapDirected){
+        item.append(node('p',t('{executed} hành động đã chạy · {unavailable} hành động chưa khả dụng · {added} trích đoạn mới',
+          {executed:row.search?.queries.filter(query=>query.status==='executed').length||0,
+            unavailable:row.search?.queries.filter(query=>query.status==='unavailable').length||0,added:row.added_ids.length}),'notice'));
+        gapActions(item,row.search,binding);
+      }else{
+        item.append(node('p',t('{queries} truy vấn đã chạy · {added} trích đoạn mới',{queries:row.search?.queries.length||0,added:row.added_ids.length}),'notice'));
+        if(row.added_ids.length)item.append(citations(row.added_ids,binding));
+      }
       const details=node('details');details.append(node('summary',t('Xem quyết định và truy vấn đã lưu')),
         node('p',t('Lý do: {reason}',{reason:row.reason}),'workflow-source-text'),
         node('p',t('Controller: {controller} · fallback theo luật: {fallback}',{controller:row.controller,fallback:t(row.fallback?'Có':'Không')}),'notice'));
-      for(const query of row.search?.queries||[])details.append(node('p',t('Giả thuyết đầu vào: {id}',{id:query.seed_hypothesis_id}),'hash-note'),node('pre',query.query));
+      if(!gapDirected)for(const query of row.search?.queries||[])details.append(node('p',t('Giả thuyết đầu vào: {id}',{id:query.seed_hypothesis_id}),'hash-note'),node('pre',query.query));
       if(row.search?.skipped_queries?.length)details.append(node('p',t('{count} truy vấn trùng đã bỏ qua; chưa chạy lại.',{count:row.search.skipped_queries.length}),'notice'));
       item.append(details);steps.append(item);
     }
