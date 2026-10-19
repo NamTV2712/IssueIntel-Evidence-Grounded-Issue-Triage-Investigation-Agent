@@ -414,13 +414,14 @@ công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, syntheti
 nghiệm thu tương ứng. Sau khi tác giả cấp quyền Issues, đã tạo đủ 17 GitHub issue
 ngày 19/10/2026: D01–D13 tương ứng #1–#13, V01–V04 tương ứng #14–#17 tại
 [backlog GitHub](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues).
-D01 đã đóng với commit `c3f764e` và CI thành công; mục chưa nghiệm thu vẫn mở.
+D01 đã đóng với commit `c3f764e`; D02 đã đóng với commit `30fb2f0`. Cả hai CI
+thành công; mục chưa nghiệm thu vẫn mở.
 
 | Mã | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
 |---|---|---|---|
 | D01 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
 | D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
-| D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Chưa triển khai |
+| D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Chưa triển khai |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Chưa triển khai |
@@ -438,3 +439,28 @@ D01 đã đóng với commit `c3f764e` và CI thành công; mục chưa nghiệm
 
 Thứ tự ưu tiên: D01 → D02 → D03 → D05 → D06 → D08. D04 chạy khi có cấu hình
 thật; D09–D13 và các diagnostic được triển khai/nghiệm thu theo dependencies.
+
+## Kiểm nhận định (D03 — F08)
+
+POST `/api/claim-reviews` yêu cầu đúng source job/pack SHA và confirmation
+`generate_claim_review_with_api_cost`; không tự chạy khi mở Verification.
+GET `/api/jobs/{source}/claim-reviews` chỉ đọc danh sách/availability. Sau khi tác
+vụ hoàn tất, GET `/api/jobs/{review}/claim-review.json` hoặc `.md` replay cả intent,
+authority và source/report/quote/rubric, trả header `X-IssueIntel-Report-SHA256` và
+`X-IssueIntel-Claim-Review-SHA256` từ đúng export. Một intent mỗi pack; queued/
+running/failed/interrupted/cancelled không có replacement paid attempt tự động.
+Groq vẫn qua key, dated price, per-call bounds và ledger hiện hành; không Jev,
+benchmark, Holdout/Live hoặc evaluation. Model/prompt/rubric/schema có digest,
+old pack/report/check journals không bị sửa. UI cần explicit cost consent, chặn
+double submit và late responses; đọc/xuất/đổi ngôn ngữ không gọi model.
+
+Nhận định có type source_fact/mechanism/behavior_prediction/causal, exact statement
+span, source support/counter và assumptions với exact citations khi model nói có
+nguồn hỗ trợ. Nhãn model giữ riêng assessment sau cổng deterministic; lý do/gaps
+và fragments chưa kiểm phải thấy được. Model-supported/counter judgments không
+thành human/semantic/causal verification. Thiếu counter trong supplied scope chỉ
+là giới hạn; không suy ra giả thuyết đúng. Test tổng hợp kiểm citation chính xác
+nhưng cơ chế/giả định chưa đủ, causal claim, issue-only support, counter khác ngữ
+cảnh, Unicode offsets, malformed output, receipt/failure/concurrency/restart,
+stale navigation và quote tampering trong portable archive. Đây là chứng cứ cơ
+chế/contract, chưa phải số đo cải thiện độ chính xác; V01/V02 vẫn cần nghiệm thu.

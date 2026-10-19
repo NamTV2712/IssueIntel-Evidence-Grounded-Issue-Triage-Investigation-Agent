@@ -109,6 +109,18 @@ bảng A/B chỉ đối chiếu nhãn tự báo với dự đoán model, ghi ri�
 và đính chính về sau. Hai giả thuyết cùng ID không tự được ghép. Người dùng có
 thể ghi liên kết giữ lại/điều chỉnh/mới/không mang sang, kèm lý do và citation;
 đính chính append-only. Mở lại và xuất hồ sơ JSON không gọi model hoặc Git.
+Tab **Kiểm chứng / Verification** có **Kiểm chứng từng nhận định / Claim-level
+review** riêng cho product đã có ít nhất hai giả thuyết. Sau khi đồng ý chi phí,
+Groq tách tối đa bốn đoạn nhận định trong mỗi câu gốc, trích đúng source span,
+ghi giả định và phản bác. `claim_sufficiency_v1` giữ `uncertain/unsupported` khi
+thiếu source support, applicability, code cho suy luận cơ chế/hành vi, hoặc còn
+giả định chưa xác minh. Nhận định nhân quả không được nâng thành đã xác minh
+bằng code tĩnh. Giao diện phân biệt nhận xét model với kết quả sau cổng mức đủ
+bằng chứng, hiển thị cả phần câu chưa được kiểm. Một intent bền vững cho mỗi
+pack, tối đa hai call kể cả sửa output; lỗi transport không retry. Bản kiểm lưu
+riêng, có JSON/Markdown, đi cùng dossier/gói bàn giao; không sửa pack/report hay
+chạy code đích. Mở lại không cần Git, cấu hình API hoặc model. Đây là kiểm nguồn
+và rubric trên nhận xét tự động; chưa chứng minh độ chính xác chẩn đoán.
 Thanh đầu trang hỗ trợ **Tiếng Việt / English** và **sáng / tối / theo hệ thống**,
 nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc dịch nội dung nguồn.
 Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form

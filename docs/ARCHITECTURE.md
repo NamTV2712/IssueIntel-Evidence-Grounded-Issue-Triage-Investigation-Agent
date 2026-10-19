@@ -14,6 +14,31 @@ mô tả cổng pilot, stage exceptions, failure/resume và giới hạn nhãn.
 
 ## Pipeline chung
 
+`investigation.claim_review` cung cấp `product_claim_review_v1`, source projection
+riêng `claim_review_source_v1` và rubric `claim_sufficiency_v1`. Các trường raw
+model reviews được giữ riêng với assessment tái tính; validator tái dựng để chặn
+sửa kết quả rồi rehash. Quote của claim khớp nguyên văn statement; quote support,
+counter và assumption khớp evidence đúng SHA/revision. Offset theo Unicode code
+point, đầu gồm/cuối không gồm; không tự map ID hay sửa quote. Mỗi hypothesis có
+đúng một review, 0–4 claim không chồng nhau; phần câu chưa được phủ vẫn hiển thị.
+Code kiểm citation riêng với applicability/inferential-link do model nhận xét.
+Thiếu exact support thì unsupported; thiếu applicability, mắt xích cơ chế/hành
+vi, code cho suy luận hoặc còn unverified assumptions thì uncertain. Counter
+không rõ ngữ cảnh/căn cứ cũng không được coi contradicted. Causal support giữ
+uncertain khi không có proof thực thi độc lập. Mọi semantic/causal/human flags
+vẫn unverified/false; kết quả không phải nhãn người hay đánh giá chất lượng.
+
+`source_jobs.SourceJobs` là runner chung cho hai adapter cụ thể CheckPlanJobs và
+ClaimReviewJobs: giữ nguyên DB/path/request contract của check plan, dùng DB/
+result key riêng cho claims. Durable intent khóa source job + pack SHA, một target
+kể cả lỗi/restart. Trước provider phải replay Git snapshot; trước mỗi call/output
+repair kiểm lại product authority và source bindings; mỗi call giữ receipt owned stage. Tối đa một
+output repair; lỗi transport/admission và cancel không tạo paid retry. Đọc/export
+không reacquire Git, load API config hay construct provider. Claims được thêm vào
+dossier/handoff bằng nguồn đã replay; portable verifier kiểm owner/quote bindings
+trên included bytes, không đánh giá ngữ nghĩa. API/UI tách claim sidecar khỏi
+whole-hypothesis critique cũ và không rewrite generation/verifier/report v1.
+
 `investigation.handoff.Handoffs` xuất một selection riêng từ dossier đã replay,
 giữ pack bytes/report bindings, tự thêm ancestry và chỉ lấy checkpoint recovery
 được con tham chiếu. Không sao chép folder job, database, `.env` hoặc Git cache.

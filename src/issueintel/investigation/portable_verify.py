@@ -132,6 +132,26 @@ def verify(path, *, expected_sha256=None):
             for stage,checksum in checkpoints.items():
                 if checksum is not None and sha(contents.get('runs/'+parent+'/stages/'+stage+'.json',b''))!=checksum:
                     raise ValueError('Missing or changed recovery checkpoint')
+    for item in handoff.get('claim_reviews',[]):
+        owner=runs[item['source_job_id']];review=item['bundle'];source=review['source']
+        if (not sealed(review) or not sealed(source) or review.get('schema')!='product_claim_review_v1'
+                or source.get('schema')!='claim_review_source_v1' or not owner['binding']
+                or source['source_job_id']!=owner['job_id'] or source['source_pack_sha256']!=owner['binding']['pack_sha256']
+                or source['report_sha256']!=owner['binding']['report_sha256']
+                or any(source[key]!=owner['binding'][key] for key in ('query_sha256','snapshot_sha256','commit_sha'))
+                or any(review.get(key) is not False for key in ('causal_verified','independent_human','evaluation_performed'))):
+            raise ValueError('Changed claim review source binding')
+        pack=parsed(contents['runs/'+owner['job_id']+'/pack.json'])
+        evidence={e['id']:e for e in pack['evidence']};hypotheses={h['id']:h for h in owner['report']['hypotheses']}
+        def check_span(ref,text):
+            if (type(ref['start']) is not int or type(ref['end']) is not int
+                    or not 0<=ref['start']<ref['end']<=len(text) or text[ref['start']:ref['end']]!=ref['quote']):
+                raise ValueError('Changed claim source quote')
+        for row in review['reviews']:
+            for claim in row['claims']:
+                check_span(claim,hypotheses[row['hypothesis_id']]['statement'])
+                refs=claim['support']+claim['counter']+[ref for assumption in claim['assumptions'] for ref in assumption['citations']]
+                for ref in refs:check_span(ref,evidence[ref['evidence_id']]['text'])
     return {'schema':'issueintel_handoff_integrity_v1','archive_sha256':sha(raw),
             'manifest_sha256':manifest['sha256'],'files':len(contents),'runs':len(runs),
             'integrity':'consistent','authorship_verified':False,'semantic_verified':False,

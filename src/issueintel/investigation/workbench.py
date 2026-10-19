@@ -137,6 +137,8 @@ class Workbench:
         self.questions=QuestionJobs(self)
         from .check_plan_jobs import CheckPlanJobs
         self.check_plans=CheckPlanJobs(self)
+        from .claim_review_jobs import ClaimReviewJobs
+        self.claim_reviews=ClaimReviewJobs(self)
         from .check_observations import CheckObservationStore
         self.observation_journals=CheckObservationStore(self.directory/'plans.sqlite')
         from .check_followups import CheckFollowups
@@ -255,7 +257,7 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
-            if row.get('mode') in {'version_comparison','adaptive_questions','release_check','check_plan'}:
+            if row.get('mode') in {'version_comparison','adaptive_questions','release_check','check_plan','claim_review'}:
                 continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
@@ -392,6 +394,14 @@ class Workbench:
     def check_plan_bundle(self,identifier):return self.check_plans.bundle(identifier)
 
     def check_plan_export(self,identifier,format='json'):return self.check_plans.export(identifier,format)
+
+    def submit_claim_review(self,request):return self.claim_reviews.submit(request)
+
+    def claim_review_history(self,identifier):return self.claim_reviews.history(identifier)
+
+    def claim_review_bundle(self,identifier):return self.claim_reviews.bundle(identifier)
+
+    def claim_review_export(self,identifier,format='json'):return self.claim_reviews.export(identifier,format)
 
     def check_observations(self,identifier,request=None):
         plan=self.check_plan_bundle(identifier)

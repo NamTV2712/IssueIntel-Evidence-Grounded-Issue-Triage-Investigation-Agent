@@ -6,7 +6,7 @@
   const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
   const job=value=>typeof value==='string'&&/^[a-f0-9]{24}$/.test(value);
   let active=null;
-  const kinds={investigation:'Phiên điều tra',check_plan:'Kế hoạch phân biệt',check_observation:'Quan sát cho kế hoạch',report_observation:'Quan sát cho báo cáo',hypothesis_link:'Liên kết giả thuyết tự báo'};
+  const kinds={investigation:'Phiên điều tra',check_plan:'Kế hoạch phân biệt',check_observation:'Quan sát cho kế hoạch',report_observation:'Quan sát cho báo cáo',hypothesis_link:'Liên kết giả thuyết tự báo',claim_review:'Kiểm chứng từng nhận định'};
   const comparisons={matches_prediction:'Khớp nhãn dự đoán',conflicts_with_prediction:'Trái nhãn dự đoán',undetermined:'Chưa phân biệt được'};
   const revisions={unknown_commit:'Chưa biết commit đã thử',same_analysis_commit:'Cùng commit phân tích',different_commit:'Khác commit phân tích'};
   const relations={retained:'Giữ lại',refined:'Điều chỉnh',new:'Giả thuyết mới',not_carried:'Không mang sang'};
@@ -204,6 +204,7 @@
     area.append(list);
     if(!value.transitions.length)area.append(node('p',t('Chưa có cặp phiên cha–con hoàn tất để đối chiếu.'),'notice'));
     for(const transition of value.transitions)area.append(transitionCard(binding,transition,runs));
+    if(value.claim_reviews?.length)area.append(detail('Các bản kiểm chứng nhận định đã lưu',value.claim_reviews));
     area.append(detail('Định danh và hash hồ sơ',{source:value.source,sha256:value.sha256,links_sha256:value.hypothesis_links.sha256}));
   }
   function render(target,id,expected){

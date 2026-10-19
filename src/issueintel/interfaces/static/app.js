@@ -88,6 +88,7 @@ async function submit(event) {
   event?.preventDefault();await runJob(requestInput());
 }
 async function runJob(request,existingJob=null) {
+  window.IssueIntelClaimReview?.cancel();
   if($('run-button').disabled)return;
   window.IssueIntelFinalization?.show(null);
   window.IssueIntelDossier?.cancel();
@@ -114,6 +115,7 @@ async function runJob(request,existingJob=null) {
   finally {activeJob=null;$('run-button').disabled=false;$('followup-button').disabled=false;$('cancel-button').hidden=true;await history();}
 }
 async function openJob(id) {
+  window.IssueIntelClaimReview?.cancel();
   const generation=++viewGeneration;
   window.IssueIntelDossier?.cancel();
   window.IssueIntelFinalization?.show(null);
@@ -203,6 +205,7 @@ function restorePlanDrafts(drafts) {
   }
 }
 function renderTab() {
+  window.IssueIntelClaimReview?.cancel();
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();window.IssueIntelProductChecks?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
@@ -327,6 +330,8 @@ function renderTab() {
     if(pack.annotation?.abstention) content.append(node('p','Abstention: '+t(pack.annotation.abstention.label)+' — '+pack.annotation.abstention.reason,'notice'));
   }
   if(activeTab==='verification') {
+    const claims=node('div');content.append(claims);window.IssueIntelClaimReview?.render(claims,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
+    content.append(node('h3',t('Nhận xét toàn giả thuyết đã lưu')));
     content.append(node('p',t("Citation hợp lệ không đồng nghĩa đã chứng minh nguyên nhân. Critique bằng model được báo riêng với kiểm người."),'notice'));
     for(const review of pack.verification?.reviews || []) {const card=node('article',undefined,'hypothesis-card');card.append(node('h3',review.hypothesis_id+' · '+t(review.assessment)),node('p',review.reason),...review.evidence_ids.map(citation));content.append(card);}
     if(!pack.verification)content.append(node('p',t("Chưa có verifier pass cho lần điều tra này."),'notice'));

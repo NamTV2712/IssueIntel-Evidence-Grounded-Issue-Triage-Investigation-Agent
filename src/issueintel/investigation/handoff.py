@@ -39,7 +39,7 @@ def _viewer(selection):
                 body.append('<details><summary>'+esc(evidence['id']+' · '+evidence['locator'])+'</summary><small>'+esc(evidence['revision'])+'</small><pre>'+esc(evidence['text'])+'</pre></details>')
         else:body.append('<p>Source job metadata only; no completed report is asserted.</p>')
         body.append('</article>')
-    for key in ('plans','observations','transitions','timeline','hypothesis_links','warnings'):
+    for key in ('plans','observations','claim_reviews','transitions','timeline','hypothesis_links','warnings'):
         body.append('<details><summary>'+esc(key)+'</summary><pre>'+esc(_json(selection[key]).decode())+'</pre></details>')
     body.append('<p>Selection SHA256: <small>'+esc(selection['sha256'])+'</small></p></html>')
     return ''.join(body).encode()
@@ -72,6 +72,7 @@ class Handoffs:
         selection=_sealed({'schema':'issueintel_handoff_selection_v1','source':source,'issue':dossier['issue'],
             'requested_job_ids':sorted(request['job_ids']),'runs':chosen,
             'plans':[r for r in dossier['plans'] if r['source_job_id'] in included],
+            'claim_reviews':[r for r in dossier['claim_reviews'] if r['source_job_id'] in included],
             'observations':[r for r in dossier['observations'] if any(p['plan_job_id']==r['plan_job_id'] and p['source_job_id'] in included for p in dossier['plans'])],
             'transitions':[r for r in dossier['transitions'] if r['parent_job_id'] in included and r['child_job_id'] in included],
             'timeline':[r for r in dossier['timeline'] if r['job_id'] in included and (r['kind']!='hypothesis_link' or r['event']['relation']['parent_job_id'] in included)],

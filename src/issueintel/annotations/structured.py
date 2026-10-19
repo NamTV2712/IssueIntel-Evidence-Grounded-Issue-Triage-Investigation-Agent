@@ -100,6 +100,10 @@ def _validate_wire_schema(value, schema, path="response"):
             raise AnnotationError(f"{path} is outside its allowed enum")
         if len(value) < schema.get('minLength', 0) or len(value) > schema.get('maxLength', len(value)):
             raise AnnotationError(f"{path} has invalid string length")
+    elif kind == "integer":
+        if (type(value) is not int or value < schema.get('minimum', value)
+                or value > schema.get('maximum', value)):
+            raise AnnotationError(f"{path} must be an integer within its declared bounds")
     else:
         raise AnnotationError("Unsupported local output schema type")
 
