@@ -22,6 +22,16 @@ async function api(path, body) {
   if (!response.ok) throw new Error(t('Lỗi yêu cầu. Kiểm tra đầu vào hoặc dữ liệu cục bộ.'));
   return data;
 }
+async function downloadHandoff(id,request,preview,isCurrent){
+  const response=await fetch('/api/jobs/'+id+'/handoff-export',{method:'POST',headers:{'X-IssueIntel-Token':token,'Content-Type':'application/json'},body:JSON.stringify(request)});
+  if(!response.ok||response.headers.get('X-IssueIntel-Dossier-SHA256')!==preview.source.dossier_sha256)throw Error('Handoff source changed');
+  const bytes=await response.arrayBuffer();
+  const checksum=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
+  if(checksum!==preview.archive_sha256||bytes.byteLength!==preview.archive_bytes)throw Error('Handoff bytes changed');
+  if(!isCurrent())return false;
+  const url=URL.createObjectURL(new Blob([bytes],{type:'application/zip'})),link=node('a');link.href=url;link.download='issueintel-'+id+'-handoff.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  return true;
+}
 function node(tag, text, className) { const el = document.createElement(tag); if(text !== undefined) el.textContent = text; if(className) el.className = className; return el; }
 function message(text, error=false) {lastMessage={key:window.IssueIntelUI.sourceKey(text),error};$('message').textContent=text;$('message').className=error?'error':'';}
 function updateTypesafeControls() {

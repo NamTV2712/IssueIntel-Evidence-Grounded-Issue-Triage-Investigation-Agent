@@ -95,6 +95,51 @@
     return area;
   }
   const deepDraft=value=>JSON.parse(JSON.stringify(value));
+  function handoffControls(binding){
+    const entry=binding.entry,value=entry.data,area=node('details',undefined,'dossier-link-form');
+    area.append(node('summary',t('Gói bàn giao ngoại tuyến')));
+    area.open=entry.handoffOpen===true;area.ontoggle=()=>{entry.handoffOpen=area.open;};
+    area.append(node('p',t('Chọn phiên cần gửi; phiên cha bắt buộc sẽ được thêm. Gói chứa nội dung issue, code và quan sát riêng tư. Chưa gửi dữ liệu ra ngoài.'),'notice'));
+    if(!entry.handoffJobs)entry.handoffJobs=[binding.job];
+    const choices=node('fieldset');choices.append(node('legend',t('Phiên được chọn')));
+    for(const run of value.runs.filter(row=>row.report)){
+      const check=node('input');check.type='checkbox';check.checked=entry.handoffJobs.includes(run.job_id);check.disabled=run.job_id===binding.job;
+      check.onchange=()=>{entry.handoffJobs=check.checked?[...entry.handoffJobs,run.job_id]:entry.handoffJobs.filter(id=>id!==run.job_id);entry.handoffPreview=null;paint(binding);};
+      const row=node('label',undefined,'dossier-reference');row.append(check,node('span',run.job_id+' · '+run.depth+' / '+run.provider));choices.append(row);
+    }
+    area.append(choices);
+    const selection=()=>({source_pack_sha256:binding.pack,dossier_sha256:entry.data.sha256,job_ids:[...entry.handoffJobs].sort()});
+    const preview=button('Xem trước nội dung và dung lượng',async()=>{
+      if(!current(binding)||entry.handoffBusy)return;
+      const selected=selection();entry.handoffOpen=true;entry.handoffBusy=true;entry.error=null;preview.disabled=true;
+      try{
+        const result=await api('/api/jobs/'+binding.job+'/handoff-preview',selected);
+        if(result.schema!=='issueintel_handoff_preview_v1'||!sha(result.sha256)||!sha(result.archive_sha256)
+          ||result.source?.selected_job_id!==binding.job||result.source?.selected_pack_sha256!==binding.pack
+          ||result.source?.dossier_sha256!==selected.dossier_sha256||result.model_calls!==0
+          ||result.contains_private_content!==true||!Array.isArray(result.entries)||!Number.isSafeInteger(result.archive_bytes))throw Error('Unbound handoff');
+        if(JSON.stringify(selection())===JSON.stringify(selected))entry.handoffPreview={value:result,selection:selected};
+      }catch(_){entry.error='Chưa xem trước được gói. Tải lại hồ sơ nếu nguồn đã đổi.';}
+      finally{entry.handoffBusy=false;if(active?.entry===entry)paint(active);}
+    });preview.disabled=entry.handoffBusy;area.append(preview);
+    const saved=entry.handoffPreview;
+    if(saved&&saved.selection.dossier_sha256===value.sha256){
+      const p=saved.value;area.append(node('p',t('Dung lượng ZIP')+': '+p.archive_bytes.toLocaleString()+' bytes · '+t('Dung lượng giải nén')+': '+p.uncompressed_bytes.toLocaleString()+' bytes'));
+      area.append(node('p',t('Phiên cha tự thêm')+': '+(p.automatic_ancestor_job_ids.join(', ')||'0'),'hash-note'));
+      area.append(detail('Danh sách file và hash',p.entries),node('p','ZIP SHA256: '+p.archive_sha256,'hash-note'));
+      const save=button('Xác nhận xuất gói riêng tư đã chọn',async()=>{
+        if(!current(binding)||entry.handoffBusy||entry.handoffPreview!==saved)return;
+        entry.handoffBusy=true;save.disabled=true;
+        try{if(await downloadHandoff(binding.job,{selection:saved.selection,preview_sha256:p.sha256,confirmation:'export_selected_private_handoff'},p,
+          ()=>current(binding)&&entry.handoffPreview===saved))entry.handoffExported=p.archive_sha256;}
+        catch(_){entry.error='Chưa xuất được gói khớp preview. Xem trước lại trước khi thử lại.';}
+        finally{entry.handoffBusy=false;if(active?.entry===entry)paint(active);}
+      });save.disabled=entry.handoffBusy;area.append(save);
+      if(entry.handoffExported===p.archive_sha256){const status=node('p',t('Đã kiểm hash ZIP và yêu cầu trình duyệt tải gói.'),'notice');status.setAttribute('role','status');area.append(status);}
+      area.append(node('p',t('Giữ SHA256 ZIP để bên nhận kiểm tra. Mở index.html để đọc; chạy verify.py hoặc verify-handoff để kiểm hash. Hash không xác minh nguyên nhân hay tác giả.'),'notice'));
+    }
+    return area;
+  }
   function hypotheses(run,label){
     const column=node('section');column.append(node('h4',t(label)));
     if(!run.report.hypotheses.length)column.append(node('p',t('Phiên này chỉ truy xuất bằng chứng.'),'notice'));
@@ -142,6 +187,7 @@
     area.append(node('p',value.issue.repository+(value.issue.issue_url?' · '+value.issue.issue_url:''),'hash-note'),
       node('p',t('Diễn giải thủ công, quan sát tự báo và dự đoán model chưa xác minh nguyên nhân.'),'notice'));
     if(value.warnings.length)area.append(detail('Nguồn chưa đọc lại được',value.warnings));
+    area.append(handoffControls(binding));
     const list=node('ol',undefined,'dossier-timeline');
     for(const event of value.timeline){
       const run=runs.get(event.job_id),row=node('li');

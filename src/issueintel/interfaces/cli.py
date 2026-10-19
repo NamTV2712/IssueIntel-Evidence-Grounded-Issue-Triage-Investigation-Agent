@@ -15,6 +15,9 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="Counts, integrity, pending layers and budget")
+    handoff = commands.add_parser('verify-handoff', help='Verify a portable handoff offline without Git, credentials or model calls')
+    handoff.add_argument('archive',type=Path)
+    handoff.add_argument('--expected-sha256')
     commands.add_parser("bootstrap", help="Download pinned SWE-bench sources and import cases")
     web = commands.add_parser("serve", help="Run the read-only local investigation workbench")
     web.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
@@ -135,6 +138,9 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command=='verify-handoff':
+        from issueintel.investigation.portable_verify import main as verify_handoff
+        return verify_handoff([str(args.archive)]+(['--expected-sha256',args.expected_sha256] if args.expected_sha256 else []))
     load_local_env(args.root / ".env")
     try:
         if args.command in {"connect-repository", "pause-repository", "github-connections"}:

@@ -282,6 +282,13 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 elif route.startswith('/api/jobs/') and route.endswith('/dossier-links'):
                     if len(route.split('/'))!=5:raise ValueError('Invalid dossier relation route')
                     self._json(200,workbench.dossier_link(route.split('/')[3],request))
+                elif route.startswith('/api/jobs/') and route.endswith('/handoff-preview'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid handoff preview route')
+                    self._json(200,workbench.handoff_preview(route.split('/')[3],request))
+                elif route.startswith('/api/jobs/') and route.endswith('/handoff-export'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid handoff export route')
+                    preview,data=workbench.handoff_export(route.split('/')[3],request)
+                    self._send(200,data,'application/zip',download='issueintel-handoff.zip',dossier_sha256=preview['source']['dossier_sha256'])
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid plan request')

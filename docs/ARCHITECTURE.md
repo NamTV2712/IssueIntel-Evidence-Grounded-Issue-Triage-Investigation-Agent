@@ -14,6 +14,21 @@ mô tả cổng pilot, stage exceptions, failure/resume và giới hạn nhãn.
 
 ## Pipeline chung
 
+`investigation.handoff.Handoffs` xuất một selection riêng từ dossier đã replay,
+giữ pack bytes/report bindings, tự thêm ancestry và chỉ lấy checkpoint recovery
+được con tham chiếu. Không sao chép folder job, database, `.env` hoặc Git cache.
+Preview khóa dossier, lựa chọn, SHA ZIP và dung lượng; export tái dựng deterministic
+ZIP rồi so đúng preview. Source/journal đổi thì từ chối. HTTP POST giữ session/
+Origin guards; browser kiểm header, byte size và SHA256 trước download, chặn stale.
+HTML tĩnh escape nội dung, CSP không script/network; giữ cảnh báo chưa kiểm hash.
+`portable_verify.py` dùng thư viện chuẩn, được chép vào ZIP làm `verify.py` và
+dùng chung bởi CLI `verify-handoff` (không load env). Verifier không extract hoặc
+execute bundle, giới hạn 512 file/100 MB, từ chối path/link/duplicate/entry lạ,
+kiểm manifest, nguồn report/pack/excerpt/ancestor/recovery. Kết quả chỉ khẳng định
+included-byte consistency, không full Git replay, authorship hay semantic truth.
+SHA ZIP phải trao qua kênh tin cậy nếu cần đối chiếu bên gửi; manifest tự hash
+không phải chữ ký. Private bundles ở ignored artifacts/downloads, không vào CI.
+
 ```mermaid
 flowchart LR
     A[CLI hoặc giao diện local] --> B[Public case boundary]

@@ -411,13 +411,15 @@ gửi, chặn late response và không gọi model khi đọc/lưu/export.
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
-nghiệm thu tương ứng. Tạo GitHub issues hiện bị HTTP 403 ở cả connector và token
-local; các mã được theo dõi tại đây đến khi có quyền Issues trên repository.
+nghiệm thu tương ứng. Sau khi tác giả cấp quyền Issues, đã tạo đủ 17 GitHub issue
+ngày 19/10/2026: D01–D13 tương ứng #1–#13, V01–V04 tương ứng #14–#17 tại
+[backlog GitHub](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues).
+D01 đã đóng với commit `c3f764e` và CI thành công; mục chưa nghiệm thu vẫn mở.
 
 | Mã | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
 |---|---|---|---|
 | D01 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
-| D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Chưa triển khai |
+| D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Chưa triển khai |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Chưa triển khai |

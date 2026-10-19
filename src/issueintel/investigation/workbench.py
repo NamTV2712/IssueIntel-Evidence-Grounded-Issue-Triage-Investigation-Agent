@@ -412,6 +412,14 @@ class Workbench:
 
     def dossier_link(self,identifier,request):return self.dossiers.append_link(identifier,request)
 
+    def handoff_preview(self,identifier,request):
+        from .handoff import Handoffs
+        return Handoffs(self).preview(identifier,request)
+
+    def handoff_export(self,identifier,request):
+        from .handoff import Handoffs
+        return Handoffs(self).export(identifier,request)
+
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source
         pack,raw,depth=self._load_pack(identifier)

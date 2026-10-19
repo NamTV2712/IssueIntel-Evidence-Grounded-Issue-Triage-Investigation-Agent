@@ -96,7 +96,15 @@ Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã l�
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.
 Tab **Hồ sơ issue / Issue dossier** gom các phiên cùng issue, kế hoạch, quan sát
-và đính chính thành dòng thời gian. Phiên con giữ chính xác quan sát đã dùng;
+và đính chính thành dòng thời gian. Trong tab này, **Gói bàn giao ngoại tuyến**
+cho chọn phiên, tự thêm tổ tiên bắt buộc và xem preview file/hash/dung lượng
+trước khi xác nhận tải ZIP riêng tư. Gói gồm báo cáo, pack nguồn, excerpt,
+kế hoạch/quan sát/lineage đã chọn, HTML đọc offline và `verify.py` dùng Python
+chuẩn. Bên nhận có thể kiểm bằng `python verify.py bundle.zip --expected-sha256
+SHA` hoặc `python -m issueintel verify-handoff bundle.zip --expected-sha256 SHA`.
+Không cần token, Git cache, full repo hoặc model. Trang HTML không tự kiểm hash;
+hash chỉ kiểm tính nhất quán, không xác thực tác giả hoặc nguyên nhân lỗi.
+Phiên con giữ chính xác quan sát đã dùng;
 bảng A/B chỉ đối chiếu nhãn tự báo với dự đoán model, ghi riêng commit đã thử
 và đính chính về sau. Hai giả thuyết cùng ID không tự được ghép. Người dùng có
 thể ghi liên kết giữ lại/điều chỉnh/mới/không mang sang, kèm lý do và citation;

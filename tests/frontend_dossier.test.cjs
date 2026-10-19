@@ -15,20 +15,48 @@ function data(){
    prediction_delta:[{observation_id:'observation_1',check_id:'check_1',hypothesis_id:'h0',predicted_outcome:'A',reported_outcome:'A',comparison:'matches_prediction',revision_applicability:'unknown_commit',superseded_later:false}]}]};
 }
 function boot(handler){
- const calls=[],dispatched=[],downloads=[],language={value:'vi'};
+ const calls=[],dispatched=[],downloads=[],handoffs=[],language={value:'vi'};
  class Element{constructor(tag){this.tag=tag;this.children=[];this.textContent='';this.attributes={};this.isConnected=true;this.value='';this.checked=false;this.disabled=false;}
  append(...values){this.children.push(...values);}replaceChildren(...values){this.children=values;}setAttribute(key,value){this.attributes[key]=value;}click(){downloads.push(this.download||'clicked');}set innerHTML(_){throw Error('Unsafe HTML');}}
  const all=e=>[e,...e.children.flatMap(all)],text=e=>e.textContent+' '+e.children.map(text).join(' ');
  const target=new Element('div');let context={window:{IssueIntelUI:{t:(key,vars={})=>{assert.ok(messages[key]?.[language.value],'Missing translation '+key);return messages[key][language.value].replace(/\{(\w+)\}/g,(_,key)=>vars[key]);}}},
   document:{createElement:tag=>new Element(tag),dispatchEvent:event=>dispatched.push(event)},
   CustomEvent:class{constructor(type,init){this.type=type;this.detail=init.detail;}},api:async(route,body)=>{calls.push([route,body]);return handler?handler(route,body):data();},
+  downloadHandoff:async(...args)=>{handoffs.push(args);return true;},
   URL:{createObjectURL:blob=>{downloads.push(blob);return 'blob:test';},revokeObjectURL:()=>{}},Blob:class{constructor(parts){this.parts=parts;}},setTimeout:fn=>fn()};
  vm.runInNewContext(code,context);
  const render=(id=selected,bound=expected)=>context.window.IssueIntelDossier.render(target,id,bound);
  const button=label=>all(target).find(e=>e.tag==='button'&&e.textContent===label),form=()=>all(target).find(e=>e.tag==='form');
  const fill=()=>{const elements=all(form()),why=elements.find(e=>e.tag==='textarea'),ref=elements.find(e=>e.tag==='input');why.value='Observed label aligns with the saved proposal; still unverified.';why.oninput();ref.checked=true;ref.onchange();};
- return {target,context,all,text,language,calls,dispatched,downloads,render,button,form,fill,cancel:()=>context.window.IssueIntelDossier.cancel(),flush:async()=>{for(let i=0;i<5;i++)await Promise.resolve();}};
+ return {target,context,all,text,language,calls,dispatched,downloads,handoffs,render,button,form,fill,cancel:()=>context.window.IssueIntelDossier.cancel(),flush:async()=>{for(let i=0;i<5;i++)await Promise.resolve();}};
 }
+
+function previewData(){return {schema:'issueintel_handoff_preview_v1',sha256:sha('a'),archive_sha256:sha('b'),archive_bytes:1200,uncompressed_bytes:9000,
+ source:{selected_job_id:selected,selected_pack_sha256:expected.pack_sha256,dossier_sha256:sha('9')},model_calls:0,contains_private_content:true,entries:[],automatic_ancestor_job_ids:[parent]};}
+
+test('handoff requires explicit preview and export bound to selected dossier and source',async()=>{
+ const app=boot(route=>route.endsWith('/handoff-preview')?previewData():data());app.render();await app.flush();
+ assert.equal(app.button('Xác nhận xuất gói riêng tư đã chọn'),undefined);
+ await app.button('Xem trước nội dung và dung lượng').onclick();
+ assert.match(app.text(app.target),/1[,.]200 bytes/);assert.equal(app.calls.length,2);
+ assert.deepEqual(JSON.parse(JSON.stringify(app.calls[1][1])),{source_pack_sha256:expected.pack_sha256,dossier_sha256:sha('9'),job_ids:[selected]});
+ await app.button('Xác nhận xuất gói riêng tư đã chọn').onclick();assert.equal(app.handoffs.length,1);
+ assert.equal(app.handoffs[0][1].confirmation,'export_selected_private_handoff');assert.equal(app.handoffs[0][1].preview_sha256,sha('a'));
+ assert.equal(app.handoffs[0][3](),true);app.cancel();assert.equal(app.handoffs[0][3](),false);
+});
+test('changing selected runs invalidates handoff preview and never submits export',async()=>{
+ const app=boot(route=>route.endsWith('/handoff-preview')?previewData():data());app.render();await app.flush();await app.button('Xem trước nội dung và dung lượng').onclick();
+ const control=app.all(app.target).find(e=>e.tag==='input'&&e.type==='checkbox'&&!e.disabled);control.checked=true;control.onchange();
+ assert.equal(app.button('Xác nhận xuất gói riêng tư đã chọn'),undefined);assert.equal(app.handoffs.length,0);
+});
+test('late or mismatched handoff preview cannot export another selected source',async()=>{
+ for(const change of [p=>p.source.selected_job_id=parent,p=>p.source.dossier_sha256=sha('1'),p=>p.model_calls=1]){
+  const app=boot(route=>{if(route.endsWith('/handoff-preview')){const p=previewData();change(p);return p;}return data();});
+  app.render();await app.flush();await app.button('Xem trước nội dung và dung lượng').onclick();assert.equal(app.button('Xác nhận xuất gói riêng tư đã chọn'),undefined);
+ }
+ let finish;const app=boot(route=>route.endsWith('/handoff-preview')?new Promise(resolve=>finish=resolve):data());app.render();await app.flush();
+ const pending=app.button('Xem trước nội dung và dung lượng').onclick();app.cancel();app.target.replaceChildren();finish(previewData());await pending;assert.equal(app.target.children.length,0);
+});
 
 test('dossier reads once, renders prediction limits and uses inert source text',async()=>{
  const app=boot();app.render();await app.flush();assert.equal(app.calls.length,1);assert.equal(app.calls[0][0],'/api/jobs/'+selected+'/dossier');
