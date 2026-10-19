@@ -143,6 +143,8 @@ class Workbench:
         self.check_followups=CheckFollowups(self)
         from .finalization_jobs import FinalizationJobs
         self.finalizations=FinalizationJobs(self)
+        from .dossier import Dossiers
+        self.dossiers=Dossiers(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
@@ -405,6 +407,10 @@ class Workbench:
         return content.encode('utf-8'),plan['source']['report_sha256'],plan['sha256'],journal['sha256']
 
     def submit_check_followup(self,request):return self.check_followups.submit(request)
+
+    def dossier(self,identifier):return self.dossiers.build(identifier)
+
+    def dossier_link(self,identifier,request):return self.dossiers.append_link(identifier,request)
 
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source

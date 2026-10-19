@@ -25,6 +25,8 @@ STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
 STATIC['/resume.js'] = ('resume.js', 'text/javascript; charset=utf-8')
 STATIC['/finalization.js'] = ('finalization.js', 'text/javascript; charset=utf-8')
 STATIC['/finalization.css'] = ('finalization.css', 'text/css; charset=utf-8')
+STATIC['/dossier.js'] = ('dossier.js', 'text/javascript; charset=utf-8')
+STATIC['/dossier.css'] = ('dossier.css', 'text/css; charset=utf-8')
 STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
@@ -49,8 +51,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None):
-            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -70,6 +72,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Check-Plan-SHA256',check_plan_sha256)
             if observations_sha256 is not None:
                 self.send_header('X-IssueIntel-Check-Observations-SHA256',observations_sha256)
+            if dossier_sha256 is not None:
+                self.send_header('X-IssueIntel-Dossier-SHA256',dossier_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -147,6 +151,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._send(200, workbench.release_bytes(parts[0]), 'application/json; charset=utf-8', download='releases.json')
                     elif len(parts) == 2 and parts[1] == 'intake':
                         self._json(200, workbench.intake(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'dossier','dossier.json'}:
+                        value=workbench.dossier(parts[0])
+                        self._send(200,(json.dumps(value,ensure_ascii=False,sort_keys=True,indent=2)+'\n').encode(),
+                                   download='dossier.json' if parts[1].endswith('.json') else None,dossier_sha256=value['sha256'])
                     elif len(parts)==2 and parts[1] in {'investigation-report.json','investigation-report.md'}:
                         format='json' if parts[1].endswith('.json') else 'md'
                         self._send(200,workbench.report_bytes(parts[0],format),
@@ -271,6 +279,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 elif route.startswith('/api/jobs/') and route.endswith('/check-observations'):
                     if len(route.split('/'))!=5:raise ValueError('Invalid observation journal route')
                     self._json(200,workbench.check_observations(route.split('/')[3],request))
+                elif route.startswith('/api/jobs/') and route.endswith('/dossier-links'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid dossier relation route')
+                    self._json(200,workbench.dossier_link(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid plan request')

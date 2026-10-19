@@ -380,3 +380,59 @@ Write adapter pin API version `2026-03-10`, kiểm HTTP 201, exact body và comm
 URL/ID từ response. Nguồn đã đối chiếu ngày 14/10/2026:
 [Create issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
 và [Webhook validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).
+
+## Hồ sơ xuyên suốt issue (D01 — F05/F07/F14)
+
+`GET /api/jobs/<id>/dossier` và `.../dossier.json` dựng hồ sơ từ những product
+runs cùng GitHub issue hoặc cùng local repository/query gốc; không giới hạn ở
+50 job gần nhất của danh sách lịch sử. Source job được chọn phải hoàn tất và
+qua product authority replay. Phiên lỗi/chưa xong chỉ có metadata; nguồn khác
+không đọc lại được xuất hiện trong warnings, không được diễn giải thành kết quả.
+Source recovery failed có thể chưa từng có pack; child finalization giữ nguyên
+case/stage gốc và vẫn nằm trong timeline. Main Dev/benchmark bị từ chối.
+
+Timeline gom run, saved plan, report/check-plan observations và corrections.
+Transition giữ hai report bindings, evidence diff và chính receipt quan sát
+đã dùng cho child. Bảng chỉ so reported A/B với model prediction A/B/unknown:
+matches/conflicts/undetermined không phải semantic correctness hay causal proof.
+Commit tự báo được phân biệt unknown/same/different; correction mới không sửa
+receipt hoặc ma trận lịch sử của child. Không tự ghép hypothesis theo ID.
+
+`POST /api/jobs/<id>/dossier-links` nhận `source_pack_sha256`, `expected_sha256`
+của hypothesis-link journal và `relation`: parent/child job, nullable hypothesis
+IDs, kind retained/refined/new/not_carried, reason, 1–12 exact evidence refs,
+nullable supersedes. Chỉ nối parent-child đã replay trong cùng hồ sơ; state
+SQLite tối đa 200 events với optimistic transaction, source binding và append-only
+correction. Diễn giải giữ user_report_unverified; không là independent human
+validation hoặc kết luận lỗi đã sửa. UI giữ draft khi đổi view/ngôn ngữ hoặc lỗi
+gửi, chặn late response và không gọi model khi đọc/lưu/export.
+
+## Backlog được tác giả yêu cầu ngày 19/10/2026
+
+Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
+công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
+nghiệm thu tương ứng. Tạo GitHub issues hiện bị HTTP 403 ở cả connector và token
+local; các mã được theo dõi tại đây đến khi có quyền Issues trên repository.
+
+| Mã | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
+|---|---|---|---|
+| D01 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
+| D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Chưa triển khai |
+| D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Chưa triển khai |
+| D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
+| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Chưa triển khai |
+| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Chưa triển khai |
+| D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
+| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |
+| D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
+| D10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
+| D11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
+| D12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
+| D13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
+| V01 | Validation | Diagnostic accepted Main Dev: pinned comparative retrieval/graph/history/verifier/counter-search, localization/grounding/cost/latency. Giữ pilot và gold boundaries. | Chưa nghiệm thu; tái dùng diagnostic hợp lệ khi phù hợp |
+| V02 | Validation | Đo usefulness của câu hỏi/checks theo rubric; phân biệt model/user reports/human review và giới hạn nhãn. | Chưa nghiệm thu |
+| V03 | Validation | So Jev/rules cùng công cụ/model/budget, decision/output quality, fallback/latency/USD. | Cần cấu hình và quyền chi tiêu Typesafe riêng; 4 smoke calls không cấp quyền tiếp |
+| V04 | Validation | Pin phiên bản/protocol; explicit recorded authorization + open_test_split trước Holdout; Live đủ temporal proof mới được nhận. | Chưa mở; không tuning test/live hoặc chờ đủ 400 để phát triển product |
+
+Thứ tự ưu tiên: D01 → D02 → D03 → D05 → D06 → D08. D04 chạy khi có cấu hình
+thật; D09–D13 và các diagnostic được triển khai/nghiệm thu theo dependencies.

@@ -118,6 +118,17 @@ Admission dùng policy hiện tại, bản đã hoàn tất dùng policy đượ
 recertify theo code mới. Product authority traversal không đòi pack nguồn đã
 export; benchmark/Planned/follow-up và quyền GitHub write không đi qua luồng này.
 
+`investigation.dossier.Dossiers` dựng timeline từ các product jobs cùng định danh
+issue, kiểm original request với original case/stage và replay từng report trước
+khi đưa vào hồ sơ. Jobs chưa xong chỉ là metadata, nguồn lỗi được ghi rõ; Main
+Dev/strict và lineage benchmark bị chặn. Mỗi transition giữ hai pack/report
+bindings và receipt quan sát lịch sử của child, so nhãn A/B với dự đoán saved
+plan; commit không biết/khác commit và later correction vẫn tách riêng. Không
+suy ra semantic correspondence từ ID giống nhau. Liên kết giả thuyết do người
+dùng ghi vào `dossiers.sqlite` với exact evidence refs, lý do, hash chain và
+expected SHA; correction append-only, mọi truth flags vẫn unverified. Đọc/xuất
+không dùng Git/provider/config; source hay policy benchmark không bị sửa.
+
 `investigation.adaptive_clarifications` thêm câu hỏi riêng dựa trên public issue,
 evidence và hypotheses đã lưu, với prompt v1/hash và bilingual structured output.
 Mỗi câu trỏ tới ít nhất hai hypothesis ID và một code citation; validation kiểm

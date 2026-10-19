@@ -80,6 +80,7 @@ async function submit(event) {
 async function runJob(request,existingJob=null) {
   if($('run-button').disabled)return;
   window.IssueIntelFinalization?.show(null);
+  window.IssueIntelDossier?.cancel();
   const finalizing=request.mode==='finalization';
   try {
     stageView=null;$('stage-artifacts').hidden=true;
@@ -104,6 +105,7 @@ async function runJob(request,existingJob=null) {
 }
 async function openJob(id) {
   const generation=++viewGeneration;
+  window.IssueIntelDossier?.cancel();
   window.IssueIntelFinalization?.show(null);
   window.IssueIntelHypothesisReview?.cancel();
   window.IssueIntelCheckJournal?.cancel();
@@ -196,6 +198,9 @@ function renderTab() {
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
     pack_sha256:intake?.source_pack_sha256,commit_sha:pack.snapshot.commit_sha,
     snapshot_sha256:pack.snapshot.snapshot_sha256,query_sha256:intake?.query_sha256});
+  window.IssueIntelDossier?.cancel();
+  if(activeTab==='dossier')window.IssueIntelDossier?.render(content,currentJob,{
+    available:intake?.check_journal_available===true,pack_sha256:intake?.source_pack_sha256,report_sha256:reportView?.sha256});
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan')window.IssueIntelProductChecks?.render(content,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
@@ -526,6 +531,9 @@ document.addEventListener('issueintel:checkfollowupcreated',event=>{
 document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;
   activeTab='evidence';renderTab();document.getElementById('evidence-'+event.detail.evidence_id)?.scrollIntoView({behavior:'smooth',block:'center'});
+});
+document.addEventListener('issueintel:dossieropen',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail?.job_id))openJob(event.detail.job_id).catch(error=>message(error.message,true));
 });
 loadTypesafeStatus();
 (async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();

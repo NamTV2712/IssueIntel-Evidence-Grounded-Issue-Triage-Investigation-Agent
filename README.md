@@ -95,6 +95,12 @@ chỉ hỗ trợ product Quick/Deep, giữ nguyên generation/verifier và khôn
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.
+Tab **Hồ sơ issue / Issue dossier** gom các phiên cùng issue, kế hoạch, quan sát
+và đính chính thành dòng thời gian. Phiên con giữ chính xác quan sát đã dùng;
+bảng A/B chỉ đối chiếu nhãn tự báo với dự đoán model, ghi riêng commit đã thử
+và đính chính về sau. Hai giả thuyết cùng ID không tự được ghép. Người dùng có
+thể ghi liên kết giữ lại/điều chỉnh/mới/không mang sang, kèm lý do và citation;
+đính chính append-only. Mở lại và xuất hồ sơ JSON không gọi model hoặc Git.
 Thanh đầu trang hỗ trợ **Tiếng Việt / English** và **sáng / tối / theo hệ thống**,
 nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc dịch nội dung nguồn.
 Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form
