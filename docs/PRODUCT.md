@@ -63,8 +63,14 @@ Kiểm tra phân biệt giả thuyết đã được nối vào tab **Kế hoạ
 mỗi nguồn có một tác vụ bền vững, tối đa hai call kể cả một lần sửa output.
 Kế hoạch là phần bổ sung riêng gắn pack/report/query/snapshot/annotation bằng
 hash; JSON/Markdown và UI đọc cùng nội dung, mở lại không gọi API hoặc Git.
-Report v1, pack và nhật ký cũ giữ nguyên. Nhật ký hiện ghi các bước của report
-gốc; chưa ghi quan sát cho check bổ sung hoặc tự đưa quan sát vào model.
+Report v1, pack và nhật ký cũ giữ nguyên. Kế hoạch bổ sung có nhật ký riêng,
+ghi điều kiện/kết quả/diễn giải/commit tự báo và đính chính append-only.
+Chọn tối đa ba quan sát đang hiệu lực để chủ động tạo child investigation,
+offline mặc định hoặc bật Groq riêng. Nguồn journal revision/hash, selected
+events và toàn bộ check/predictions được khóa; later correction không viết lại
+child cũ. Phiên con truy xuất lại code cùng commit phân tích; commit tự báo
+được giữ riêng, không dùng để chuyển snapshot. Không tự đánh giá quan sát là
+đúng hoặc kết luận giả thuyết được hỗ trợ/phản bác.
 Main Dev/strict/nguồn có lineage benchmark không được dùng tính năng này.
 
 Lõi CLI diagnostic dùng chung quy tắc chọn theo asserted separation.
@@ -137,6 +143,9 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs/<source-id>/check-plans`: khả năng sử dụng và tác vụ kế hoạch bổ sung của đúng pack nguồn; không gọi model.
 - `POST /api/check-plans`: `source_job_id`, `source_pack_sha256`, `confirmation: generate_check_plan_with_api_cost`; một intent cho mỗi nguồn, gọi Groq với receipt và giới hạn từng call.
 - `GET /api/jobs/<plan-id>/check-plan.json`, `.../check-plan.md`: cùng kế hoạch đã validate; header `X-IssueIntel-Report-SHA256` và `X-IssueIntel-Check-Plan-SHA256` khóa export về nguồn đang xem. Đây là phần bổ sung riêng, không phải pack/report mới.
+- `GET /api/jobs/<plan-id>/check-observations.json`, `.../check-observations.md`: nhật ký riêng của plan; Markdown giữ toàn bộ kế hoạch và lịch sử đính chính, header thêm `X-IssueIntel-Check-Observations-SHA256`.
+- `POST /api/jobs/<plan-id>/check-observations`: `expected_sha256` và `observation` để append với optimistic lock; không gọi model.
+- `POST /api/check-followups`: exact `plan_job_id`, `plan_sha256`, `journal_sha256`, `observation_ids` (1–3), `provider` (`none`/`groq`), `depth` (`quick`/`deep`). Một durable intent cho mỗi yêu cầu; chỉ nhận quan sát đang hiệu lực và không phải `not_run`.
 - `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.

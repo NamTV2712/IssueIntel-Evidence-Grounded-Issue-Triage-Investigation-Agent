@@ -137,9 +137,14 @@ class Workbench:
         self.questions=QuestionJobs(self)
         from .check_plan_jobs import CheckPlanJobs
         self.check_plans=CheckPlanJobs(self)
+        from .check_observations import CheckObservationStore
+        self.observation_journals=CheckObservationStore(self.directory/'plans.sqlite')
+        from .check_followups import CheckFollowups
+        self.check_followups=CheckFollowups(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
+        self.pack_reads = threading.local()
         self.active = set()
         self.cancelled = set()
         self.plans = PlanStore(self.directory/'plans.sqlite')
@@ -286,7 +291,7 @@ class Workbench:
             if (pack['snapshot']['protocol']!='benchmark_base' or pack['case'].get('split') is not None
                     or pack['leakage_audit']['strict_issue_time_verified'] is not False):
                 raise ValueError('Clarifications require product sources outside benchmark splits')
-            if mode in {'followup','clarification'}:
+            if mode in {'followup','clarification','check_followup'}:
                 link=pack.get('followup') or {}
                 if link.get('parent_job_id')!=request.get('parent_job_id'):
                     raise ValueError('Clarification request authority changed')
@@ -320,7 +325,11 @@ class Workbench:
             return pack['case']['problem_statement']
         parent=json.loads(self._export_bytes(link['parent_job_id']))
         receipt=link.get('clarification')
-        addition=('\n'.join(row['answer'] for row in receipt['answers']) if receipt else link['additional_context'])
+        if link.get('check_observations'):
+            from .check_followups import user_cue_text
+            addition=user_cue_text(link['check_observations'])
+        else:
+            addition=('\n'.join(row['answer'] for row in receipt['answers']) if receipt else link['additional_context'])
         return self._cue_text(parent)+'\n'+addition
 
     @staticmethod
@@ -373,6 +382,21 @@ class Workbench:
     def check_plan_bundle(self,identifier):return self.check_plans.bundle(identifier)
 
     def check_plan_export(self,identifier,format='json'):return self.check_plans.export(identifier,format)
+
+    def check_observations(self,identifier,request=None):
+        plan=self.check_plan_bundle(identifier)
+        if request is None:return self.observation_journals.load(plan,identifier)
+        return self.observation_journals.append(plan,identifier,request)
+
+    def check_observation_export(self,identifier,format='json'):
+        from .check_observations import render_markdown
+        if format not in {'json','md'}:raise ValueError('Choose JSON or Markdown observation journal')
+        plan=self.check_plan_bundle(identifier)
+        journal=self.observation_journals.load(plan,identifier)
+        content=(json.dumps(journal,ensure_ascii=False,sort_keys=True,indent=2)+'\n' if format=='json' else render_markdown(journal,plan))
+        return content.encode('utf-8'),plan['source']['report_sha256'],plan['sha256'],journal['sha256']
+
+    def submit_check_followup(self,request):return self.check_followups.submit(request)
 
     def _context_parent(self, identifier, expected=None):
         from .versions import product_version_source
@@ -813,9 +837,16 @@ class Workbench:
                     'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),'depth':depth+1,
                     'selected_sources':request['selected_sources'],'context_sha256':context['sha256'],
                     'historical_verified':False}
-            elif request['mode'] in {'followup','clarification'}:
+            elif request['mode'] in {'followup','clarification','check_followup'}:
                 clarification=None
-                if request['mode']=='clarification':
+                check_observations=None
+                if request['mode']=='check_followup':
+                    from .question_jobs import replay_snapshot
+                    self.check_followups.assert_intent(request,row['id'])
+                    parent,raw,depth,check_observations=self.check_followups.input(request)
+                    snapshot=replay_snapshot(parent)
+                    extra={'snapshot':snapshot}
+                elif request['mode']=='clarification':
                     from .question_jobs import replay_snapshot
                     parent,raw,depth,clarification=self._clarification_input(request)
                     snapshot=replay_snapshot(parent)
@@ -824,7 +855,7 @@ class Workbench:
                     parent, raw, depth = self._load_pack(request['parent_job_id'])
                 if depth >= 8:
                     raise ValueError('Follow-up depth is bounded to eight generations')
-                additional = clarification['additional_context'] if clarification else request['additional_context']
+                additional = (check_observations or clarification or request)['additional_context']
                 text = parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
                 if len(text)>100000:
                     raise ValueError('Combined query exceeds the public input bound')
@@ -842,6 +873,7 @@ class Workbench:
                 if clarification:
                     followup['clarification']=clarification
                     if request.get('question_job_id'):followup['question_job_id']=request['question_job_id']
+                if check_observations:followup['check_observations']=check_observations
             elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
@@ -868,6 +900,14 @@ class Workbench:
                 local = Path(repository)
                 if not local.is_dir():
                     local = acquire_repository(repository, case['revision'], self.root/'data/repos').path
+            def check_observation_source():
+                if request['mode']=='check_followup':
+                    saved=json.loads(self._job_path(row['id']).read_bytes())
+                    if saved['request']!=request:raise ValueError('Check follow-up authority changed')
+                    self.check_followups.assert_intent(request,row['id'])
+                    _,_,_,current=self.check_followups.input(request)
+                    if current!=followup['check_observations']:raise ValueError('Check observation source changed')
+            check_observation_source()
             # No provider exists until the public/Main Dev boundary has replayed.
             selected_controller=None
             if request.get('controller')=='jev':
@@ -888,6 +928,8 @@ class Workbench:
                 client=(self.typesafe_factory or TypesafeClient)(typesafe_config,on_receipt=capture_typesafe)
                 selected_controller=TypesafePlannedController(client,row['id'],on_decision=capture_decision)
             config = RuntimeConfig.load(self.root) if request['provider'] == 'groq' else None
+            if request['mode']=='check_followup' and config is not None and config.model!='openai/gpt-oss-120b':
+                raise ValueError('Check follow-up model has no supported authorization')
             context = ({'category': 'ARTIFACT_GENERATION_COST', 'reasoning_effort': config.reasoning_effort,
                         'stage': 'local_demo_investigation', 'diagnostic': False}
                        if config and config.reasoning_effort in {'medium', 'high'} else None)
@@ -910,6 +952,7 @@ class Workbench:
                 payload=json.loads(messages[1]['content'])
                 call_stage='verification' if 'hypotheses' in payload and 'case' not in payload else generation_stage()
                 self._check_cancelled(row['id'])
+                check_observation_source()
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
                 return answer
@@ -918,6 +961,7 @@ class Workbench:
                 call_stage=('verification' if 'reviews' in schema.get('properties',{}) else
                             generation_stage())
                 self._check_cancelled(row['id'])
+                check_observation_source()
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
                 return answer
@@ -942,15 +986,25 @@ class Workbench:
             validate_controller_ownership(pack,row)
             if followup:
                 pack['followup'] = followup
-                cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
-                              if followup.get('clarification') else followup['additional_context'])
+                if followup.get('check_observations'):
+                    from .check_followups import user_cue_text
+                    cue_addition=user_cue_text(followup['check_observations'])
+                else:
+                    cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
+                                  if followup.get('clarification') else followup['additional_context'])
                 pack['intake']=self._inspect_query(pack['case']['problem_statement'],self._cue_text(parent)+'\n'+cue_addition)
                 if followup.get('clarification'):
                     pack['trace'].append({'stage':'clarification_answers','questions_sha256':followup['clarification']['questions_sha256'],
                         'answers_sha256':followup['clarification']['sha256'],'parent_pack_sha256':followup['parent_pack_sha256'],
                         'answer_count':len(followup['clarification']['answers']),'historical_verified':False})
+                if followup.get('check_observations'):
+                    receipt=followup['check_observations']
+                    pack['trace'].append({'stage':'check_observation_context','plan_sha256':receipt['source']['plan_sha256'],
+                        'journal_sha256':receipt['journal_sha256'],'receipt_sha256':receipt['sha256'],
+                        'observation_ids':receipt['observation_ids'],'historical_verified':False,'user_reports_verified':False})
             if context_selection:
                 pack['context_selection']=context_selection
+            check_observation_source()
             directory = self.directory/'runs'/row['id']
             export_pack(pack, directory)
             refs = {name: {'path': (directory/name).relative_to(self.root).as_posix(),
@@ -1061,6 +1115,33 @@ class Workbench:
         return raw
 
     def _load_pack(self, identifier, seen=None):
+        """Replay each source once within a read, never cache across operations.
+
+        Check-plan/observation ancestry refers to parents through several bound
+        artifacts. Sharing completed replay results avoids exponential traversal;
+        active IDs still reject cycles, even through a sidecar's fresh call.
+        """
+        if seen is not None and (identifier in seen or len(seen)>8):
+            raise ValueError('Invalid follow-up lineage')
+        outer=getattr(self.pack_reads,'cache',None) is None
+        if outer:
+            self.pack_reads.cache={}
+            self.pack_reads.active=set()
+        try:
+            if identifier in self.pack_reads.active:raise ValueError('Invalid source cycle')
+            if identifier in self.pack_reads.cache:return self.pack_reads.cache[identifier]
+            self.pack_reads.active.add(identifier)
+            try:
+                result=self._load_pack_verified(identifier,seen)
+                self.pack_reads.cache[identifier]=result
+                return result
+            finally:self.pack_reads.active.discard(identifier)
+        finally:
+            if outer:
+                del self.pack_reads.cache
+                del self.pack_reads.active
+
+    def _load_pack_verified(self, identifier, seen=None):
         seen = set() if seen is None else seen
         if identifier in seen or len(seen)>8:
             raise ValueError('Invalid follow-up lineage')
@@ -1113,6 +1194,8 @@ class Workbench:
                 raise ValueError('Selected-context source binding changed')
             return pack,raw,depth+1
         link = pack.get('followup')
+        if saved_request.get('mode')=='check_followup' and not (link or {}).get('check_observations'):
+            raise ValueError('Missing saved check observation receipt')
         if not link:
             return pack, raw, 0
         parent, parent_raw, depth = self._load_pack(link['parent_job_id'], seen)
@@ -1151,6 +1234,9 @@ class Workbench:
                     or prepare(questions,saved_request.get('answers'),saved_request.get('language'))!=expected
                     or self._inspect_query(pack['case']['problem_statement'],self._cue_text(pack))!=pack.get('intake')):
                 raise ValueError('Clarification answer/source binding changed')
+        if link.get('check_observations') is not None:
+            compare_packs(pack,pack)
+            self.check_followups.validate_child(identifier,pack,saved_request)
         return pack, raw, depth+1
 
     def intake(self, identifier):

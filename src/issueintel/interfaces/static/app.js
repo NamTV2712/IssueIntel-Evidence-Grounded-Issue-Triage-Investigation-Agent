@@ -278,6 +278,24 @@ function renderTab() {
       }
       content.append(saved);
     }
+    if(pack.followup?.check_observations){
+      const receipt=pack.followup.check_observations,saved=node('details');
+      saved.append(node('summary',t('Quan sát dùng cho phiên này (chưa xác minh)')),
+        node('p',t('Các quan sát giữ đúng phiên bản đã chọn; đính chính về sau được xem ở báo cáo nguồn.'),'notice'),
+        node('p','Check plan SHA256 '+receipt.source.plan_sha256,'hash-note'),
+        node('p','Check observations SHA256 '+receipt.journal_sha256,'hash-note'));
+      const sourceId=pack.followup.parent_job_id,open=node('button',t('Mở báo cáo nguồn'));
+      open.type='button';open.onclick=()=>openJob(sourceId);saved.append(open);
+      for(const event of receipt.observations){
+        const observation=event.observation,card=node('article',undefined,'hypothesis-card');
+        card.append(node('h3',event.observation_id+' · '+observation.check_id+' · '+observation.outcome));
+        for(const [label,key] of [['Điều kiện, đầu vào và môi trường thử','conditions'],['Kết quả quan sát được','observed_result'],['Diễn giải hoặc lý do chưa chạy','interpretation']])
+          card.append(node('p',t(label)),node('pre',observation[key]));
+        card.append(node('p',t('Commit thực sự đã thử (tùy chọn)')+': '+(observation.tested_commit_sha||t('Chưa biết')),'hash-note'));
+        saved.append(card);
+      }
+      content.append(saved);
+    }
     for(const [field,details] of Object.entries(intake.fields)){
       const card=node('article',undefined,'hypothesis-card');card.append(node('h3',t(field)+' · '+t(details.status)));
       for(const source of details.sources)card.append(node('pre',t('Dòng {line}: ',{line:source.line})+source.text),node('p','SHA256 '+source.text_sha256,'hash-note'));
@@ -494,6 +512,9 @@ document.addEventListener('issueintel:contextcreated',event=>{
 });
 document.addEventListener('issueintel:clarificationcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'clarification'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:checkfollowupcreated',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'check_followup'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;

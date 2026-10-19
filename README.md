@@ -123,8 +123,14 @@ trước dựa trên số cặp A/B do model nêu, rồi công sức ước tín
 chất lượng kiểm tra hoặc xác nhận nguyên nhân. Một tác vụ cho mỗi nguồn, tối đa
 hai call gồm một output repair; lỗi/hủy/restart không tự gọi lại. Kế hoạch bổ
 sung khóa pack/report/query/snapshot/annotation, xuất JSON/Markdown và mở lại
-offline. Nó giữ nguyên report v1 và nhật ký gốc; chưa ghi quan sát cho các
-kiểm tra bổ sung này hoặc đưa quan sát vào model. Main Dev/strict bị chặn.
+offline. Nó giữ nguyên report v1 và nhật ký gốc. **Quan sát kiểm tra phân biệt**
+lưu A/B/khác/chưa rõ/chưa chạy theo từng kiểm tra bổ sung, điều kiện, kết quả,
+diễn giải và commit tự báo; đính chính tạo event mới. Chọn tối đa ba quan sát
+đang hiệu lực và chủ động tạo phiên điều tra tiếp cùng commit phân tích gốc.
+Groq mặc định tắt; mỗi yêu cầu chính xác chỉ tạo một child, không tự gọi lại khi
+lỗi/hủy/restart. Phiên con giữ bản quan sát đã chọn; sửa nhật ký sau đó không
+đổi kết quả cũ. Quan sát chưa được xác minh, không tự kết luận giả thuyết đúng,
+không kế thừa chứng nhận lịch sử. Main Dev/strict và lineage benchmark bị chặn.
 Với điều tra product, tab này còn có **Nhật ký kiểm tra giả thuyết**: chọn đúng
 bước đề xuất trong báo cáo, ghi điều kiện/đầu vào, mong đợi, quan sát, diễn giải
 và full SHA của commit thực sự đã thử nếu biết. Commit này do người dùng cung

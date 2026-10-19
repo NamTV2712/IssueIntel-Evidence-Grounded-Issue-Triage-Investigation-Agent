@@ -76,10 +76,11 @@
   function button(label,callback,disabled=false,values={}){const rendered=area,view=viewRevision,item=node('button',t(label,values));item.type='button';item.disabled=disabled;
     item.onclick=()=>{if(area===rendered&&view===viewRevision&&!item.disabled)return callback();};return item;}
   function redraw(){
+    window.IssueIntelCheckObservations?.cancel();
     if(!area)return;viewRevision++;area.replaceChildren();area.append(node('h3',t('Kiểm tra phân biệt giả thuyết')));
     if(!binding){area.append(node('p',t('Cần báo cáo sản phẩm đã lưu, khớp query và snapshot để tạo kiểm tra phân biệt.'),'notice'));return;}
     area.append(node('p',t('Đề xuất của model để so sánh các giả thuyết đã lưu. IssueIntel chưa chạy các kiểm tra; dự đoán chưa được xác minh.'),'notice'),
-      node('p',t('Kế hoạch bổ sung được lưu riêng. Nhật ký bên dưới chỉ ghi các bước của báo cáo gốc; chưa ghi kết quả cho các kiểm tra bổ sung này.'),'notice'),
+      node('p',t('Kế hoạch bổ sung và quan sát của nó được lưu riêng với các bước và nhật ký của báo cáo gốc.'),'notice'),
       node('p',report.issue.repository+' · '+report.issue.case_id,'product-check-identity'),node('p',t('Commit của báo cáo: ')+report.source.commit_sha,'hash-note'));
     const controls=node('div',undefined,'product-check-controls');
     controls.append(button('Mở các kế hoạch kiểm tra đã lưu',loadSaved,busy||posting));
@@ -120,6 +121,7 @@
         node('p',t('Phiên nguồn: ')+selected,'hash-note'),node('p','Pack SHA256 '+bundle.source.source_pack_sha256,'hash-note'),node('p','Report SHA256 '+bundle.source.report_sha256,'hash-note'),
         node('p','Query SHA256 '+bundle.source.query_sha256,'hash-note'),node('p','Snapshot SHA256 '+bundle.source.snapshot_sha256,'hash-note'),node('p','Check plan SHA256 '+bundle.sha256,'hash-note'));
       for(const item of bundle.limitations)provenance.append(node('p',item,'notice'));area.append(provenance);
+      window.IssueIntelCheckObservations?.render(area,bundle,activeJob.id,report,selected);
     }
     const status=node('p',notice?t(notice):'','notice');status.setAttribute('role','status');status.setAttribute('aria-live','polite');area.append(status);
   }
@@ -173,5 +175,5 @@
   }
   document.addEventListener('issueintel:packchange',event=>{if(event.detail.job_id!==selected||event.detail.intake?.source_pack_sha256!==report?.source?.pack_sha256){reset();selected=null;report=null;pack=null;binding=null;area=null;}});
   document.addEventListener('issueintel:languagechange',()=>{consent=false;redraw();});
-  window.IssueIntelProductChecks=Object.freeze({render,valid,cancel:()=>{area=null;}});
+  window.IssueIntelProductChecks=Object.freeze({render,valid,cancel:()=>{area=null;window.IssueIntelCheckObservations?.cancel();}});
 })();

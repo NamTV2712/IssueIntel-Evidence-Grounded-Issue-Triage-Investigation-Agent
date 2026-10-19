@@ -7,6 +7,7 @@ import json
 import secrets
 import os
 import sqlite3
+import time
 
 from issueintel.investigation.workbench import Workbench
 
@@ -32,6 +33,8 @@ STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; cha
 STATIC['/check-journal.js'] = ('check-journal.js', 'text/javascript; charset=utf-8')
 STATIC['/product-checks.js'] = ('product-checks.js', 'text/javascript; charset=utf-8')
 STATIC['/product-checks.css'] = ('product-checks.css', 'text/css; charset=utf-8')
+STATIC['/check-observations.js'] = ('check-observations.js', 'text/javascript; charset=utf-8')
+STATIC['/check-observations.css'] = ('check-observations.css', 'text/css; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -44,8 +47,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None):
-            for checksum in (report_sha256, journal_sha256, check_plan_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -63,11 +66,39 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Journal-SHA256',journal_sha256)
             if check_plan_sha256 is not None:
                 self.send_header('X-IssueIntel-Check-Plan-SHA256',check_plan_sha256)
+            if observations_sha256 is not None:
+                self.send_header('X-IssueIntel-Check-Observations-SHA256',observations_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
         def _json(self, status, value):
             self._send(status, json.dumps(value, ensure_ascii=False, allow_nan=False).encode())
+
+        def _deny_local(self, message):
+            # A client can send headers and body in separate TCP writes. Closing
+            # HTTP/1.0 with unread body bytes resets the socket on Windows and
+            # hides the 403. Discard only a bounded body; never parse or dispatch
+            # an unauthenticated payload, and never wait indefinitely for it.
+            lengths=self.headers.get_all('Content-Length') or []
+            if (self.command=='POST' and self.headers.get('Transfer-Encoding') is None
+                    and len(lengths)==1 and lengths[0].isdigit() and 0<int(lengths[0])<=512000):
+                prior=self.connection.gettimeout()
+                try:
+                    deadline=time.monotonic()+0.5
+                    remaining=int(lengths[0])
+                    while remaining:
+                        timeout=deadline-time.monotonic()
+                        if timeout<=0:break
+                        self.connection.settimeout(timeout)
+                        chunk=self.rfile.read1(min(remaining,65536))
+                        if not chunk:break
+                        remaining-=len(chunk)
+                except OSError:
+                    pass
+                finally:
+                    self.connection.settimeout(prior)
+            self.close_connection=True
+            self._json(403,{'error':message})
 
         def _guard(self, *, api=False):
             hosts = self.headers.get_all('Host') or []
@@ -75,10 +106,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
             origin = self.headers.get('Origin')
             if (len(hosts) != 1 or hosts[0] not in allowed
                     or (origin is not None and origin not in {'http://'+x for x in allowed})):
-                self._json(403, {'error': 'Local origin required'})
+                self._deny_local('Local origin required')
                 return False
             if api and not hmac.compare_digest(self.headers.get('X-IssueIntel-Token', ''), token):
-                self._json(403, {'error': 'Local session token required'})
+                self._deny_local('Local session token required')
                 return False
             return True
 
@@ -130,6 +161,11 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200,workbench.question_history(parts[0]))
                     elif len(parts)==2 and parts[1]=='check-plans':
                         self._json(200,workbench.check_plan_history(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'check-observations.json','check-observations.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        raw,report_sha,plan_sha,observations_sha=workbench.check_observation_export(parts[0],format)
+                        self._send(200,raw,'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',
+                                   download=parts[1],report_sha256=report_sha,check_plan_sha256=plan_sha,observations_sha256=observations_sha)
                     elif len(parts)==2 and parts[1] in {'check-plan.json','check-plan.md'}:
                         format='json' if parts[1].endswith('.json') else 'md'
                         raw, report_sha, plan_sha=workbench.check_plan_export(parts[0],format)
@@ -202,6 +238,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202,workbench.submit_questions(request))
                 elif route=='/api/check-plans':
                     self._json(202,workbench.submit_check_plan(request))
+                elif route=='/api/check-followups':
+                    self._json(202,workbench.submit_check_followup(request))
                 elif route == '/api/repositories/sync':
                     self._json(202, workbench.submit_repository(request))
                 elif route == '/api/repositories/connect':
@@ -226,6 +264,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid journal request')
                     self._json(200,workbench.check_journal(route.split('/')[3],request))
+                elif route.startswith('/api/jobs/') and route.endswith('/check-observations'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid observation journal route')
+                    self._json(200,workbench.check_observations(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/plan'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid plan request')

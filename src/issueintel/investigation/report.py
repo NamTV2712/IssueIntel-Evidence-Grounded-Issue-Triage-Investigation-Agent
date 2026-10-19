@@ -179,6 +179,11 @@ def _provenance(pack):
         link = pack['followup']
         details = {key: link[key] for key in ('parent_job_id', 'parent_pack_sha256',
             'context_sha256', 'historical_query_verified') if key in link}
+        if link.get('check_observations'):
+            receipt=link['check_observations']
+            details['check_observations']={'source':receipt['source'],'journal_sha256':receipt['journal_sha256'],
+                'journal_revision':receipt['journal_revision'],'observation_ids':receipt['observation_ids'],
+                'receipt_sha256':receipt['sha256'],'user_reports_verified':False}
         rows.append({'kind': 'followup', 'details': json.dumps(details, ensure_ascii=False, sort_keys=True)})
         if link.get('clarification'):
             receipt = link['clarification']

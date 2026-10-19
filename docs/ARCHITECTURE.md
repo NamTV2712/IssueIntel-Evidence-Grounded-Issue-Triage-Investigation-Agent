@@ -375,8 +375,27 @@ Groq 120b dùng receipt/cận từng call/giá có ngày; không Jev. Lưu trong
 `artifacts/demo/check_plan_runs`, tách khỏi investigation packs, benchmark và
 manual journal. GET/export replay nguồn và recommendation nhưng không cần
 Git/config/network/model. UI Việt/Anh render cùng bundle với JSON/Markdown,
-kiểm report/plan SHA khi tải. Nhật ký gốc vẫn chỉ ghi các bước của report v1;
-chưa có observation-driven child investigation cho check bổ sung.
+kiểm report/plan SHA khi tải. Nhật ký gốc vẫn chỉ ghi các bước của report v1.
+
+`check_observations.CheckObservationStore` lưu journal riêng theo plan job trong
+`supplemental_check_observations`, cùng SQLite private. Event khóa digest của
+toàn bộ check, gồm procedure/controls/outcomes/predictions. Chỉ append, tối đa
+100 event; sửa trỏ tới active event của cùng check, optimistic lock chặn ghi
+trên revision cũ. A/B/other/inconclusive/not_run là tự báo, không được model
+hoặc hệ thống xác minh. Commit đã thử do người dùng nhập có thể unknown/khác
+commit phân tích. JSON/Markdown/UI đọc cùng journal; báo cáo nguồn không đổi.
+
+`check_followups.CheckFollowups` nhận 1–3 active observations không phải not_run,
+provider/depth rõ ràng và nguồn plan/journal hash. Intent SQLite theo digest
+yêu cầu tạo đúng một child. Trước queue, provider, mọi call và export, replay
+authority/lineage/checks/journal bindings; Git chỉ replay trước inference.
+Trong khi chạy, journal đổi thì dừng; đọc child hoàn tất replay đúng prefix
+revision đã chọn, nên đính chính mới không làm đổi query/receipt/report cũ.
+Context ghi rõ model proposals và unverified user reports; lexical intake chỉ
+dùng conditions/observed_result/interpretation, không lấy câu chữ model làm cue.
+Child chạy pipeline chung cùng snapshot gốc, giữ receipt/trace/provenance và
+không có nhãn strict, human validation, causal/fix verdict hoặc quyền GitHub
+write/Jev kế thừa. Giới hạn tám thế hệ áp dụng chung các dạng follow-up.
 
 `runtime.typesafe` dùng endpoint chính thức cố định và pin `jev-1.13.0`, không
 dùng đường OpenAI-compatible hoặc credential Groq. `configs/typesafe.toml` có
