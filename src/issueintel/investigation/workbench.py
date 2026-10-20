@@ -149,6 +149,8 @@ class Workbench:
         self.planned_continuations=PlannedContinuations(self)
         from .dossier import Dossiers
         self.dossiers=Dossiers(self)
+        from .product_memory import ProductMemory
+        self.memory=ProductMemory(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()

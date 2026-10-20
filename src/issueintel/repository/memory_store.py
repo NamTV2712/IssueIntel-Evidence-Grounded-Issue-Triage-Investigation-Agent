@@ -299,6 +299,10 @@ class MemoryStore:
     def read(self,identifier):
         with self._db() as db:return self._read(db,identifier)
 
+    def source_snapshot(self,identifier):
+        receipt=self.read(identifier)['receipt']
+        return load_snapshot(self.cache/'snapshots'/(receipt['snapshot_sha256']+'.json.gz'),self.cache)
+
     def list(self,repository,*,query='',limit=20):
         _repository(repository)
         if (not isinstance(query,str) or len(query)>500 or '\0' in query

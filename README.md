@@ -291,8 +291,16 @@ Nguồn hỏng bị từ chối, không ghi đè hash. Search chỉ index tối 
 cho mỗi capture, chưa đo semantic recall. `lesson` giữ nguyên giả thuyết được
 chọn và ghi chú chưa xác minh, không là nguyên nhân/bản sửa đã kiểm chứng;
 luôn bị chặn khỏi strict inference. Các lệnh này từ chối benchmark/strict packs
-trước khi đọc Git. Memory chưa tự đi vào prompt; phần UI/chọn inference của
-mục 6 vẫn đang triển khai.
+trước khi đọc Git. Memory chưa tự đi vào prompt.
+
+Workbench có tab **Bộ nhớ điều tra / Investigation memory** trên phiên product
+đã lưu. Mở **Lưu từ phiên đang xem** để lưu architecture observations hoặc chọn
+tối đa năm giả thuyết cũ cùng ghi chú chưa xác minh. Xem capture, mở code source
+và đối chiếu với revision đang xem bằng các thao tác riêng. Hai commit được giữ
+rõ; nguồn thay đổi/mất/không đọc được không được gắn nhãn còn nguyên. Đối chiếu
+lại lỗi sẽ xóa trạng thái thành công cũ, còn nguồn cache vẫn mở được. Tab hỗ trợ
+Việt/Anh, sáng/tối và màn hình hẹp; không tự gọi model hoặc tự tạo phiên mới.
+Chọn memory cho inference và đưa nguồn đó vào gói bàn giao vẫn còn triển khai.
 
 ## Dữ liệu: 400 Main Dev gốc
 

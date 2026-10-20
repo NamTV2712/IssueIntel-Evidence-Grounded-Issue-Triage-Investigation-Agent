@@ -461,6 +461,17 @@ Không gọi provider thật hoặc mở evaluation.
 
 ## Backlog được tác giả yêu cầu ngày 19/10/2026
 
+Mốc Workbench memory của mục 6 đã qua 156 test liên quan (memory store,
+product API, Planned continuations, dossier và report); bộ API cuối bổ sung
+exact file-node/CRLF source hash đạt 24 test. Toàn bộ frontend đạt 228 test.
+Browser tổng hợp kiểm lưu architecture/lesson, đổi Việt/Anh, sáng/tối, bàn phím,
+giới hạn capture sai, giữ draft, viewport 390 px không tràn trang, source mất
+vẫn đọc cache, assessment lỗi không giữ status cũ, và revision mới đánh dấu
+parser changed trong khi capture cũ giữ commit gốc. Đây là kiểm contract/UI,
+không đo chất lượng ngữ nghĩa hoặc mở benchmark evaluation. Nguồn/model đều
+tổng hợp; preview restart đọc capture cũ với zero model calls. UI chưa chọn
+memory cho inference hoặc xuất các nguồn memory trong portable handoff.
+
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
 nghiệm thu tương ứng. Sau khi tác giả cấp quyền Issues, đã tạo đủ 17 GitHub issue
@@ -477,7 +488,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
-| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đang triển khai: core `9e7adb8` đã CI pass; thêm private SQLite/FTS, dedup source witnesses, atomic immutable captures và CLI save/list/show/assess; 87 test memory/CLI/retrieval đạt. Lessons giữ giả thuyết nguồn chưa xác minh, luôn bị chặn historical/strict; chưa có UI/chọn inference/nghiệm thu toàn mục; issue vẫn mở |
+| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đang triển khai: core `9e7adb8`, store/CLI `1d8a034` đã có; thêm owned Workbench API/UI lưu/tìm/mở/đối chiếu, source spans, Việt/Anh, theme và responsive. Lessons vẫn chưa xác minh, không historical/strict. Còn chọn memory cho inference, provenance/handoff tích hợp và nghiệm thu toàn mục; issue vẫn mở |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
 | D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |

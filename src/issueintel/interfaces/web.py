@@ -37,6 +37,8 @@ STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
 STATIC['/planned-waiting.js'] = ('planned-waiting.js', 'text/javascript; charset=utf-8')
 STATIC['/planned-waiting.css'] = ('planned-waiting.css', 'text/css; charset=utf-8')
+STATIC['/memory.js'] = ('memory.js', 'text/javascript; charset=utf-8')
+STATIC['/memory.css'] = ('memory.css', 'text/css; charset=utf-8')
 STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; charset=utf-8')
 STATIC['/check-journal.js'] = ('check-journal.js', 'text/javascript; charset=utf-8')
 STATIC['/product-checks.js'] = ('product-checks.js', 'text/javascript; charset=utf-8')
@@ -153,6 +155,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.job(parts[0]))
                     elif len(parts)==2 and parts[1]=='planned-continuation':
                         self._json(200,workbench.planned_continuation_preview(parts[0]))
+                    elif len(parts)==2 and parts[1]=='memory-status':
+                        self._json(200,workbench.memory.status(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'releases':
                         self._json(200, workbench.release_history(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'releases.json':
@@ -288,6 +292,12 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.related(request))
                 elif route == '/api/context-search':
                     self._json(200, workbench.context_search(request))
+                elif (route.startswith('/api/jobs/') and len(route.split('/'))==5
+                      and route.split('/')[4] in {'memory-search','memory-capture','memory-open','memory-assess','memory-source'}):
+                    identifier,action=route.split('/')[3:]
+                    method={'memory-search':'search','memory-capture':'capture','memory-open':'open',
+                            'memory-assess':'assess','memory-source':'source'}[action]
+                    self._json(200,getattr(workbench.memory,method)(identifier,request))
                 elif route.startswith('/api/jobs/') and route.endswith('/check-journal'):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid journal request')

@@ -207,6 +207,7 @@ function restorePlanDrafts(drafts) {
   }
 }
 function renderTab() {
+  window.IssueIntelMemory?.cancel();
   window.IssueIntelClaimReview?.cancel();
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();window.IssueIntelProductChecks?.cancel();if(!pack)return;
@@ -217,6 +218,8 @@ function renderTab() {
   if(activeTab==='dossier')window.IssueIntelDossier?.render(content,currentJob,{
     available:intake?.check_journal_available===true,pack_sha256:intake?.source_pack_sha256,report_sha256:reportView?.sha256});
   if(activeTab==='evidence') content.append(...pack.evidence.map(evidenceCard));
+  if(activeTab==='memory')window.IssueIntelMemory?.render(content,currentJob,pack,{
+    available:intake?.check_journal_available===true,pack_sha256:intake?.source_pack_sha256});
   if(activeTab==='intake' && !intake)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan')window.IssueIntelProductChecks?.render(content,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
   if(activeTab==='plan')window.IssueIntelCheckJournal?.render(content,journalData,currentJob,reportView,hypothesisReviewSource(),{

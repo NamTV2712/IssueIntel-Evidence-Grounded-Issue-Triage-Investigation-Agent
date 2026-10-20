@@ -260,8 +260,28 @@ giả thuyết hoặc tính áp dụng cho issue mới. Không dùng recorded_at
 CLI `memory-capture/list/show/assess` gọi cùng store, không nạp `.env` hay model
 config. Product-pack preflight từ chối split/instance IDs, restricted case IDs,
 strict protocol/audit trước Git replay. Capture/assessment replay actual commit
-bytes, show/list không cần checkout còn trên máy. UI và explicit inference
-selection của mục 6 còn triển khai; memory chưa tự đi vào product/benchmark prompts.
+bytes, show/list không cần checkout còn trên máy. Explicit inference selection
+của mục 6 còn triển khai; memory chưa tự đi vào product/benchmark prompts.
+
+`investigation.product_memory.ProductMemory` là adapter Workbench cho cùng
+store. Trước đọc pack, adapter kiểm completed product job và request metadata;
+sau đó replay product lineage cùng canonical origin authority của dossier.
+Binding gồm source job/pack SHA, repository và commit/snapshot đang xem.
+`GET /api/jobs/{id}/memory-status` và các POST `memory-search/capture/open/assess/source`
+dùng guard session/origin hiện có. Capture/open/assessment khóa exact receipt
+SHA; capture thêm source job và pack witness. Repository scope khác bị từ chối.
+Chỉ capture/assessment replay Git; hai thao tác này acquire/release shared work
+capacity kể cả khi lỗi. Source preview dùng cached snapshot, giữ exact node/text
+hash và line endings khi đủ chỗ, trích tối đa 80 LF lines/6.000 ký tự.
+
+`static.memory` render tab product, source/revision identity, capture forms,
+bounded local search, prior-hypothesis truth levels, dependency assessment và
+source excerpts. Trạng thái/draft khóa theo job+pack SHA; stale controls không
+được tác động phiên mới. Refresh/reopen/language không tạo capture hoặc gọi
+model; ack lỗi giữ draft và yêu cầu đọc lại danh sách, queue-full có trạng thái
+riêng. Assessment mới xóa status cũ trước khi chạy để lỗi không giữ badge thành
+công. UI chưa chuyển memory vào query/evidence; đây là phần tiếp theo của mục 6,
+gồm source-bound selection/inference và portable handoff của những nguồn đã dùng.
 
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,
@@ -514,7 +534,7 @@ chờ và provenance continuation; dossier giữ cùng issue identity. Handoff t
 tổ tiên, portable verifier kiểm chain/query/answers/counters và frozen sources
 trên included bytes bằng Python chuẩn. Nó không xác thực hóa đơn provider,
 authorship, historical availability hoặc semantic truth. D05 waiting/continuation
-đã triển khai trong code; nghiệm thu tích hợp/UI và exact CI vẫn là cổng đóng issue.
+đã nghiệm thu và đóng issue #5 với `2773a8c`, sau khi exact-commit CI thành công.
 
 `investigation.stages` ghi checkpoint private sau từng stage đã hoàn tất, giữ
 seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid calls.
