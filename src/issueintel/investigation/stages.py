@@ -1,11 +1,11 @@
-"""Private audit checkpoints; no automatic paid-call retry or recipe resume."""
+"""Immutable private stage bytes; recovery admission belongs to the caller."""
 from pathlib import Path
 import hashlib
 
 from issueintel.runtime.io import write_json
 
 
-STAGES = {'prepared_input','seed_generation','focused_retrieval','refined_generation','verification_input','verification',
+STAGES = {'execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval','refined_generation','verification_input','verification',
           'planned_input','planned_retrieval_1','planned_retrieval_2','planned_retrieval_3',
           'planned_generation_1','planned_generation_2','planned_generation_3','planned_complete'}
 

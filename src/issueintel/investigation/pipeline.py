@@ -53,8 +53,23 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
                 repository_context=None, resumable=False, planned_workflow=False,
-                planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None) -> dict:
+                planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None,
+                recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None) -> dict:
     case = public_case(case)
+    recovery_commit=None
+    if type(recoverable) is not bool or not recoverable and (recovery_records is not None or prior_provider_calls is not None or on_recovery_attempt is not None):
+        raise ValueError('Stage recovery must be explicitly selected')
+    if recoverable:
+        from .stage_recovery import StageTape, saved_commit
+        from .resume import validate_product_case
+        validate_product_case(case,protocol)
+        if ('split' in case or 'instance_id' in case or type(independent_critic) is not bool
+                or prepared_evidence is not None or query_receipt is not None or availability is not None
+                or planned_parent is not None or planned_continuation is not None
+                or controller is not None and type(controller) is not RuleController
+                or not callable(on_stage) or (complete_json is None)!=(provider=='none')):
+            raise ValueError('Stage recovery requires an original product with a rules recipe and durable callback')
+        if recovery_records is not None:recovery_commit=saved_commit(recovery_records)
     if type(planned_workflow) is not bool:
         raise ValueError('Planned workflow must be an explicit boolean')
     from .planner import POLICY as LEGACY_PLANNER_POLICY, GAP_POLICY, WAIT_POLICY, VERSIONS
@@ -113,10 +128,10 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     if refinement_rounds and prepared_evidence is not None:
         raise ValueError('A frozen prepared evidence set cannot be expanded')
     supplied = snapshot is not None
-    snapshot = snapshot or build_snapshot(local_repo, case["revision"], cutoff=case.get("issue_created_at") if protocol == "issue_time" else None,
+    snapshot = snapshot or build_snapshot(local_repo, recovery_commit or case["revision"], cutoff=case.get("issue_created_at") if protocol == "issue_time" else None,
                                          protocol=protocol, availability=availability)
     snapshot.verify()
-    if supplied and snapshot.commit_sha != case["revision"]:
+    if supplied and snapshot.commit_sha != (recovery_commit or case["revision"]):
         raise ValueError("Supplied snapshot must match the case's exact revision")
     if Path(snapshot.repository).resolve() != Path(local_repo).resolve():
         raise ValueError("Snapshot belongs to another repository")
@@ -156,10 +171,38 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             raise ValueError('Planned continuation snapshot differs from its admitted parent')
         validate_prepared_evidence(planned_parent['case'],
             [row for row in planned_parent['evidence'] if row['kind']!='repository_context'],snapshot)
-    evidence = (deepcopy([row for row in planned_parent['evidence'] if row['kind']=='code']) if planned_parent is not None
-                else deepcopy(prepared_evidence) if prepared_evidence is not None
-                else retrieve_evidence(case["problem_statement"], snapshot, graph, top_k=top_k))
-    statement = case["problem_statement"]
+    statement=case['problem_statement'];checkpoints={};tape=None
+    def emit(stage,record):
+        ref=on_stage(stage,record);checkpoints[stage]=ref;return ref
+    def checkpoint(stage,payload):
+        if tape is not None:return tape.commit(stage,payload)
+        if on_stage is not None:
+            record={'schema':'product_investigation_stage_v1','stage':stage,
+                    'case_id':case['case_id'],'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
+                    'snapshot_sha256':snapshot.snapshot_sha256,'commit_sha':snapshot.commit_sha,
+                    'provider':provider,'model':model,'refinement_rounds':refinement_rounds,
+                    'payload':deepcopy(payload),'evaluation_performed':False,'automatic_retry':False}
+            if planned_workflow:record['planned_workflow']=True
+            emit(stage,record)
+    def stage_value(stage,inputs,produce):
+        if tape is not None:return tape.run(stage,inputs,produce)
+        payload=produce();checkpoint(stage,payload);return payload
+    if recoverable:
+        tape=StageTape(case,snapshot,graph,{'provider':provider,'model':model,'top_k':top_k,
+            'independent_critic':independent_critic,'max_output_tokens':max_output_tokens,
+            'refinement_rounds':refinement_rounds,'resumable':resumable,'planned_workflow':planned_workflow,
+            'planner_policy':planner_policy,'repository_context':repository_context},
+            on_stage=emit,records=recovery_records,prior_provider_calls=prior_provider_calls,on_attempt=on_recovery_attempt)
+        if complete_json is not None:complete_json=tape.wrap(complete_json)
+    if planned_parent is not None:
+        evidence=deepcopy([row for row in planned_parent['evidence'] if row['kind']=='code'])
+    elif prepared_evidence is not None:
+        evidence=deepcopy(prepared_evidence)
+    elif tape is not None:
+        evidence=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),'top_k':top_k},
+            lambda:{'evidence':retrieve_evidence(statement,snapshot,graph,top_k=top_k)})['evidence']
+    else:
+        evidence=retrieve_evidence(statement,snapshot,graph,top_k=top_k)
     intake = inspect_issue(statement)
     if planned_continuation is not None:
         from .intake import inspect_user_content
@@ -174,6 +217,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             "kind": "verified_original_query" if query_verified else "input",
             "edit_history": "opening_event_matched" if query_verified else "unknown",
             **({"receipt": query_receipt} if query_verified else {})}})
+    if tape is not None:
+        validate_prepared_evidence(case,[row for row in evidence if row['kind']!='repository_context'],snapshot)
     controller = controller or RuleController()
     if waiting_policy_hash is not None and complete_json is not None:
         original_complete=complete_json
@@ -210,17 +255,42 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     refinement = {'policy':FOCUSED_POLICY,'requested_rounds':refinement_rounds,
                   'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
     workflow_plan=None
-    checkpoints = {}
-    def checkpoint(stage,payload):
-        if on_stage is not None:
-            record={'schema':'product_investigation_stage_v1','stage':stage,
-                    'case_id':case['case_id'],'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
-                    'snapshot_sha256':snapshot.snapshot_sha256,'commit_sha':snapshot.commit_sha,
-                    'provider':provider,'model':model,'refinement_rounds':refinement_rounds,
-                    'payload':deepcopy(payload),'evaluation_performed':False,'automatic_retry':False}
-            if planned_workflow:
-                record['planned_workflow']=True
-            checkpoints[stage] = on_stage(stage,record)
+    def generate(stage,**extra):
+        payload=stage_value(stage,{'case_sha256':digest(case),'evidence_sha256':digest(evidence)},
+            lambda:{**extra,'annotation':generate_annotation(case,evidence,complete_json,
+                provider=provider,model=model,max_output_tokens=max_output_tokens).to_dict()})
+        if set(payload)!={'annotation'}|set(extra) or any(payload[k]!=v for k,v in extra.items()):
+            raise ValueError('Recovered generation stage fields changed')
+        value=Annotation.from_dict(payload['annotation']).validate_evidence(evidence)
+        if (value.case_id!=case['case_id'] or value.provenance.kind!='llm' or value.provenance.provider!=provider
+                or value.provenance.model!=model or value.source_quality or value.judgment
+                or any(h.correctness!='unverified' for h in value.hypotheses)):
+            raise ValueError('Recovered generation differs from the public recipe')
+        return value.to_dict()
+    def retrieve_stage(stage,produce,*,used_queries=(),**extra):
+        payload=stage_value(stage,{'annotation_sha256':digest(annotation),'evidence_sha256':digest(evidence),
+            'excluded_query_sha256s':sorted(used_queries)},lambda:{**extra,**produce()})
+        if set(payload)!={'search','added_evidence'}|set(extra) or any(payload[k]!=v for k,v in extra.items()):
+            raise ValueError('Recovered retrieval stage fields changed')
+        if tape is not None:
+            if any(row['kind']!='code' for row in payload['added_evidence']):
+                raise ValueError('Recovered retrieval must contain code excerpts only')
+            validate_prepared_evidence(case,[row for row in evidence if row['kind']=='issue']+payload['added_evidence'],snapshot)
+        return payload['added_evidence'],payload['search']
+    def verify_stage(critic):
+        payload=stage_value('verification',{'annotation_sha256':digest(annotation),'evidence_sha256':digest(evidence),
+            'independent_critic':critic is not None},lambda:{'verification':verify_hypotheses(annotation,evidence,critic,max_output_tokens=max_output_tokens)})
+        if set(payload)!={'verification'}:raise ValueError('Recovered verification stage fields changed')
+        value=payload['verification']
+        if tape is not None:
+            structural=verify_hypotheses(annotation,evidence)
+            if (value.get('reports')!=structural['reports'] or value.get('independent_human') is not False
+                    or (critic is not None)!=(value.get('kind')=='llm_separate_pass')):
+                raise ValueError('Recovered verification changed its structural source')
+            if value.get('kind')=='llm_separate_pass':validate_critique({'reviews':value.get('reviews')},annotation,evidence)
+            elif value.get('kind')!='structural':raise ValueError('Unknown recovered verification')
+        return value
+    def finished(pack):return tape.finish(pack) if tape is not None else pack
     def assemble(stop_reason, verification):
         leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
             "strict_issue_time_verified": query_verified and snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
@@ -277,9 +347,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     else:
         if not planned_workflow:
             checkpoint('prepared_input',{'case':case,'evidence':evidence})
-        annotation = generate_annotation(case, evidence, complete_json, provider=provider, model=model,max_output_tokens=max_output_tokens).to_dict()
+        annotation = generate('seed_generation')
         refinement['generation_passes'] = 1
-        checkpoint('seed_generation',{'annotation':annotation})
         if planned_workflow:
             from .planner import start_plan, choose_action, seal_plan
             from issueintel.annotations.public_inputs import model_hypotheses
@@ -317,16 +386,17 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                     break
                 if planner_policy in {GAP_POLICY,WAIT_POLICY}:
                     from issueintel.retrieval.gap_directed import expand_for_gaps
-                    added,search=expand_for_gaps(annotation['hypotheses'],evidence,snapshot,graph,
-                                               exclude_query_sha256s=used_queries)
+                    def planned_search():
+                        found,search=expand_for_gaps(annotation['hypotheses'],evidence,snapshot,graph,exclude_query_sha256s=used_queries)
+                        return {'added_evidence':found,'search':search}
                 else:
-                    added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,
-                                                      exclude_query_sha256s=used_queries)
+                    def planned_search():
+                        found,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,exclude_query_sha256s=used_queries)
+                        return {'added_evidence':found,'search':search}
+                added,search=retrieve_stage(f'planned_retrieval_{number}',planned_search,used_queries=used_queries,
+                    round=number,input_annotation_sha256=step['input_annotation_sha256'],input_evidence_ids=step['input_evidence_ids'])
                 step.update(search=search,added_ids=[row['id'] for row in added])
                 used_queries.update(row['query_sha256'] for row in search['queries'])
-                checkpoint(f'planned_retrieval_{number}',{'round':number,'search':search,
-                    'added_evidence':added,'input_annotation_sha256':step['input_annotation_sha256'],
-                    'input_evidence_ids':step['input_evidence_ids']})
                 trace.append({'stage':'planned_retrieval','round':number,'policy':search['policy'],
                     'query_count':len(search['queries']),'added_ids':search['added_ids'],
                     'stop_reason':search['stop_reason'],'rounds_remaining':maximum-number})
@@ -346,12 +416,10 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                     planned_stop=search['stop_reason']
                     break
                 evidence.extend(added)
-                annotation=generate_annotation(case,evidence,complete_json,provider=provider,model=model,
-                                                 max_output_tokens=max_output_tokens).to_dict()
+                annotation=generate(f'planned_generation_{number}',round=number)
                 workflow_plan['generation_passes']+=1
                 workflow_plan['provider_calls']+=1+annotation['provenance']['repair_count']
                 step.update(output_annotation_sha256=digest(annotation),output_annotation=deepcopy(annotation))
-                checkpoint(f'planned_generation_{number}',{'round':number,'annotation':annotation})
             if decision not in (Action.VERIFY,Action.STOP,Action.ASK):
                 if hasattr(controller,'bind_context'):
                     controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
@@ -360,10 +428,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             workflow_plan['final_decision']=decision_record
             trace.append({'stage':'decision','controller':decision_record['controller'],'action':decision.value})
             critic=complete_json if independent_critic and decision==Action.VERIFY else None
-            verification=verify_hypotheses(annotation,evidence,critic,max_output_tokens=max_output_tokens)
+            verification=verify_stage(critic)
             workflow_plan['verifier_passes']=int(critic is not None)
             workflow_plan['provider_calls']+=int(critic is not None)
-            checkpoint('verification',{'verification':verification})
             stop_reason='controller_stopped' if decision==Action.STOP else planned_stop or 'round_limit'
             workflow_plan['stop_reason']=stop_reason
             workflow_plan=seal_plan(workflow_plan)
@@ -373,7 +440,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 pack['controller_decisions']=controller.export_decisions(pack)
             from .planner import validate_planned
             validate_planned(pack)
-            return pack
+            return finished(pack)
         first_action=None
         if refinement_rounds:
             allowed=(Action.RETRIEVE,Action.VERIFY,Action.STOP)
@@ -385,18 +452,19 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             trace.append({'stage':'refinement_decision','controller':controller.name,'action':action.value,
                           'rounds_remaining':1})
             if action==Action.RETRIEVE:
-                added,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph)
+                def focused_search():
+                    found,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph)
+                    return {'added_evidence':found,'search':search}
+                added,search=retrieve_stage('focused_retrieval',focused_search)
                 refinement.update(retrieval_rounds=1,seed_annotation=deepcopy(annotation),search=search,
                                   stop_reason=search['stop_reason'])
-                checkpoint('focused_retrieval',{'search':search,'added_evidence':added})
                 trace.append({'stage':'focused_retrieval','policy':FOCUSED_POLICY,
                               'query_count':len(search['queries']),'added_ids':search['added_ids'],
                               'stop_reason':search['stop_reason'],'rounds_remaining':0})
                 if added:
                     evidence.extend(added)
-                    annotation=generate_annotation(case,evidence,complete_json,provider=provider,model=model,max_output_tokens=max_output_tokens).to_dict()
+                    annotation=generate('refined_generation')
                     refinement['generation_passes'] = 2
-                    checkpoint('refined_generation',{'annotation':annotation})
             else:
                 refinement['stop_reason'] = 'controller_skipped_retrieval'
             if action==Action.STOP:
@@ -408,10 +476,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         trace.append({"stage": "decision", "controller": controller.name, "action": decision.value})
         if resumable and independent_critic and decision == Action.VERIFY and on_stage is not None:
             from .resume import resume_policy
-            checkpoint('verification_input',{'prepared':assemble('verification_pending',None),
-                'policy_sha256':resume_policy(),'max_output_tokens':max_output_tokens})
-        verification = verify_hypotheses(annotation, evidence, complete_json if independent_critic and decision == Action.VERIFY else None,max_output_tokens=max_output_tokens)
-        checkpoint('verification',{'verification':verification})
+            stage_value('verification_input',{'annotation_sha256':digest(annotation),'evidence_sha256':digest(evidence)},
+                lambda:{'prepared':assemble('verification_pending',None),'policy_sha256':resume_policy(),'max_output_tokens':max_output_tokens})
+        verification = verify_stage(complete_json if independent_critic and decision == Action.VERIFY else None)
         stop_reason = "controller_stopped" if decision==Action.STOP else "bounded_workflow_complete"
     if planned_workflow:
         from .planner import start_plan, seal_plan, validate_planned
@@ -425,8 +492,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if hasattr(controller,'export_decisions'):
             pack['controller_decisions']=controller.export_decisions(pack)
         validate_planned(pack)
-        return pack
-    return assemble(stop_reason, verification)
+        return finished(pack)
+    return finished(assemble(stop_reason, verification))
 
 
 def validate_prepared_evidence(case, evidence, snapshot):

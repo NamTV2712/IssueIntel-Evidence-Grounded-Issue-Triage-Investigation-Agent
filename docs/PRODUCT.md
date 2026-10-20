@@ -516,6 +516,22 @@ nghiệm thu chức năng, không phải chứng minh memory cải thiện chẩ
 thu thập lịch sử thực cho một cohort mới. Lessons không được cấp historical
 eligibility; portable hash verification không thay cho proof lịch sử/AST.
 
+Mục 8 đang có lõi journal/replay opt-in trong pipeline chung. Fault injection đã
+kiểm các ranh giới từ execution input/initial retrieval qua seed, focused search,
+refined generation, từng retrieval/generation của cả ba vòng Planned, verifier
+và completed plan. Reuse không ghi lại stage cũ hoặc chạy lại operation đã xong;
+root source bytes/receipts được giữ nguyên. Test Groq giả lập có schema repair
+giữ receipt cũ riêng với receipt mới; failed/in-flight attempts phải được caller
+đưa vào cận kế thừa đã biết, không tự đoán bằng số stage thành công. Snapshot/
+graph/query/policy, thứ tự journal, cached code và loại critic đều được kiểm.
+HEAD mới không đổi commit gốc. Offline giữ cận 0; rules Planned v3 vẫn có thể
+dừng chờ, không tự trả lời câu hỏi hoặc mở rộng budget. Bộ hồi quy rộng đạt 443
+test trước hardening cuối; bộ test lõi và tương thích cuối đạt 146 test, gồm 58
+test recovery. Chưa có provider thật hoặc evaluation. Đây chưa phải nghiệm thu
+toàn mục: Workbench/CLI chưa bật journal mới; còn owned-job admission, attempt
+ledger/consent, API/UI, recovery lineage/handoff và nghiệm thu tích hợp. Custom/
+Jev controllers, follow-up và answer continuations chưa được lõi mới nhận vào.
+
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
 nghiệm thu tương ứng. Sau khi tác giả cấp quyền Issues, đã tạo đủ 17 GitHub issue
@@ -534,7 +550,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
-| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |
+| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: opt-in stage journal/replay trong pipeline chung cho original Quick/Deep/rules Planned, source/recipe/sequence và inherited attempt bounds. Verifier/export recovery đang dùng vẫn giữ nguyên. Còn owned-job admission, explicit API/UI, recovery lineage/handoff và nghiệm thu toàn mục; chưa bật journal mới trên Workbench/CLI |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
 | D10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
 | D11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |

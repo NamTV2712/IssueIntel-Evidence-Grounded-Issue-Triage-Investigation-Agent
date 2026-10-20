@@ -598,6 +598,47 @@ source lại trước provider. Giữ nguyên source job/receipts, child có che
 verification và receipt riêng; export liên kết source bằng hash. Một verifier đã
 hoàn tất không được gọi lại theo luồng này. Không tự phục hồi hoặc retry API.
 
+`investigation.stage_recovery.StageTape` bổ sung lõi opt-in trong `investigate()`
+với `recoverable=True`, durable `on_stage` và tùy chọn `on_recovery_attempt`.
+`execution_input` khóa public case, snapshot descriptor, graph, recipe và SHA
+của các implementation phụ thuộc; `initial_retrieval` giữ kết quả truy xuất gốc.
+Các stage sau giữ cùng envelope v1, thêm sequence/index, input digest và chuỗi
+**canonical-record digests**. Chúng khác SHA của bytes JSON do StageCheckpoints
+ghi; caller vẫn phải kiểm raw-byte receipts trước khi đưa journal vào pipeline.
+
+`recovery_records` là một completed prefix có thứ tự, không phải danh sách stage
+tùy chọn. Replay kiểm source/recipe/sequence, bỏ qua operation đã xong và không
+ghi lại checkpoint cũ. Cached code được đối chiếu actual snapshot bytes;
+annotation giữ citation/model/public-only constraints; verifier phải khớp loại
+critic được yêu cầu. Query, graph, policy, round hoặc stage inputs đổi đều làm
+replay bị từ chối. Git/graph vẫn được đọc để kiểm nguồn; completed retrieval và
+model generation không chạy lại. Nếu HEAD đổi, đọc full commit gốc trong header,
+không đổi query/request để theo revision mới.
+
+Cơ chế này hỗ trợ original product Quick/Deep và rules Planned v1/v2/v3,
+kể cả zero-call offline. Có thể tái dùng seed/refined generation, initial/focused
+retrieval, từng planned retrieval/generation, verification và completed plan.
+Waiting của v3 vẫn giữ nguyên semantics; replay không biến câu hỏi đang chờ
+thành dữ kiện đã được người dùng trả lời. Benchmark/strict/instance/split bị
+chặn trước Git; follow-up, answer continuation và custom/Jev controllers chưa
+được nhận vào lõi recovery mới.
+
+Recipe ghi cận attempt 0 offline, 4 Quick, 6 Deep hoặc 9 Planned. Khi replay,
+caller phải cung cấp `prior_provider_calls` đã biết, tính cả failed/in-flight
+attempts; thiếu hoặc thấp hơn journal bị từ chối. Attempt sink chạy trước provider
+và có thể giữ durable intent trước HTTP; sink lỗi không gọi model. Policy kiểm
+trước/sau call, kể cả sau attempt sink, nên policy đổi không đi tiếp sang repair
+hoặc critic. `stage_recovery` giữ inherited/new attempt bounds và danh sách record
+đã dùng; đây không phải hóa đơn hay khẳng định mọi attempt đã tới provider.
+
+Đây là **lõi thư viện của mục 8**, chưa phải cổng cấp quyền phục hồi job. Caller
+phải xác thực owned source, raw receipts, trạng thái lỗi, attempt ledger và explicit
+confirmation trước khi dùng nó. Workbench/CLI hiện chưa bật capture/replay mới;
+không tự chuyển checkpoint cũ sang journal mới. Durable job admission, UI,
+recovery lineage/handoff và nghiệm thu toàn mục còn triển khai. Luồng verifier/
+export đang có vẫn hoạt động theo contract cũ; không có quyền chi tiêu provider
+mới hoặc evaluation phát sinh từ việc thêm thư viện này.
+
 ## Ngân sách và bảo mật
 
 `investigation.check_plans` tạo phần bổ sung `product_check_plan_v1` cho báo cáo
