@@ -305,9 +305,21 @@ Trong capture đã mở, chọn tối đa sáu mục memory xuyên nhiều captu
 xem, nguồn cũ và nội dung context chính xác (tối đa 16.000 ký tự). Quan sát kiến
 trúc không khớp AST hiện tại bị từ chối toàn lựa chọn; giả thuyết cũ chỉ là hint
 chưa xác minh và ghi rõ code nguồn đã đổi hay chưa. Đổi lựa chọn xóa preview cũ;
-Planned đang chờ không mở nhánh mới qua preview. Đây là bước xem trước, chưa
-tạo phiên hoặc gửi context tới model. Thực thi phiên mới và đưa nguồn memory đã
-dùng vào gói bàn giao vẫn còn triển khai.
+Planned đang chờ không mở nhánh mới qua preview. Preview không gọi model.
+Sau khi xem nội dung, dùng **Tạo phiên từ preview này** để điều tra ở cùng
+commit với code được truy xuất lại. Mặc định offline; bật Groq cần đồng ý gửi
+issue, memory đã chọn và code tới provider. Memory là context chưa xác minh,
+không mang citation/nhãn đúng sai của giả thuyết cũ sang phiên mới. Nội dung
+memory không tự được tính là dữ kiện người báo đã cung cấp trong Intake.
+Mỗi preview chỉ có một intent qua restart; gửi lặp trả phiên cũ, cả khi lỗi/hủy,
+không đổi provider/depth để tạo thêm lượt gọi. Mất phản hồi thì **Kiểm trạng thái
+phiên đã gửi** bằng đúng yêu cầu cũ. Nguồn/policy được kiểm trước/sau call và
+trước công bố kết quả; receipt đã phát sinh vẫn được giữ khi phải dừng.
+Phiên con có **Memory đã dùng trong phiên này**; report/dossier giữ nguồn và
+hash. Gói bàn giao có `memory-selection.json`, context chính xác và tổ tiên
+bắt buộc; kiểm offline không cần kho memory, Git hoặc API. Nó kiểm tính nhất
+quán của lựa chọn đã ghi, không kiểm lại AST, xác thực capture gốc hoặc chứng
+nhận tính đúng của giả thuyết/khả năng dùng nguồn trong lịch sử.
 
 ## Dữ liệu: 400 Main Dev gốc
 

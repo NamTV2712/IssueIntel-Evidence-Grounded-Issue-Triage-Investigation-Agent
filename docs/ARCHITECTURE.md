@@ -260,8 +260,9 @@ giả thuyết hoặc tính áp dụng cho issue mới. Không dùng recorded_at
 CLI `memory-capture/list/show/assess` gọi cùng store, không nạp `.env` hay model
 config. Product-pack preflight từ chối split/instance IDs, restricted case IDs,
 strict protocol/audit trước Git replay. Capture/assessment replay actual commit
-bytes, show/list không cần checkout còn trên máy. Explicit inference selection
-của mục 6 còn triển khai; memory chưa tự đi vào product/benchmark prompts.
+bytes, show/list không cần checkout còn trên máy. Memory chỉ vào product prompt
+khi người dùng chọn exact items, xem preview và xác nhận tạo phiên riêng; không
+tự đưa vào benchmark prompts.
 
 `investigation.product_memory.ProductMemory` là adapter Workbench cho cùng
 store. Trước đọc pack, adapter kiểm completed product job và request metadata;
@@ -280,8 +281,8 @@ source excerpts. Trạng thái/draft khóa theo job+pack SHA; stale controls kh�
 được tác động phiên mới. Refresh/reopen/language không tạo capture hoặc gọi
 model; ack lỗi giữ draft và yêu cầu đọc lại danh sách, queue-full có trạng thái
 riêng. Assessment mới xóa status cũ trước khi chạy để lỗi không giữ badge thành
-công. UI chưa chuyển memory vào query/evidence; đây là phần tiếp theo của mục 6,
-gồm source-bound inference và portable handoff của những nguồn đã dùng.
+công. Chạy inference là thao tác xác nhận riêng từ preview; không tạo citation
+code bằng cách sao chép nhãn hỗ trợ/phản bác của memory cũ.
 
 `investigation.memory_selection.preview_memory_selection` chuẩn bị exact bounded
 memory hints cho một product pack/snapshot. Mỗi lựa chọn khóa capture ID, receipt
@@ -301,8 +302,34 @@ items. Memory open/capture có `selectable_items` SHA để UI không tự bịa
 UI giữ selection xuyên capture nhưng khóa vào viewed job/pack; thao tác chọn mới
 xóa context/status cũ và giữ focus checkbox. Preview response phải khớp từng
 item, nguồn, cận và truth flags. Preview không enqueue job, không gọi provider,
-không viết lên pack/query hoặc tự trở thành inference. Paid execution, durable
-selection intent và portable source replay là bước tiếp theo, chưa được khai đã có.
+không viết lên pack/query hoặc tự trở thành inference.
+
+`investigation.memory_followups.MemoryFollowups` nhận POST
+`/api/memory-investigations` với parent job/pack SHA, selection SHA, exact items,
+provider/depth và confirmation riêng cho offline/Groq. Trước enqueue và từng
+call, service kiểm product ancestry, source captures, current snapshot/AST và
+policy fingerprint. Kiểm lại sau call chặn repair/critic/publication nếu nguồn
+đổi trong call; receipt đã ghi vẫn giữ nguyên. Waiting Planned không được mở
+nhánh reset budget, Main Dev/strict bị từ chối. Dùng chung product pipeline;
+code được truy xuất lại tại commit cha, không kế thừa verifier/nhãn đúng sai.
+
+SQLite `memory_followups.sqlite` ghi một intent cho mỗi parent/pack/selection;
+provider/depth không nằm trong khóa nên đổi chúng không mint thêm attempt.
+Intent lưu exact selection bytes. Gửi lặp/restart trả cùng job; lỗi/hủy không tự
+retry. Saved read kiểm selection/query/snapshot/job request/durable intent mà
+không dùng Git/current AST/policy hoặc memory store hiện tại. Generated memory
+không được tính vào intake cue của người báo. Phiên con giữ selected-memory
+trace, report provenance và lineage; subsequent product follow-ups vẫn dùng
+canonical origin và bound tám đời hiện có.
+
+UI preview có offline mặc định, Quick/Deep, Groq với consent riêng; lost ack
+khóa exact request và cho kiểm lại cùng intent. Chuyển source/đổi lựa chọn loại
+stale execution controls. Saved memory được trình bày riêng trên phiên con.
+Handoff thêm exact `memory-selection.json` cùng pack/report và tổ tiên. Verifier
+standalone kiểm attachment, item/receipt/source bindings, frozen v1 projection,
+query nối và truth flags. Không đọc original capture store hoặc replay AST;
+hash consistency không xác thực tác giả hay độc lập chứng minh static semantics,
+causal truth, historical availability hoặc hóa đơn provider.
 
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,

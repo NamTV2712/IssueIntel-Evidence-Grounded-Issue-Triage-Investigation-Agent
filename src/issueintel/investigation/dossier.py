@@ -18,7 +18,7 @@ from .report import build_report
 
 
 SCHEMA = 'investigation_dossier_v1'
-MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization','planned_continuation'}
+MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization','planned_continuation','memory_followup'}
 ORIGINAL = {'local','github','example'}
 FLAGS = {'provenance':'user_report_unverified','causal_verified':False,
          'fix_verified':False,'independent_human':False,'evaluation_performed':False}

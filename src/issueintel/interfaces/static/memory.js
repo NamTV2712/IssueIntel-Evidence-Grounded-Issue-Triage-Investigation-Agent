@@ -37,7 +37,8 @@
     try{const value=await call();if(token!==e.operation)return false;apply(value);return true;}
     catch(error){if(token===e.operation){const queueFull=typeof error?.message==='string'&&error.message.startsWith('Queue is full');
       e.error=true;e.notice=queueFull?'Hàng đợi đang bận; thử lại sau khi tác vụ hiện tại kết thúc.':operation==='assess'?'Có lỗi khi đối chiếu nguồn. Git tại commit cần có trên máy; memory cũ vẫn mở được.':'Không đọc được nguồn memory khớp phiên. Kiểm lại trước khi tiếp tục.';
-      if(operation==='capture'&&!queueFull){e.uncertain=true;e.notice='Chưa xác nhận được thao tác memory. Bản nháp giữ nguyên; tải lại danh sách trước khi gửi lại.';}}return false;}
+      if(operation==='capture'&&!queueFull){e.uncertain=true;e.notice='Chưa xác nhận được thao tác memory. Bản nháp giữ nguyên; tải lại danh sách trước khi gửi lại.';}
+      if(operation==='execution'&&!queueFull)e.notice='Chưa xác nhận được phiên mới. Kiểm trạng thái bằng đúng yêu cầu đã gửi; không tự gọi lại model.';}return false;}
     finally{if(token===e.operation){e.busy=false;if(current(e))paint(e);}}
   }
   async function search(e,saved=false){
@@ -132,6 +133,45 @@
       e.preview=p;e.notice='Đã kiểm lựa chọn memory; chưa tạo phiên hoặc gọi model.';
     });
   }
+  async function execute(e){
+    if(e.busy||!e.preview||!e.status?.can_preview)return;
+    const p=e.preview;let attempt=e.attempts.get(p.sha256);
+    if(!attempt){
+      if(e.execution.provider==='groq'&&!e.execution.consent)return;
+      attempt={request:{parent_job_id:e.source.source_job_id,parent_pack_sha256:e.source.source_pack_sha256,
+        selection_sha256:p.sha256,selections:p.selections.map(row=>({...row})),provider:e.execution.provider,depth:e.execution.depth,
+        confirmation:e.execution.provider==='groq'?'start_memory_investigation_with_api_cost':'start_memory_investigation'}};
+      e.attempts.set(p.sha256,attempt);
+    }
+    const ok=await run(e,'execution',()=>api('/api/memory-investigations',attempt.request),value=>{
+      if(!job(value?.id)||value.mode!=='memory_followup'||value.provider!==attempt.request.provider||value.depth!==attempt.request.depth
+        ||!['queued','running','completed','failed','cancelled','interrupted'].includes(value.status))throw Error('Unbound memory execution');
+      attempt.job_id=value.id;e.notice='Đã nhận phiên điều tra dùng memory; gửi lặp không tạo phiên mới.';
+    });
+    if(ok&&current(e)&&e.preview===p)document.dispatchEvent(new CustomEvent('issueintel:memorycreated',{
+      detail:{job_id:attempt.job_id,source_job_id:e.source.source_job_id,source_pack_sha256:e.source.source_pack_sha256}}));
+  }
+  function executionControls(e,parent){
+    const attempt=e.attempts.get(e.preview.sha256),settings=e.execution;
+    parent.append(node('h4',t('Điều tra với memory đã chọn')),
+      node('p',t('Phiên mới giữ commit này, truy xuất lại code và dùng memory như dữ kiện chưa xác minh. Báo cáo gốc giữ nguyên.'),'field-note'));
+    const depthLabel=node('label',t('Độ sâu phiên mới')),depth=node('select');depth.id='memory-execution-depth';depthLabel.htmlFor=depth.id;
+    for(const [value,label] of [['quick','Nhanh'],['deep','Sâu']]){const option=node('option',t(label));option.value=value;depth.append(option);}
+    depth.value=attempt?.request.depth||settings.depth;depth.disabled=e.busy||!!attempt;
+    const revision=view;depth.onchange=()=>{if(current(e)&&revision===view&&!depth.disabled)settings.depth=depth.value;};
+    const paidLabel=node('label',undefined,'checkbox'),paid=node('input');paid.type='checkbox';paid.id='memory-execution-groq';
+    paid.checked=(attempt?.request.provider||settings.provider)==='groq';paid.disabled=e.busy||!!attempt;
+    paid.onchange=()=>{if(!current(e)||revision!==view||paid.disabled)return;settings.provider=paid.checked?'groq':'none';settings.consent=false;paint(e);};
+    paidLabel.append(paid,node('span',t('Dùng Groq cho phiên mới')));parent.append(depthLabel,depth,paidLabel);
+    if(paid.checked){
+      const consentLabel=node('label',undefined,'checkbox'),consent=node('input');consent.type='checkbox';consent.id='memory-execution-consent';consent.checked=!!attempt||settings.consent;consent.disabled=e.busy||!!attempt;
+      consent.onchange=()=>{if(!current(e)||revision!==view||consent.disabled)return;settings.consent=consent.checked;e.live.execute.disabled=e.busy||!settings.consent;};
+      consentLabel.append(consent,node('span',t('Tôi đồng ý gửi issue, memory đã chọn và code truy xuất tới Groq, có thể phát sinh chi phí.')));parent.append(consentLabel);
+    }
+    if(attempt)parent.append(node('p',t('Lựa chọn chạy đã khóa. Kiểm trạng thái chỉ gửi lại cùng yêu cầu; phiên lỗi/hủy không tự chạy lại.'),'notice'));
+    const start=button(e,attempt?'Kiểm trạng thái phiên đã gửi':'Tạo phiên từ preview này',()=>execute(e));
+    start.disabled=e.busy||!attempt&&paid.checked&&!settings.consent;e.live.execute=start;parent.append(start);
+  }
   function button(e,label,action){
     const revision=view,b=node('button',t(label));b.type='button';b.disabled=e.busy;
     b.onclick=()=>{if(current(e)&&revision===view&&!b.disabled)return action();};return b;
@@ -151,6 +191,19 @@
       e.live.previewCount.textContent=t('Đã chọn {count}/6 mục memory',{count:e.chosen.size});}
     for(const [key,input] of e.live.memoryChoices||[])input.disabled=e.busy||!e.status?.can_preview||(!input.checked&&e.chosen.size>=6);
   }
+  function usedMemory(e){
+    const p=e.usedSelection;if(!p)return;
+    const section=node('section',undefined,'memory-used');section.append(node('h4',t('Memory đã dùng trong phiên này')),
+      node('p',t('Đây là lựa chọn đã lưu của phiên này; nguồn chưa được đối chiếu lại khi mở báo cáo.'),'field-note'));
+    for(const item of p.items||[]){const h=item.hint||{},row=node('article',undefined,'memory-observation');
+      row.append(node('strong',h.kind==='architecture'?(h.source?.path+' · '+h.source?.qualname):h.statement),
+        node('p',t(h.kind==='architecture'?'Nguồn tĩnh chưa xác minh runtime.':'Giả thuyết cũ chưa xác minh'),'field-note'),
+        node('p',t('Revision nguồn đã lưu: {commit}',{commit:h.source_commit_sha}),'hash-note'),
+        node('p',item.selection?.capture_id+' · '+item.selection?.item_id,'hash-note'));section.append(row);
+    }
+    const details=node('details');details.append(node('summary',t('Nội dung memory đã gửi vào phiên')),
+      node('pre',p.additional_context),node('p','Selection SHA256 '+p.sha256,'hash-note'));section.append(details);area.append(section);
+  }
   function paint(e){
     if(!current(e))return;view++;const revision=view;area.replaceChildren();
     area.append(node('h3',t('Bộ nhớ điều tra')),node('p',t('Lưu và xem lại kiến trúc, nguồn code và giả thuyết của repository.')),
@@ -158,6 +211,7 @@
       node('p',t('Memory chưa tự đi vào model. Quan hệ tĩnh và giả thuyết cũ không xác nhận nguyên nhân.'),'notice'));
     const notice=node('p',e.notice?t(e.notice):'',e.error?'memory-error':'notice');notice.setAttribute('role',e.error?'alert':'status');area.append(notice);
     area.append(button(e,'Kiểm lại nguồn và tải danh sách',()=>load(e)));
+    usedMemory(e);
     if(!e.status?.available)return;
     const captureBox=node('details',undefined,'memory-capture');captureBox.append(node('summary',t('Lưu từ phiên đang xem')),
       node('p',t('Lưu và đối chiếu có thể đọc Git local; mở/tìm chỉ đọc capture đã lưu.'),'field-note'));
@@ -192,8 +246,9 @@
     e.live.previewRows=previewRows;e.live.previewContent=previewContent;
     selectedRows(e);
     previewArea.append(previewButton,previewContent);e.live.previewButton=previewButton;e.live.previewCount=previewCount;
-    if(e.preview){previewContent.append(node('p',t('Đã kiểm lựa chọn memory; chưa tạo phiên hoặc gọi model.'),'notice'),node('pre',e.preview.additional_context),
+    if(e.preview){previewContent.append(node('p',t(e.attempts.has(e.preview.sha256)?'Lựa chọn chạy đã khóa. Kiểm trạng thái chỉ gửi lại cùng yêu cầu; phiên lỗi/hủy không tự chạy lại.':'Đã kiểm lựa chọn memory; chưa tạo phiên hoặc gọi model.'),'notice'),node('pre',e.preview.additional_context),
       node('p','Selection SHA256 '+e.preview.sha256,'hash-note'),node('p','Context SHA256 '+e.preview.context_sha256,'hash-note'));
+      executionControls(e,previewContent);
     }
     area.append(previewArea);controls(e);
   }
@@ -247,7 +302,7 @@
     if(!e){let draft=drafts.get(key);if(!draft){draft={query:'',note:'',maxFacts:'500',selected:new Set()};drafts.set(key,draft);}
       e={key,source:{source_job_id:identifier,source_pack_sha256:options.pack_sha256,repository:pack.case.repository,commit_sha:pack.snapshot.commit_sha,
         snapshot_sha256:pack.snapshot.snapshot_sha256},draft,hypotheses:(pack.annotation?.hypotheses||[]).map(h=>({id:h.id,statement:h.statement})),
-        status:null,rows:[],opened:null,assessment:null,excerpts:new Map(),chosen:new Map(),preview:null,shown:20,operation:0,busy:false,uncertain:false,error:false,notice:null};states.set(key,e);}
+        status:null,rows:[],opened:null,assessment:null,excerpts:new Map(),chosen:new Map(),preview:null,usedSelection:pack.followup?.memory_selection||null,attempts:new Map(),execution:{provider:'none',depth:'quick',consent:false},shown:20,operation:0,busy:false,uncertain:false,error:false,notice:null};states.set(key,e);}
     active=e;paint(e);
     for(const [oldKey,old] of states)if(states.size>8&&old!==e&&!old.busy)states.delete(oldKey);
     if(!e.status&&!e.busy)return load(e);

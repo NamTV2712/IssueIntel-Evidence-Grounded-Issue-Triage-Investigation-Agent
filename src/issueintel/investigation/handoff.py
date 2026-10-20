@@ -35,6 +35,11 @@ def _viewer(selection):
         body.append('<article><h2>'+esc(row['job_id'])+'</h2><p>'+esc(row['mode']+' · '+row['status'])+'</p>')
         if row['report'] is not None:
             body.append('<pre>'+esc(render_markdown(row['report']))+'</pre>')
+            for provenance in row['report']['provenance']:
+                if provenance['kind']=='followup':
+                    details=json.loads(provenance['details'])
+                    if 'selected_memory' in details:
+                        body.append('<details><summary>Selected memory / Memory đã chọn</summary><pre>'+esc(_json(details['selected_memory']).decode())+'</pre><p>Declared selection and hashes only; no independent AST, original capture or historical availability proof.</p></details>')
             for evidence in row['report']['evidence']:
                 body.append('<details><summary>'+esc(evidence['id']+' · '+evidence['locator'])+'</summary><small>'+esc(evidence['revision'])+'</small><pre>'+esc(evidence['text'])+'</pre></details>')
         else:body.append('<p>Source job metadata only; no completed report is asserted.</p>')
@@ -100,6 +105,8 @@ class Handoffs:
                 add(prefix+'pack.json',raw,'source_pack')
                 add(prefix+'report.json',_json(row['report']),'report')
                 add(prefix+'report.md',render_markdown(row['report']).encode(),'report_markdown')
+                memory=(json.loads(raw).get('followup') or {}).get('memory_selection')
+                if memory:add(prefix+'memory-selection.json',_json(memory),'selected_memory_context')
             # Only recovery checkpoints referenced by included children, never a
             # whole run directory, environment, SQLite DB or Git cache.
             for child in chosen:

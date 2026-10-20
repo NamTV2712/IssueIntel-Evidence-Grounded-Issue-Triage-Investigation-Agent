@@ -10,7 +10,7 @@ from issueintel.runtime.io import digest
 
 
 PRODUCT_MODES = {'local','github','example','followup','clarification','check_followup','context',
-                 'resume','finalization','planned_continuation'}
+                 'resume','finalization','planned_continuation','memory_followup'}
 
 
 def _hash(value):

@@ -548,6 +548,10 @@ document.addEventListener('issueintel:clarificationcreated',event=>{
 document.addEventListener('issueintel:checkfollowupcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'check_followup'},{id:event.detail.job_id});
 });
+document.addEventListener('issueintel:memorycreated',event=>{
+  if(event.detail?.source_job_id!==currentJob||event.detail.source_pack_sha256!==reportView?.source?.pack_sha256)return;
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'memory_followup'},{id:event.detail.job_id});
+});
 document.addEventListener('issueintel:plannedcontinuation-created',event=>{
   if(event.detail?.source_job_id!==currentJob||event.detail.source_pack_sha256!==reportView?.source?.pack_sha256)return;
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'planned_continuation'},{id:event.detail.job_id});

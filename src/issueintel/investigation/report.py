@@ -184,6 +184,14 @@ def _provenance(pack):
             details['check_observations']={'source':receipt['source'],'journal_sha256':receipt['journal_sha256'],
                 'journal_revision':receipt['journal_revision'],'observation_ids':receipt['observation_ids'],
                 'receipt_sha256':receipt['sha256'],'user_reports_verified':False}
+        if link.get('memory_selection'):
+            receipt=link['memory_selection']
+            details['selected_memory']={'selection_sha256':receipt['sha256'],'context_sha256':receipt['context_sha256'],
+                'source':receipt['source'],'items':[{'capture_id':row['selection']['capture_id'],
+                    'receipt_sha256':row['selection']['receipt_sha256'],'item_id':row['selection']['item_id'],
+                    'item_sha256':row['selection']['item_sha256'],'kind':row['capture_kind'],
+                    'source_commit_sha':row['hint']['source_commit_sha'],'applicability':row['hint']['applicability']}
+                    for row in receipt['items']],'causal_verified':False,'historical_eligible':False}
         rows.append({'kind': 'followup', 'details': json.dumps(details, ensure_ascii=False, sort_keys=True)})
         if link.get('clarification'):
             receipt = link['clarification']

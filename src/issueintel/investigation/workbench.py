@@ -151,6 +151,8 @@ class Workbench:
         self.dossiers=Dossiers(self)
         from .product_memory import ProductMemory
         self.memory=ProductMemory(self)
+        from .memory_followups import MemoryFollowups
+        self.memory_followups=MemoryFollowups(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
@@ -320,7 +322,8 @@ class Workbench:
             if mode=='planned_continuation':
                 self.planned_continuations.validate_child(identifier,pack,request)
                 identifier=pack['continued_from']['parent_job_id']
-            elif mode in {'followup','clarification','check_followup'}:
+            elif mode in {'followup','clarification','check_followup','memory_followup'}:
+                if mode=='memory_followup':self.memory_followups.validate_child(identifier,pack,request)
                 link=pack.get('followup') or {}
                 if link.get('parent_job_id')!=request.get('parent_job_id'):
                     raise ValueError('Clarification request authority changed')
@@ -361,6 +364,10 @@ class Workbench:
         if not link:
             return pack['case']['problem_statement']
         parent=json.loads(self._export_bytes(link['parent_job_id']))
+        if link.get('memory_selection'):
+            # Generated memory projections never manufacture intake cues about
+            # the reporter's reproduction/environment or expected behavior.
+            return self._cue_text(parent)
         receipt=link.get('clarification')
         if link.get('check_observations'):
             from .check_followups import user_cue_text
@@ -898,10 +905,14 @@ class Workbench:
                     'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),'depth':depth+1,
                     'selected_sources':request['selected_sources'],'context_sha256':context['sha256'],
                     'historical_verified':False}
-            elif request['mode'] in {'followup','clarification','check_followup'}:
+            elif request['mode'] in {'followup','clarification','check_followup','memory_followup'}:
                 clarification=None
                 check_observations=None
-                if request['mode']=='check_followup':
+                memory_selection=None
+                if request['mode']=='memory_followup':
+                    parent,raw,depth,memory_selection,snapshot=self.memory_followups.input(row['id'],request)
+                    extra={'snapshot':snapshot}
+                elif request['mode']=='check_followup':
                     from .question_jobs import replay_snapshot
                     self.check_followups.assert_intent(request,row['id'])
                     parent,raw,depth,check_observations=self.check_followups.input(request)
@@ -917,7 +928,7 @@ class Workbench:
                 self._reject_waiting_fork(parent)
                 if depth >= 8:
                     raise ValueError('Follow-up depth is bounded to eight generations')
-                additional = (check_observations or clarification or request)['additional_context']
+                additional = (memory_selection or check_observations or clarification or request)['additional_context']
                 text = parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
                 if len(text)>100000:
                     raise ValueError('Combined query exceeds the public input bound')
@@ -936,6 +947,9 @@ class Workbench:
                     followup['clarification']=clarification
                     if request.get('question_job_id'):followup['question_job_id']=request['question_job_id']
                 if check_observations:followup['check_observations']=check_observations
+                if memory_selection:
+                    followup['memory_selection']=memory_selection
+                    followup['memory_policy_sha256']=request['policy_sha256']
             elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
@@ -963,6 +977,9 @@ class Workbench:
                 if not local.is_dir():
                     local = acquire_repository(repository, case['revision'], self.root/'data/repos').path
             def check_observation_source():
+                if request['mode']=='memory_followup':
+                    _,_,_,selection,_=self.memory_followups.input(row['id'],request)
+                    if selection!=followup['memory_selection']:raise ValueError('Memory execution selection changed')
                 if request['mode']=='check_followup':
                     saved=json.loads(self._job_path(row['id']).read_bytes())
                     if saved['request']!=request:raise ValueError('Check follow-up authority changed')
@@ -1007,6 +1024,8 @@ class Workbench:
                 raise ValueError('Planned waiting model has no supported authorization')
             if request['mode']=='check_followup' and config is not None and config.model!='openai/gpt-oss-120b':
                 raise ValueError('Check follow-up model has no supported authorization')
+            if request['mode']=='memory_followup' and config is not None and config.model!='openai/gpt-oss-120b':
+                raise ValueError('Memory investigation model has no supported authorization')
             context = ({'category': 'ARTIFACT_GENERATION_COST', 'reasoning_effort': config.reasoning_effort,
                         'stage': 'local_demo_investigation', 'diagnostic': False}
                        if config and config.reasoning_effort in {'medium', 'high'} else None)
@@ -1032,6 +1051,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
+                if request['mode']=='memory_followup':check_observation_source()
                 return answer
             def structured(messages, *, max_output_tokens, schema):
                 nonlocal call_stage
@@ -1041,6 +1061,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
+                if request['mode']=='memory_followup':check_observation_source()
                 return answer
             if provider and hasattr(provider, 'complete_structured'):
                 complete.complete_structured = structured
@@ -1073,7 +1094,13 @@ class Workbench:
                 else:
                     cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
                                   if followup.get('clarification') else followup['additional_context'])
-                pack['intake']=self._inspect_query(pack['case']['problem_statement'],self._cue_text(parent)+'\n'+cue_addition)
+                pack['intake']=self._inspect_query(pack['case']['problem_statement'],
+                    self._cue_text(parent) if followup.get('memory_selection') else self._cue_text(parent)+'\n'+cue_addition)
+                if followup.get('memory_selection'):
+                    receipt=followup['memory_selection']
+                    pack['trace'].append({'stage':'selected_memory_context','selection_sha256':receipt['sha256'],
+                        'context_sha256':receipt['context_sha256'],'selected_items':len(receipt['items']),
+                        'historical_verified':False,'causal_verified':False})
                 if followup.get('clarification'):
                     pack['trace'].append({'stage':'clarification_answers','questions_sha256':followup['clarification']['questions_sha256'],
                         'answers_sha256':followup['clarification']['sha256'],'parent_pack_sha256':followup['parent_pack_sha256'],
@@ -1088,6 +1115,7 @@ class Workbench:
             check_observation_source()
             if request['mode']=='planned_continuation':
                 self.planned_continuations.validate_child(row['id'],pack,request)
+            if request['mode']=='memory_followup':self.memory_followups.validate_child(row['id'],pack,request)
             directory = self.directory/'runs'/row['id']
             export_pack(pack, directory)
             refs = {name: {'path': (directory/name).relative_to(self.root).as_posix(),
@@ -1096,6 +1124,7 @@ class Workbench:
             check_observation_source()
             if request['mode']=='planned_continuation':
                 self.planned_continuations.validate_child(row['id'],pack,request)
+            if request['mode']=='memory_followup':self.memory_followups.validate_child(row['id'],pack,request)
             self._save(row, status='completed', stage='completed', run_id=pack['run_id'],
                        case_id=case['case_id'], strict_issue_time_verified=pack['leakage_audit']['strict_issue_time_verified'],
                        result=refs, stop_reason=pack['stop_reason'])
@@ -1291,6 +1320,8 @@ class Workbench:
                 raise ValueError('Selected-context source binding changed')
             return pack,raw,depth+1
         link = pack.get('followup')
+        if saved_request.get('mode')=='memory_followup' and not (link or {}).get('memory_selection'):
+            raise ValueError('Missing saved memory selection receipt')
         if saved_request.get('mode')=='check_followup' and not (link or {}).get('check_observations'):
             raise ValueError('Missing saved check observation receipt')
         if not link:
@@ -1334,6 +1365,10 @@ class Workbench:
         if link.get('check_observations') is not None:
             compare_packs(pack,pack)
             self.check_followups.validate_child(identifier,pack,saved_request)
+        if link.get('memory_selection') is not None:
+            if saved_request.get('mode')!='memory_followup':raise ValueError('Memory selection requires its own job authority')
+            compare_packs(pack,pack)
+            self.memory_followups.validate_child(identifier,pack,saved_request)
         return pack, raw, depth+1
 
     def intake(self, identifier):

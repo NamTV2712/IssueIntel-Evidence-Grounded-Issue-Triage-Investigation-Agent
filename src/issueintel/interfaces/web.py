@@ -292,6 +292,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.related(request))
                 elif route == '/api/context-search':
                     self._json(200, workbench.context_search(request))
+                elif route=='/api/memory-investigations':
+                    self._json(202,workbench.memory_followups.submit(request))
                 elif (route.startswith('/api/jobs/') and len(route.split('/'))==5
                       and route.split('/')[4] in {'memory-search','memory-capture','memory-open','memory-assess','memory-source','memory-preview'}):
                     identifier,action=route.split('/')[3:]

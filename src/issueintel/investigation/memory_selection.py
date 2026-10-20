@@ -129,3 +129,76 @@ def preview_memory_selection(store,parent_raw,current_snapshot,selections):
         'historical_eligible':False,'runtime_verified':False,'causal_verified':False,
         'automatic_inference':False,'model_calls':0}
     return dict(result,sha256=digest(result))
+
+
+def validate_saved_selection(value,parent_raw):
+    """Replay a captured projection without today's parser, store, Git or policy.
+
+    Admission authenticates original captures and revalidates the current AST;
+    saved replay checks the immutable declared projection and source bindings.
+    It is not independent proof of static semantics or capture authorship.
+    """
+    try:
+        parent=product_memory_pack(parent_raw)
+        expected={'pack_sha256':sha256(parent_raw).hexdigest(),'repository':parent['case']['repository'],
+            'case_id':parent['case']['case_id'],'query_sha256':sha256(parent['case']['problem_statement'].encode()).hexdigest(),
+            'commit_sha':parent['snapshot']['commit_sha'],'snapshot_sha256':parent['snapshot']['snapshot_sha256']}
+        if (not isinstance(value,dict) or set(value)!={'schema','source','selections','items','additional_context','context_sha256',
+                'max_context_characters','historical_eligible','runtime_verified','causal_verified','automatic_inference','model_calls','sha256'}
+                or value['schema']!=SCHEMA or value['source']!=expected
+                or value['sha256']!=digest({k:v for k,v in value.items() if k!='sha256'})
+                or any(value[k] is not False for k in ('historical_eligible','runtime_verified','causal_verified','automatic_inference'))
+                or type(value['model_calls']) is not int or value['model_calls']!=0
+                or type(value['max_context_characters']) is not int or value['max_context_characters']!=MAX_CONTEXT):
+            raise ValueError('Saved memory selection/source binding differs')
+        selections=validate_selections(value['selections'])
+        if not isinstance(value['items'],list) or len(value['items'])!=len(selections):
+            raise ValueError('Saved selected memory inventory differs')
+        for index,(item,selected) in enumerate(zip(value['items'],selections),1):
+            if (not isinstance(item,dict) or set(item)!={'selection','capture_kind','memory_sha256','source_snapshot_sha256',
+                    'source_pack_sha256','source_job_id','assessment_sha256','dependencies','hint'}
+                    or item['selection']!=selected
+                    or any(not isinstance(item[k],str) or not re.fullmatch('[a-f0-9]{64}',item[k])
+                           for k in ('memory_sha256','source_snapshot_sha256','assessment_sha256'))
+                    or item['source_pack_sha256'] is not None and not re.fullmatch('[a-f0-9]{64}',item['source_pack_sha256'])
+                    or item['source_job_id'] is not None and not re.fullmatch('[a-f0-9]{24}',item['source_job_id'])
+                    or not isinstance(item['dependencies'],list)):
+                raise ValueError('Saved selected memory proof differs')
+            hint=item['hint']
+            if (not isinstance(hint,dict) or hint['label']!='M'+str(index)
+                    or hint['viewed_commit_sha']!=expected['commit_sha']
+                    or not re.fullmatch('[a-f0-9]{40}|[a-f0-9]{64}',hint['source_commit_sha'])
+                    or hint['runtime_verified'] is not False or hint['causal_verified'] is not False):
+                raise ValueError('Saved memory hint scope or truth changed')
+            if item['capture_kind']=='architecture':
+                if (set(hint)!={'label','kind','truth_level','source_commit_sha','viewed_commit_sha','relation','source','target',
+                        'reference','applicability','runtime_verified','causal_verified'}
+                        or hint['kind']!='architecture' or hint['applicability']!='revalidated_static_only'
+                        or hint['relation'] not in {'definition','calls','imports','inherits'}
+                        or hint['truth_level']!=('observed_syntax' if hint['relation']=='definition' else 'static_reference')):
+                    raise ValueError('Saved static memory hint was promoted')
+                from issueintel.repository.snapshot import validate_repo_path
+                for node in [hint['source']]+([hint['target']] if hint['target'] else []):
+                    if (set(node)!={'kind','path','qualname','start_line','end_line','sha256'}
+                            or node['kind'] not in {'file','function','class'} or not isinstance(node['qualname'],str)
+                            or type(node['start_line']) is not int or type(node['end_line']) is not int
+                            or not 1<=node['start_line']<=node['end_line'] or not re.fullmatch('[a-f0-9]{64}',node['sha256'])):
+                        raise ValueError('Saved static memory source span differs')
+                    validate_repo_path(node['path'])
+            elif item['capture_kind']=='investigation_lesson':
+                if (set(hint)!={'label','kind','truth_level','source_commit_sha','viewed_commit_sha','source_query_sha256',
+                        'source_issue_excerpt','source_issue_excerpt_truncated','statement','falsification_test','unverified_author_note',
+                        'applicability','runtime_verified','causal_verified','historical_eligible'}
+                        or hint['kind']!='prior_hypothesis' or hint['truth_level']!='unverified_prior_investigation'
+                        or hint['historical_eligible'] is not False or not re.fullmatch('[a-f0-9]{64}',hint['source_query_sha256'])
+                        or not all(isinstance(hint[k],str) for k in ('source_issue_excerpt','statement','falsification_test','unverified_author_note'))
+                        or type(hint['source_issue_excerpt_truncated']) is not bool
+                        or hint['applicability'] not in {'no_code_dependencies','source_unavailable','source_missing','source_changed','source_unchanged_hypothesis_unverified'}):
+                    raise ValueError('Saved prior hypothesis was promoted')
+            else:raise ValueError('Unknown selected memory kind')
+        context=_context(expected['repository'],expected['commit_sha'],value['items'])
+        if context!=value['additional_context'] or sha256(context.encode()).hexdigest()!=value['context_sha256']:
+            raise ValueError('Saved memory hint text differs from the selected items')
+        return value
+    except (KeyError,TypeError,AttributeError,IndexError):
+        raise ValueError('Invalid saved memory selection structure') from None

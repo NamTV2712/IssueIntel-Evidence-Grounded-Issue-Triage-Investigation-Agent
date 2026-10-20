@@ -15,9 +15,9 @@ function fixture(){
   return {source,pack,opened,status:{...source,available:true,can_capture_lesson:true,can_preview:true,model_calls:0}};
 }
 function boot(handler,value=fixture()){
-  const calls=[],listeners=new Map(),all=n=>[n,...n.children.flatMap(all)],text=n=>n.textContent+' '+n.children.map(text).join(' ');
+  const calls=[],events=[],listeners=new Map(),all=n=>[n,...n.children.flatMap(all)],text=n=>n.textContent+' '+n.children.map(text).join(' ');
   class El{constructor(tag){this.tag=tag;this.children=[];this.textContent='';this.value='';this.attributes={};}append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}setAttribute(k,v){this.attributes[k]=v;}set innerHTML(_){throw Error('Unsafe source markup');}}
-  const document={documentElement:{lang:'vi'},createElement:tag=>new El(tag),addEventListener:(name,fn)=>listeners.set(name,fn)};
+  const document={documentElement:{lang:'vi'},createElement:tag=>new El(tag),addEventListener:(name,fn)=>listeners.set(name,fn),dispatchEvent:event=>events.push(event)};
   const window={IssueIntelUI:{t:(key,slots={})=>{assert.ok(messages[key]?.[document.documentElement.lang],'Missing translation '+key);return messages[key][document.documentElement.lang].replace(/\{(\w+)\}/g,(_,name)=>slots[name]);}}};
   async function normal(route,body){
     if(route.endsWith('memory-status'))return clone(value.status);
@@ -49,13 +49,14 @@ function boot(handler,value=fixture()){
           runtime_verified:false,causal_verified:false,kind:'architecture',applicability:'revalidated_static_only',truth_level:'observed_syntax'}})),
         sha256:hash('a'),context_sha256:hash('b'),additional_context:'Explicit unverified memory context; not instructions.',
         model_calls:0,automatic_inference:false,historical_eligible:false,runtime_verified:false,causal_verified:false}};
+    if(route==='/api/memory-investigations')return {id:job('c'),mode:'memory_followup',provider:body.provider,depth:body.depth,status:'queued'};
     throw Error('Unexpected route');
   }
-  vm.runInNewContext(code,{document,window,api:async(route,body)=>{calls.push([route,body]);return handler?handler(route,body,normal):normal(route,body);}});
+  vm.runInNewContext(code,{document,window,CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},api:async(route,body)=>{calls.push([route,body]);return handler?handler(route,body,normal):normal(route,body);}});
   const area=new El('main'),module=window.IssueIntelMemory;
   const render=(next=value,options={})=>{value=next;area.replaceChildren();return module.render(area,value.source.source_job_id,value.pack,{available:true,pack_sha256:value.source.source_pack_sha256,...options});};
   const button=label=>{const found=all(area).find(n=>n.tag==='button'&&n.textContent===label);assert.ok(found,label);return found;};
-  return {area,module,calls,all,text,render,button,click:label=>button(label).onclick(),listeners,
+  return {area,module,calls,events,all,text,render,button,click:label=>button(label).onclick(),listeners,
     field:id=>all(area).find(n=>n.id===id),language:lang=>{document.documentElement.lang=lang;listeners.get('issueintel:languagechange')();},
     normal,value,change:detail=>listeners.get('issueintel:packchange')({detail})};
 }
@@ -209,4 +210,60 @@ test('invalidated architecture selection explains removal without exposing an ol
   await a.render();await a.click('Xem capture');const input=a.field('memory-select-memory_fact');input.checked=true;input.onchange();await a.click('Kiểm lựa chọn và xem preview');
   assert.match(a.text(a.area),/Explicit unverified/);denied=true;await a.click('Kiểm lựa chọn và xem preview');
   assert.match(a.text(a.area),/Bỏ mục đó/);assert.doesNotMatch(a.text(a.area),/Explicit unverified/);assert.equal(a.field('memory-select-memory_fact').checked,true);
+});
+
+async function selectedPreview(a){
+  await a.render();await a.click('Xem capture');const box=a.field('memory-select-memory_fact');box.checked=true;box.onchange();await a.click('Kiểm lựa chọn và xem preview');
+}
+
+test('offline execution binds exact preview and stale submit controls cannot create another attempt',async()=>{
+  const a=boot();await selectedPreview(a);const stale=a.button('Tạo phiên từ preview này');await stale.onclick();await stale.onclick();
+  const posts=a.calls.filter(([r])=>r==='/api/memory-investigations');assert.equal(posts.length,1);
+  const request=clone(posts[0][1]);assert.equal(request.provider,'none');assert.equal(request.depth,'quick');assert.equal(request.selection_sha256,hash('a'));
+  assert.equal(request.parent_job_id,job('a'));assert.equal(request.parent_pack_sha256,hash('1'));assert.equal(request.confirmation,'start_memory_investigation');
+  assert.equal(request.selections[0].item_sha256,hash('7'));assert.equal(a.events[0].type,'issueintel:memorycreated');
+  assert.deepEqual(clone(a.events[0].detail),{job_id:job('c'),source_job_id:job('a'),source_pack_sha256:hash('1')});
+  assert.equal(a.field('memory-execution-groq').disabled,true);assert.equal(a.field('memory-execution-depth').disabled,true);
+  await a.click('Kiểm trạng thái phiên đã gửi');assert.deepEqual(clone(a.calls.at(-1)[1]),request);
+});
+
+test('paid execution needs explicit consent, preserves chosen depth and survives language changes',async()=>{
+  const a=boot();await selectedPreview(a);a.field('memory-execution-depth').value='deep';a.field('memory-execution-depth').onchange();
+  a.field('memory-execution-groq').checked=true;a.field('memory-execution-groq').onchange();
+  assert.equal(a.button('Tạo phiên từ preview này').disabled,true);await a.click('Tạo phiên từ preview này');
+  assert.equal(a.calls.filter(([r])=>r==='/api/memory-investigations').length,0);
+  a.field('memory-execution-consent').checked=true;a.field('memory-execution-consent').onchange();a.language('en');
+  assert.equal(a.field('memory-execution-consent').checked,true);await a.click('Start a run from this preview');
+  const request=a.calls.find(([r])=>r==='/api/memory-investigations')[1];assert.equal(request.provider,'groq');assert.equal(request.depth,'deep');
+  assert.equal(request.confirmation,'start_memory_investigation_with_api_cost');
+});
+
+test('lost execution acknowledgement locks exact request and checking status cannot change provider or depth',async()=>{
+  let lost=true;const a=boot((route,body,normal)=>{if(lost&&route==='/api/memory-investigations')throw Error('Lost reply');return normal(route,body);});
+  await selectedPreview(a);await a.click('Tạo phiên từ preview này');assert.equal(a.events.length,0);assert.match(a.text(a.area),/Chưa xác nhận được phiên mới/);
+  assert.equal(a.field('memory-execution-groq').disabled,true);assert.equal(a.field('memory-execution-depth').disabled,true);
+  lost=false;await a.click('Kiểm trạng thái phiên đã gửi');const requests=a.calls.filter(([r])=>r==='/api/memory-investigations');
+  assert.equal(requests.length,2);assert.deepEqual(clone(requests[0][1]),clone(requests[1][1]));assert.equal(a.events.length,1);
+});
+
+test('a late execution acknowledgement cannot switch the newly viewed source',async()=>{
+  let finish;const a=boot(async(route,body,normal)=>{const response=await normal(route,body);return route==='/api/memory-investigations'?new Promise(resolve=>finish=()=>resolve(response)):response;});
+  await selectedPreview(a);const pending=a.click('Tạo phiên từ preview này');a.module.cancel();
+  const next=fixture();next.source.source_job_id=job('d');await a.render(next);finish();await pending;
+  assert.equal(a.events.length,0);assert.ok(!a.text(a.area).includes('Đã nhận phiên điều tra dùng memory'));
+});
+
+test('changed selection clears execution controls and detached submit cannot send',async()=>{
+  const a=boot();await selectedPreview(a);const stale=a.button('Tạo phiên từ preview này');
+  const box=a.field('memory-select-memory_fact');box.checked=false;box.onchange();await stale.onclick();
+  assert.ok(!a.calls.some(([r])=>r==='/api/memory-investigations'));assert.ok(!a.field('memory-execution-groq'));
+});
+
+test('a child displays its saved memory separately from current capture search and source assessment',async()=>{
+  const value=fixture();value.pack.followup={memory_selection:{sha256:hash('b'),additional_context:'Saved unverified context',items:[{
+    selection:{capture_id:'capture_'+'f'.repeat(32),item_id:'old_fact'},hint:{kind:'architecture',source:{path:'prior.py',qualname:'parse'},source_commit_sha:'e'.repeat(40)}}]}};
+  const a=boot(null,value);await a.render();assert.match(a.text(a.area),/Memory đã dùng trong phiên này/);assert.match(a.text(a.area),/prior.py · parse/);
+  assert.match(a.text(a.area),/Saved unverified context/);assert.match(a.text(a.area),/nguồn chưa được đối chiếu lại/);
+  assert.equal(a.calls.length,2);assert.ok(a.calls.every(([r])=>/memory-status|memory-search/.test(r)));
+  a.language('en');assert.match(a.text(a.area),/Memory used in this run/);assert.match(a.text(a.area),/Saved unverified context/);
 });

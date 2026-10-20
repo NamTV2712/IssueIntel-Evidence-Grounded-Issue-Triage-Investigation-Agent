@@ -461,6 +461,10 @@ Không gọi provider thật hoặc mở evaluation.
 
 ## Backlog được tác giả yêu cầu ngày 19/10/2026
 
+Danh sách sản phẩm gồm **mục 1–13**; P0/P1/P2 là mức ưu tiên. Ký hiệu D01–D13
+trong bảng và GitHub issue bên dưới chỉ ánh xạ về đúng số mục này, không phải
+một danh sách khác.
+
 Mốc Workbench memory của mục 6 đã qua 156 test liên quan (memory store,
 product API, Planned continuations, dossier và report); bộ API cuối bổ sung
 exact file-node/CRLF source hash đạt 24 test. Toàn bộ frontend đạt 228 test.
@@ -478,7 +482,27 @@ preview/API cuối đạt 45 test, toàn bộ frontend đạt 233 test. Browser 
 giữ static fact còn nguyên và prior hypothesis `source_changed` chưa xác minh,
 đổi ngôn ngữ giữ selection và xóa preview khi checkbox đổi. Context có source,
 viewed revision cùng selection/context SHA; chưa tạo job hoặc gọi model. UI
-chưa thực thi inference với selection hoặc xuất nguồn memory trong portable handoff.
+chưa thực thi inference với selection hoặc xuất nguồn memory trong portable handoff
+tại mốc preview `aff83c3`; CI của commit này đã thành công.
+
+Mốc tiếp theo nối preview vào phiên điều tra product Quick/Deep. Người dùng xem
+exact context rồi xác nhận offline hoặc Groq với consent chi phí riêng. Code
+được truy xuất lại ở cùng commit; prior hypotheses không trở thành code citations
+hoặc nhãn đúng sai, memory không được tính là intake cue do người báo cung cấp.
+Một durable intent cho mỗi preview chặn gửi lặp, đổi provider/depth để chạy thêm
+và tự retry sau lỗi/hủy/restart. Nguồn/policy đổi trước/sau call hoặc trước khi
+công bố làm dừng phiên và giữ receipt. Saved report/dossier đọc lại không cần
+Git/current AST/live memory store; UI giữ riêng memory đã dùng. Handoff có exact
+selection/context attachment và source ancestors; standalone verifier kiểm
+recorded projection/query/item/receipt/truth bindings, không tái chứng minh AST
+hoặc tính xác thực capture gốc. Đã qua 77 test memory/selection/handoff và 239
+test frontend tổng hợp; bộ hồi quy rộng đạt 514 test, kiểm tra backend cuối đạt
+36 test sau bổ sung malformed provider/depth inputs. CI của mốc đang chờ hoàn tất.
+Browser tổng hợp đã chạy offline từ preview, mở lại memory đã dùng, kiểm consent
+Groq, English/dark và viewport 390 px không tràn. Lỗi provider giả lập giữ receipt,
+không có report thành công giả và kiểm lại cùng intent không tạo phiên/call mới.
+Transport Groq là giả lập;
+không có provider thật, Holdout/Live hoặc evaluation.
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
@@ -496,7 +520,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
-| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đang triển khai: core `9e7adb8`, store/CLI `1d8a034`, owned Workbench API/UI `57fa5a5`; thêm chọn tối đa 6 mục xuyên capture và exact preview 16.000 ký tự, chặn static item không còn khớp, giữ prior hints chưa xác minh. Preview không tạo phiên/gọi model. Còn thực thi inference với selection, provenance/handoff tích hợp và nghiệm thu toàn mục; issue vẫn mở |
+| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đang nghiệm thu: core, store/CLI, owned API/UI, tối đa 6 exact items/16.000 ký tự, confirmed product inference với durable intent và source/policy guards, saved provenance/dossier/handoff. Static observations cần revalidation; prior hypotheses vẫn chưa xác minh. Còn kiểm hồi quy, CI và đối chiếu tiêu chí toàn mục; issue vẫn mở |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
 | D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
