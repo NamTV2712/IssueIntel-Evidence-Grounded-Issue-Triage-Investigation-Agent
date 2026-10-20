@@ -12,13 +12,17 @@
   const drafts=new Map(),states=new Map();let active=null,area=null,view=0;
   const sameSource=(a,b)=>a&&b&&['source_job_id','source_pack_sha256','repository','commit_sha','snapshot_sha256'].every(k=>a[k]===b[k]);
   const current=e=>active===e&&area!==null;
+  const sameSelections=(left,right)=>Array.isArray(left)&&left.length===right.length&&left.every((row,i)=>row&&['capture_id','receipt_sha256','item_id','item_sha256'].every(key=>row[key]===right[i][key]));
   const binding=e=>({source_pack_sha256:e.source.source_pack_sha256});
   const selection=(e,value=e.opened)=>({...binding(e),capture_id:value.receipt.id,receipt_sha256:value.receipt.sha256});
   function validCapture(value,e){
     const r=value?.receipt,m=value?.memory;
     if(!sameSource(value?.source,e.source)||value.model_calls!==0||!r||!m||!capture(r.id)||!hash(r.sha256)||!hash(m.sha256)
       ||r.repository!==e.source.repository||r.memory_sha256!==m.sha256||r.snapshot_sha256!==m.source?.snapshot_sha256
-      ||!commit(m.source?.commit_sha)||!hash(m.source?.snapshot_sha256)||m.runtime_verified!==false||m.causal_verified!==false)return false;
+      ||!commit(m.source?.commit_sha)||!hash(m.source?.snapshot_sha256)||m.runtime_verified!==false||m.causal_verified!==false
+      ||!Array.isArray(value.selectable_items)||value.selectable_items.some(row=>typeof row.id!=='string'||!hash(row.item_sha256)))return false;
+    const offered=r.kind==='architecture'?m.facts:m.hypotheses;
+    if(!Array.isArray(offered)||value.selectable_items.length!==offered.length||value.selectable_items.some((row,i)=>row.id!==offered[i]?.id))return false;
     if(r.kind==='architecture')return m.schema==='repository_architecture_memory_v1'&&Array.isArray(m.facts)&&m.facts.length<=1000
       &&Number.isInteger(m.facts_omitted)&&m.facts_omitted>=0
       &&new Set(m.facts.map(f=>f?.id)).size===m.facts.length&&m.facts.every(f=>typeof f.id==='string'&&!!f.id&&hash(f.sha256)
@@ -50,7 +54,7 @@
   async function load(e){
     const ok=await run(e,'status',()=>api('/api/jobs/'+e.source.source_job_id+'/memory-status'),value=>{
       if(value?.available!==true){e.status={available:false};e.notice='Memory chỉ dùng với phiên product đã lưu, ngoài benchmark.';return;}
-      if(!sameSource(value,e.source)||value.model_calls!==0||typeof value.can_capture_lesson!=='boolean')throw Error('Changed product source');e.status=value;e.notice=null;
+      if(!sameSource(value,e.source)||value.model_calls!==0||typeof value.can_capture_lesson!=='boolean'||typeof value.can_preview!=='boolean')throw Error('Changed product source');e.status=value;e.notice=null;
     });
     if(ok&&e.status?.available)await search(e);
   }
@@ -103,6 +107,31 @@
       e.excerpts.set(itemId+':'+role,value);e.notice=null;
     });
   }
+  async function preview(e){
+    if(e.busy||!e.status?.can_preview||!e.chosen.size)return;e.preview=null;
+    const selections=[...e.chosen.values()].map(row=>({...row}));
+    return run(e,'preview',()=>api('/api/jobs/'+e.source.source_job_id+'/memory-preview',{...binding(e),selections}),value=>{
+      if(value?.available===false){
+        if(!sameSource(value.source,e.source)||value.model_calls!==0||value.investigation_created!==false
+          ||value.reason!=='architecture_item_not_revalidated'||!selections.some(row=>row.item_id===value.item_id)
+          ||!Object.hasOwn(statuses,value.status))throw Error('Invalid memory rejection');
+        e.error=true;e.notice='Có mục kiến trúc không còn khớp revision đang xem. Bỏ mục đó hoặc chọn capture từ revision phù hợp.';return;
+      }
+      const p=value?.selection;
+      if(value?.available!==true||!sameSource(value?.source,e.source)||value.model_calls!==0||value.investigation_created!==false||p?.schema!=='product_memory_selection_v1'
+        ||p.source?.pack_sha256!==e.source.source_pack_sha256||p.source?.commit_sha!==e.source.commit_sha||p.source?.snapshot_sha256!==e.source.snapshot_sha256
+        ||p.source?.repository!==e.source.repository||p.model_calls!==0||p.automatic_inference!==false||p.historical_eligible!==false||p.runtime_verified!==false||p.causal_verified!==false
+        ||!hash(p.sha256)||!hash(p.context_sha256)||typeof p.additional_context!=='string'||!p.additional_context.length||p.additional_context.length>16000
+        ||!sameSelections(p.selections,selections)||!Array.isArray(p.items)||p.items.length!==selections.length
+        ||p.items.some((row,i)=>!sameSelections([row?.selection],[selections[i]])||!hash(row.memory_sha256)||!hash(row.source_snapshot_sha256)
+          ||!hash(row.assessment_sha256)||!commit(row.hint?.source_commit_sha)||row.hint.viewed_commit_sha!==e.source.commit_sha
+          ||row.hint.runtime_verified!==false||row.hint.causal_verified!==false
+          ||(row.capture_kind==='architecture'?row.hint.kind!=='architecture'||row.hint.applicability!=='revalidated_static_only'
+               ||!['observed_syntax','static_reference'].includes(row.hint.truth_level):
+             row.capture_kind!=='investigation_lesson'||row.hint.kind!=='prior_hypothesis'||row.hint.truth_level!=='unverified_prior_investigation'||row.hint.historical_eligible!==false)))throw Error('Unbound memory preview');
+      e.preview=p;e.notice='Đã kiểm lựa chọn memory; chưa tạo phiên hoặc gọi model.';
+    });
+  }
   function button(e,label,action){
     const revision=view,b=node('button',t(label));b.type='button';b.disabled=e.busy;
     b.onclick=()=>{if(current(e)&&revision===view&&!b.disabled)return action();};return b;
@@ -118,6 +147,9 @@
     e.live.arch.disabled=locked;e.live.lesson.disabled=locked||!e.status?.can_capture_lesson||!e.draft.selected.size;
     e.live.count.textContent=t('Đã chọn {count}/5 giả thuyết',{count:e.draft.selected.size});
     for(const [id,input] of e.live.checks)input.disabled=e.busy||(!input.checked&&e.draft.selected.size>=5);
+    if(e.live.previewButton){e.live.previewButton.disabled=e.busy||!e.chosen.size||!e.status?.can_preview;
+      e.live.previewCount.textContent=t('Đã chọn {count}/6 mục memory',{count:e.chosen.size});}
+    for(const [key,input] of e.live.memoryChoices||[])input.disabled=e.busy||!e.status?.can_preview||(!input.checked&&e.chosen.size>=6);
   }
   function paint(e){
     if(!current(e))return;view++;const revision=view;area.replaceChildren();
@@ -142,7 +174,7 @@
     const noteLabel=node('label',t('Ghi chú chưa xác minh (tùy chọn)')),note=node('textarea');note.id='memory-note';note.rows=3;note.maxLength=2000;note.value=e.draft.note;note.disabled=e.busy||!e.status.can_capture_lesson;noteLabel.htmlFor=note.id;
     note.oninput=()=>{if(current(e)&&revision===view)e.draft.note=note.value;};
     const saveLesson=button(e,'Lưu giả thuyết đã chọn',()=>save(e,'lesson'));lesson.append(count,noteLabel,note,saveLesson);captureBox.append(lesson);area.append(captureBox);
-    e.live={arch,lesson:saveLesson,count,checks};controls(e);
+    e.live={arch,lesson:saveLesson,count,checks,notice};controls(e);
     const searchForm=node('form',undefined,'memory-search'),queryLabel=node('label',t('Từ khóa memory')),query=node('input');query.id='memory-query';query.value=e.draft.query;query.maxLength=500;query.disabled=e.busy;queryLabel.htmlFor=query.id;
     query.oninput=()=>{if(current(e)&&revision===view)e.draft.query=query.value;};searchForm.onsubmit=event=>{event.preventDefault();if(current(e)&&revision===view)return search(e);};
     searchForm.append(queryLabel,query,button(e,'Tìm memory',()=>search(e)));area.append(searchForm,node('p',t('Chỉ tìm trong 16.000 ký tự index đầu mỗi capture.'),'field-note'));
@@ -152,6 +184,35 @@
     for(const row of e.rows){const item=node('article',undefined,'memory-row');item.append(node('strong',t(kinds[row.kind])),node('code',row.source.commit_sha.slice(0,12)),node('span',row.retained_count===1?t('1 mục đã lưu'):t('{count} mục đã lưu',{count:row.retained_count})),
       button(e,'Xem capture',()=>open(e,row)));list.append(item);}area.append(list);
     if(e.opened)detail(e);
+    const previewArea=node('section',undefined,'memory-preview');previewArea.append(node('h4',t('Xem trước memory đã chọn')),
+      node('p',t('Chọn tối đa 6 mục trong các capture. Preview đọc lại Git và kiểm nguồn; chưa gửi model hoặc tạo phiên mới.'),'field-note'));
+    if(!e.status.can_preview)previewArea.append(node('p',t('Phiên Planned đang chờ; dùng biểu mẫu tiếp tục trong Trace để giữ ngân sách.'),'notice'));
+    const previewCount=node('p'),previewButton=button(e,'Kiểm lựa chọn và xem preview',()=>preview(e));
+    const previewRows=node('div'),previewContent=node('div');previewArea.append(previewCount,previewRows);
+    e.live.previewRows=previewRows;e.live.previewContent=previewContent;
+    selectedRows(e);
+    previewArea.append(previewButton,previewContent);e.live.previewButton=previewButton;e.live.previewCount=previewCount;
+    if(e.preview){previewContent.append(node('p',t('Đã kiểm lựa chọn memory; chưa tạo phiên hoặc gọi model.'),'notice'),node('pre',e.preview.additional_context),
+      node('p','Selection SHA256 '+e.preview.sha256,'hash-note'),node('p','Context SHA256 '+e.preview.context_sha256,'hash-note'));
+    }
+    area.append(previewArea);controls(e);
+  }
+  function selectedRows(e){
+    const rows=e.live?.previewRows;if(!rows)return;rows.replaceChildren();
+    for(const row of e.chosen.values()){
+      const label=node('p',undefined,'hash-note');label.append(node('span',row.capture_id.slice(0,16)+' · '+row.item_id+' '),button(e,'Bỏ lựa chọn',()=>{e.chosen.delete(row.capture_id+':'+row.item_id);e.preview=null;e.notice=null;paint(e);}));rows.append(label);
+    }
+  }
+  function choice(e,section,id){
+    const r=e.opened.receipt,item=e.opened.selectable_items.find(row=>row.id===id);if(!item)return;
+    const key=r.id+':'+id,label=node('label',undefined,'checkbox'),input=node('input'),revision=view;
+    input.type='checkbox';input.checked=e.chosen.has(key);input.id='memory-select-'+id.replace(/[^a-zA-Z0-9_-]/g,'_');
+    input.onchange=()=>{if(!current(e)||revision!==view||input.disabled)return;if(input.checked&&e.chosen.size<6)e.chosen.set(key,{capture_id:r.id,receipt_sha256:r.sha256,item_id:id,item_sha256:item.item_sha256});else{e.chosen.delete(key);input.checked=false;}
+      e.preview=null;e.notice=null;e.live.notice.textContent='';controls(e);selectedRows(e);
+      // Clear the earlier preview without replacing the focused checkbox.
+      e.live.previewContent?.replaceChildren();
+    };
+    label.append(input,node('span',t('Chọn mục memory này')));section.append(label);e.live.memoryChoices=e.live.memoryChoices||new Map();e.live.memoryChoices.set(key,input);
   }
   function detail(e){
     const {receipt:r,memory:m}=e.opened,detail=node('section',undefined,'memory-detail');
@@ -165,13 +226,13 @@
       for(const fact of m.facts.slice(0,e.shown)){const item=node('article',undefined,'memory-observation');item.append(node('strong',fact.source.path+' · '+fact.source.qualname),
         node('p',t(relations[fact.kind])+(fact.target?' → '+fact.target.path+' · '+fact.target.qualname:'')),node('p',t('Nguồn tĩnh chưa xác minh runtime.'),'field-note'));
         if(byId.has(fact.id))item.append(node('p',t(statuses[byId.get(fact.id).status]),'memory-validity'));
-        codeSource(e,item,fact.id,'source','Nguồn code');if(fact.target)codeSource(e,item,fact.id,'target','Nguồn đích');detail.append(item);}
+        choice(e,item,fact.id);codeSource(e,item,fact.id,'source','Nguồn code');if(fact.target)codeSource(e,item,fact.id,'target','Nguồn đích');detail.append(item);}
       if(e.shown<m.facts.length)detail.append(button(e,'Hiển thị thêm quan sát',()=>{e.shown+=20;paint(e);}));
       if(m.facts_omitted)detail.append(node('p',t('Quan sát không được lưu do giới hạn: {count}',{count:m.facts_omitted}),'notice'));
     }else{
       detail.append(node('blockquote',m.issue_excerpt),node('p',m.author_note));
       if(e.assessment)detail.append(node('p',t(statuses[e.assessment.dependency_status]),'memory-validity'));
-      for(const h of m.hypotheses){const item=node('article',undefined,'memory-observation');item.append(node('strong',h.id+' · '+h.statement),node('p',h.falsification_test));detail.append(item);}
+      for(const h of m.hypotheses){const item=node('article',undefined,'memory-observation');item.append(node('strong',h.id+' · '+h.statement),node('p',h.falsification_test));choice(e,item,h.id);detail.append(item);}
       for(const record of m.evidence){const item=node('article',undefined,'memory-observation');item.append(node('p',record.id+' · '+record.locator));codeSource(e,item,record.id,'source',record.kind==='code'?'Nguồn code':'Xem nguồn đã lưu');detail.append(item);}
     }
     const hashes=node('details');hashes.append(node('summary',t('Nguồn và hash memory')),node('p',r.id,'hash-note'),node('p','Memory SHA256 '+m.sha256,'hash-note'),
@@ -186,7 +247,7 @@
     if(!e){let draft=drafts.get(key);if(!draft){draft={query:'',note:'',maxFacts:'500',selected:new Set()};drafts.set(key,draft);}
       e={key,source:{source_job_id:identifier,source_pack_sha256:options.pack_sha256,repository:pack.case.repository,commit_sha:pack.snapshot.commit_sha,
         snapshot_sha256:pack.snapshot.snapshot_sha256},draft,hypotheses:(pack.annotation?.hypotheses||[]).map(h=>({id:h.id,statement:h.statement})),
-        status:null,rows:[],opened:null,assessment:null,excerpts:new Map(),shown:20,operation:0,busy:false,uncertain:false,error:false,notice:null};states.set(key,e);}
+        status:null,rows:[],opened:null,assessment:null,excerpts:new Map(),chosen:new Map(),preview:null,shown:20,operation:0,busy:false,uncertain:false,error:false,notice:null};states.set(key,e);}
     active=e;paint(e);
     for(const [oldKey,old] of states)if(states.size>8&&old!==e&&!old.busy)states.delete(oldKey);
     if(!e.status&&!e.busy)return load(e);

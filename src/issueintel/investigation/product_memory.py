@@ -6,6 +6,7 @@ import re
 
 from issueintel.repository.memory_store import MemoryStore
 from issueintel.repository.snapshot import source_lines
+from issueintel.runtime.io import digest
 
 
 PRODUCT_MODES = {'local','github','example','followup','clarification','check_followup','context',
@@ -47,7 +48,9 @@ class ProductMemory:
     def status(self,identifier):
         try:
             pack,_,binding=self._source(identifier)
+            plan=pack.get('workflow_plan') or {}
             return dict(binding,available=True,can_capture_lesson=bool((pack.get('annotation') or {}).get('hypotheses')),
+                        can_preview=not (plan.get('schema')=='planned_investigation_v3' and plan.get('waiting') is not None),
                         model_calls=0)
         except (ValueError,KeyError,TypeError,AttributeError,OSError):
             return {'source_job_id':identifier,'available':False,'reason':'requires_owned_product_source','model_calls':0}
@@ -94,11 +97,18 @@ class ProductMemory:
             else:
                 result=self.store.capture_lesson(raw,snapshot,binding['repository'],source_job_id=identifier,
                     hypothesis_ids=request['hypothesis_ids'],note=request['note'])
-        return dict(result,source=binding,model_calls=0)
+        return self._view(result,binding)
+
+    @staticmethod
+    def _view(value,binding):
+        memory=value['memory']
+        rows=memory['facts'] if value['receipt']['kind']=='architecture' else memory['hypotheses']
+        return dict(value,source=binding,model_calls=0,
+                    selectable_items=[{'id':row['id'],'item_sha256':row['sha256'] if 'sha256' in row else digest(row)} for row in rows])
 
     def open(self,identifier,request):
         _,_,binding=self._request(identifier,request,{'capture_id','receipt_sha256'})
-        return dict(self._capture(binding,request),source=binding,model_calls=0)
+        return self._view(self._capture(binding,request),binding)
 
     def assess(self,identifier,request):
         pack,_,binding=self._request(identifier,request,{'capture_id','receipt_sha256'})
@@ -107,6 +117,19 @@ class ProductMemory:
             result=self.store.assess(value['receipt']['id'],snapshot)
         return {'source':binding,'receipt_sha256':value['receipt']['sha256'],
                 'capture_id':value['receipt']['id'],'assessment':result,'model_calls':0}
+
+    def preview(self,identifier,request):
+        from .memory_selection import validate_selections,preview_memory_selection,SelectionUnavailable
+        pack,raw,binding=self._request(identifier,request,{'selections'})
+        selections=validate_selections(request['selections'])
+        self.host._reject_waiting_fork(pack)
+        with self._snapshot(pack) as snapshot:
+            try:
+                selection=preview_memory_selection(self.store,raw,snapshot,selections)
+            except SelectionUnavailable as error:
+                return {'source':binding,'available':False,'reason':'architecture_item_not_revalidated',
+                        'item_id':error.item_id,'status':error.status,'model_calls':0,'investigation_created':False}
+        return {'source':binding,'available':True,'selection':selection,'model_calls':0,'investigation_created':False}
 
     def source(self,identifier,request):
         _,_,binding=self._request(identifier,request,{'capture_id','receipt_sha256','item_id','role'})

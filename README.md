@@ -300,7 +300,14 @@ và đối chiếu với revision đang xem bằng các thao tác riêng. Hai co
 rõ; nguồn thay đổi/mất/không đọc được không được gắn nhãn còn nguyên. Đối chiếu
 lại lỗi sẽ xóa trạng thái thành công cũ, còn nguồn cache vẫn mở được. Tab hỗ trợ
 Việt/Anh, sáng/tối và màn hình hẹp; không tự gọi model hoặc tự tạo phiên mới.
-Chọn memory cho inference và đưa nguồn đó vào gói bàn giao vẫn còn triển khai.
+Trong capture đã mở, chọn tối đa sáu mục memory xuyên nhiều capture rồi dùng
+**Kiểm lựa chọn và xem preview**. Preview giữ từng item/receipt SHA, commit đang
+xem, nguồn cũ và nội dung context chính xác (tối đa 16.000 ký tự). Quan sát kiến
+trúc không khớp AST hiện tại bị từ chối toàn lựa chọn; giả thuyết cũ chỉ là hint
+chưa xác minh và ghi rõ code nguồn đã đổi hay chưa. Đổi lựa chọn xóa preview cũ;
+Planned đang chờ không mở nhánh mới qua preview. Đây là bước xem trước, chưa
+tạo phiên hoặc gửi context tới model. Thực thi phiên mới và đưa nguồn memory đã
+dùng vào gói bàn giao vẫn còn triển khai.
 
 ## Dữ liệu: 400 Main Dev gốc
 

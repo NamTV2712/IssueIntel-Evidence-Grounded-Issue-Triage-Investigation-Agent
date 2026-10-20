@@ -293,10 +293,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 elif route == '/api/context-search':
                     self._json(200, workbench.context_search(request))
                 elif (route.startswith('/api/jobs/') and len(route.split('/'))==5
-                      and route.split('/')[4] in {'memory-search','memory-capture','memory-open','memory-assess','memory-source'}):
+                      and route.split('/')[4] in {'memory-search','memory-capture','memory-open','memory-assess','memory-source','memory-preview'}):
                     identifier,action=route.split('/')[3:]
                     method={'memory-search':'search','memory-capture':'capture','memory-open':'open',
-                            'memory-assess':'assess','memory-source':'source'}[action]
+                            'memory-assess':'assess','memory-source':'source','memory-preview':'preview'}[action]
                     self._json(200,getattr(workbench.memory,method)(identifier,request))
                 elif route.startswith('/api/jobs/') and route.endswith('/check-journal'):
                     if len(route.split('/')) != 5:

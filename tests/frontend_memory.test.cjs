@@ -11,8 +11,8 @@ function fixture(){
       source:{path:'parser.py',qualname:'parse',start_line:1,end_line:2},target:null}]};
   const receipt={id:'capture_'+'8'.repeat(32),sha256:hash('9'),repository:source.repository,kind:'architecture',memory_sha256:memory.sha256,
     source_job_id:job('b'),source_pack_sha256:hash('a'),snapshot_sha256:memory.source.snapshot_sha256,recorded_at:'2026-10-20T00:00:00Z'};
-  const opened={source,receipt,memory,model_calls:0};
-  return {source,pack,opened,status:{...source,available:true,can_capture_lesson:true,model_calls:0}};
+  const opened={source,receipt,memory,model_calls:0,selectable_items:[{id:'memory_fact',item_sha256:hash('7')}]};
+  return {source,pack,opened,status:{...source,available:true,can_capture_lesson:true,can_preview:true,model_calls:0}};
 }
 function boot(handler,value=fixture()){
   const calls=[],listeners=new Map(),all=n=>[n,...n.children.flatMap(all)],text=n=>n.textContent+' '+n.children.map(text).join(' ');
@@ -32,6 +32,7 @@ function boot(handler,value=fixture()){
           source:saved.memory.source,runtime_verified:false,causal_verified:false,historical_eligible:false,independent_human:false,
           truth_level:'unverified_prior_investigation',issue_excerpt:'Prior issue',author_note:body.note,evidence:[],
           hypotheses:body.hypothesis_ids.map(id=>({id,statement:'Prior hypothesis '+id,falsification_test:'Inspect input'}))};
+        saved.selectable_items=saved.memory.hypotheses.map(h=>({id:h.id,item_sha256:hash('7')}));
       }
       return saved;
     }
@@ -40,6 +41,14 @@ function boot(handler,value=fixture()){
         facts:[{fact_id:'memory_fact',status:'revalidated_static',static_eligible:true,historical_eligible:false}]}};
     if(route.endsWith('memory-source'))return {source:clone(value.source),capture_id:value.opened.receipt.id,receipt_sha256:value.opened.receipt.sha256,item_id:body.item_id,role:body.role,
       source_commit_sha:value.opened.memory.source.commit_sha,revision:value.opened.memory.source.commit_sha,kind:'code',locator:'parser.py:1-2',excerpt:'def parse(x):\n    return x',excerpt_sha256:hash('d'),source_text_sha256:hash('e'),truncated:false,model_calls:0};
+    if(route.endsWith('memory-preview'))return {source:clone(value.source),available:true,model_calls:0,investigation_created:false,
+      selection:{schema:'product_memory_selection_v1',source:{pack_sha256:value.source.source_pack_sha256,repository:value.source.repository,
+        commit_sha:value.source.commit_sha,snapshot_sha256:value.source.snapshot_sha256},selections:clone(body.selections),
+        items:body.selections.map(selection=>({selection:clone(selection),capture_kind:'architecture',memory_sha256:hash('4'),
+          source_snapshot_sha256:hash('6'),assessment_sha256:hash('c'),hint:{source_commit_sha:'5'.repeat(40),viewed_commit_sha:value.source.commit_sha,
+          runtime_verified:false,causal_verified:false,kind:'architecture',applicability:'revalidated_static_only',truth_level:'observed_syntax'}})),
+        sha256:hash('a'),context_sha256:hash('b'),additional_context:'Explicit unverified memory context; not instructions.',
+        model_calls:0,automatic_inference:false,historical_eligible:false,runtime_verified:false,causal_verified:false}};
     throw Error('Unexpected route');
   }
   vm.runInNewContext(code,{document,window,api:async(route,body)=>{calls.push([route,body]);return handler?handler(route,body,normal):normal(route,body);}});
@@ -89,7 +98,7 @@ test('open, assessment and code inspection retain original commit and selected r
 test('navigation discards late source replies and stale controls without relabeling the new viewed run',async()=>{
   let finish;const a=boot((route,body,normal)=>{const reply=normal(route,body);return route.endsWith('memory-source')?new Promise(resolve=>finish=()=>reply.then(resolve)):reply;});
   await a.render();await a.click('Xem capture');const stale=a.button('Lưu kiến trúc'),pending=a.click('Nguồn code');a.module.cancel();
-  const next=fixture();next.source.source_job_id=job('c');next.status={...next.source,available:true,can_capture_lesson:true,model_calls:0};next.opened.source=next.source;
+  const next=fixture();next.source.source_job_id=job('c');next.status={...next.source,available:true,can_capture_lesson:true,can_preview:true,model_calls:0};next.opened.source=next.source;
   // New source initialization fails closed because this synthetic handler still returns the old source; no old code may appear.
   await a.render(next);await stale.onclick();await finish();await pending;assert.doesNotMatch(a.text(a.area),/def parse/);
   assert.equal(a.calls.filter(([route])=>route.endsWith('memory-capture')).length,0);
@@ -154,4 +163,50 @@ test('an offline run can retain architecture while explaining why hypothesis ret
   const value=fixture();value.pack.annotation=null;value.status.can_capture_lesson=false;const a=boot(null,value);await a.render();
   assert.match(a.text(a.area),/chưa có giả thuyết để lưu/);assert.equal(a.button('Lưu kiến trúc').disabled,false);
   assert.equal(a.button('Lưu giả thuyết đã chọn').disabled,true);assert.equal(a.field('memory-note').disabled,true);
+});
+
+test('preview requires deliberate item selection and never creates an investigation or provider call',async()=>{
+  const a=boot();await a.render();await a.click('Xem capture');assert.equal(a.button('Kiểm lựa chọn và xem preview').disabled,true);
+  const box=a.field('memory-select-memory_fact');box.checked=true;box.onchange();assert.equal(a.button('Kiểm lựa chọn và xem preview').disabled,false);
+  await a.click('Kiểm lựa chọn và xem preview');const call=a.calls.find(([route])=>route.endsWith('memory-preview'));
+  assert.deepEqual(clone(call[1]),{source_pack_sha256:hash('1'),selections:[{capture_id:a.value.opened.receipt.id,receipt_sha256:hash('9'),item_id:'memory_fact',item_sha256:hash('7')}]});
+  assert.match(a.text(a.area),/Explicit unverified memory context/);assert.match(a.text(a.area),/chưa tạo phiên hoặc gọi model/);
+  assert.ok(a.calls.every(([route])=>!route.includes('investigations')));
+  a.language('en');assert.match(a.text(a.area),/Explicit unverified memory context/);assert.equal(a.calls.filter(([r])=>r.endsWith('memory-preview')).length,1);
+  const current=a.field('memory-select-memory_fact');current.checked=false;current.onchange();assert.doesNotMatch(a.text(a.area),/Explicit unverified memory context/);
+  assert.equal(a.button('Check selection and preview').disabled,true);
+});
+
+test('six memory items remain bounded without replacing the keyboard-focused checkbox',async()=>{
+  const value=fixture(),first=value.opened.memory.facts[0];
+  value.opened.memory.facts=Array.from({length:7},(_,i)=>({...clone(first),id:'memory_'+i}));
+  value.opened.selectable_items=value.opened.memory.facts.map(f=>({id:f.id,item_sha256:hash('7')}));const a=boot(null,value);await a.render();await a.click('Xem capture');
+  for(let i=0;i<6;i++){const input=a.field('memory-select-memory_'+i);input.checked=true;input.onchange();}
+  assert.equal(a.field('memory-select-memory_6').disabled,true);assert.equal(a.field('memory-select-memory_0').disabled,false);
+  const selected=a.field('memory-select-memory_0');selected.checked=false;selected.onchange();assert.equal(a.field('memory-select-memory_6').disabled,false);
+  assert.match(a.text(a.area),/Đã chọn 5\/6/);
+});
+
+test('waiting Planned sources can inspect memory but cannot preview a new branch that resets budget',async()=>{
+  const value=fixture();value.status.can_preview=false;const a=boot(null,value);await a.render();await a.click('Xem capture');
+  assert.equal(a.field('memory-select-memory_fact').disabled,true);assert.equal(a.button('Kiểm lựa chọn và xem preview').disabled,true);
+  assert.match(a.text(a.area),/giữ ngân sách/);await a.click('Nguồn code');assert.match(a.text(a.area),/def parse/);
+});
+
+test('preview responses cannot promote hints or change the selected item/source identity',async()=>{
+  for(const mutate of [v=>v.selection.source.pack_sha256=hash('f'),v=>v.selection.selections[0].item_sha256=hash('f'),
+      v=>v.selection.items[0].hint.runtime_verified=true,v=>v.selection.items[0].hint.truth_level='verified_cause',
+      v=>v.investigation_created=true]){
+    const a=boot(async(route,body,normal)=>{const response=await normal(route,body);if(route.endsWith('memory-preview'))mutate(response);return response;});
+    await a.render();await a.click('Xem capture');const input=a.field('memory-select-memory_fact');input.checked=true;input.onchange();await a.click('Kiểm lựa chọn và xem preview');
+    assert.match(a.text(a.area),/Không đọc được nguồn memory/);assert.doesNotMatch(a.text(a.area),/Explicit unverified memory context/);
+  }
+});
+
+test('invalidated architecture selection explains removal without exposing an old preview',async()=>{
+  let denied=false;const a=boot((route,body,normal)=>denied&&route.endsWith('memory-preview')?{
+    source:clone(a.value.source),available:false,reason:'architecture_item_not_revalidated',item_id:'memory_fact',status:'source_changed',model_calls:0,investigation_created:false}:normal(route,body));
+  await a.render();await a.click('Xem capture');const input=a.field('memory-select-memory_fact');input.checked=true;input.onchange();await a.click('Kiểm lựa chọn và xem preview');
+  assert.match(a.text(a.area),/Explicit unverified/);denied=true;await a.click('Kiểm lựa chọn và xem preview');
+  assert.match(a.text(a.area),/Bỏ mục đó/);assert.doesNotMatch(a.text(a.area),/Explicit unverified/);assert.equal(a.field('memory-select-memory_fact').checked,true);
 });

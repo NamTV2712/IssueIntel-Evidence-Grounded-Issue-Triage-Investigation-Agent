@@ -104,15 +104,24 @@ def test_other_revision_marks_affected_dependencies_and_keeps_original_capture(m
     assert result['source']['commit_sha']!=value['memory']['source']['commit_sha']
     assert result['assessment']['counts']['source_changed']>=1
     assert wb.memory.open(job['id'],selected(wb,job,value))==original
+    changed_fact=next(row for row in value['memory']['facts'] if row['source']['path']=='parser.py')
+    denied=wb.memory.preview(current['id'],bound(wb,current,selections=[{'capture_id':value['receipt']['id'],
+        'receipt_sha256':value['receipt']['sha256'],'item_id':changed_fact['id'],'item_sha256':changed_fact['sha256']}]))
+    assert denied['available'] is False and denied['reason']=='architecture_item_not_revalidated'
+    assert denied['status']=='source_changed' and 'selection' not in denied
+    assert denied['model_calls']==0 and denied['investigation_created'] is False
 
 
-@pytest.mark.parametrize('action',['capture','search','open','assess','source'])
+@pytest.mark.parametrize('action',['capture','search','open','assess','source','preview'])
 def test_stale_pack_hash_is_rejected_before_git_or_memory_access(memory_workbench,monkeypatch,action):
     wb,job,_=memory_workbench
     value=architecture(wb,job)
     request=(bound(wb,job,kind='architecture',max_facts=10) if action=='capture' else
         bound(wb,job,query='',limit=20) if action=='search' else selected(wb,job,value))
     if action=='source':request.update(item_id=value['memory']['facts'][0]['id'],role='source')
+    if action=='preview':request=bound(wb,job,selections=[{'capture_id':value['receipt']['id'],
+        'receipt_sha256':value['receipt']['sha256'],'item_id':value['memory']['facts'][0]['id'],
+        'item_sha256':value['memory']['facts'][0]['sha256']}])
     request['source_pack_sha256']='f'*64
     monkeypatch.setattr(wb.memory.store,'read',lambda *a:pytest.fail('Stale source read memory'))
     monkeypatch.setattr('issueintel.investigation.question_jobs.replay_snapshot',lambda *a:pytest.fail('Stale source read Git'))
@@ -146,6 +155,9 @@ def test_capture_and_assessment_share_bounded_work_capacity(memory_workbench):
     try:
         with pytest.raises(RuntimeError):architecture(wb,job)
         with pytest.raises(RuntimeError):wb.memory.assess(job['id'],selected(wb,job,value))
+        with pytest.raises(RuntimeError):wb.memory.preview(job['id'],bound(wb,job,selections=[{
+            'capture_id':value['receipt']['id'],'receipt_sha256':value['receipt']['sha256'],
+            'item_id':value['memory']['facts'][0]['id'],'item_sha256':value['memory']['facts'][0]['sha256']}]))
     finally:
         for _ in range(taken):wb.capacity.release()
     assert architecture(wb,job)==value
@@ -173,6 +185,12 @@ def test_http_session_origin_and_route_bindings(memory_workbench):
         status,_,again=http(server,'POST',route,request,headers=headers);assert json.loads(again)==value
         assert http(server,'GET','/api/jobs/'+job['id']+'/memory-status',headers=headers)[0]==200
         assert http(server,'POST','/api/jobs/'+job['id']+'/memory-open',json.dumps(selected(wb,job,value)).encode(),headers=headers)[0]==200
+        assert value['selectable_items'][0]['item_sha256']==value['memory']['facts'][0]['sha256']
+        selection={'capture_id':value['receipt']['id'],'receipt_sha256':value['receipt']['sha256'],
+                   'item_id':value['selectable_items'][0]['id'],'item_sha256':value['selectable_items'][0]['item_sha256']}
+        preview=bound(wb,job,selections=[selection])
+        status,_,preview_raw=http(server,'POST','/api/jobs/'+job['id']+'/memory-preview',json.dumps(preview).encode(),headers=headers)
+        assert status==200 and json.loads(preview_raw)['investigation_created'] is False
         assert http(server,'POST',route+'/extra',request,headers=headers)[0]==404
     finally:server.shutdown();server.server_close();thread.join()
 
@@ -238,3 +256,25 @@ def test_file_node_excerpt_preserves_crlf_and_original_node_hash(memory_workbenc
     excerpt=wb.memory.source(current['id'],selected(wb,current,saved,item_id=fact['id'],role='source'))
     assert excerpt['excerpt']==text and not excerpt['truncated']
     assert excerpt['source_text_sha256']==excerpt['excerpt_sha256']==fact['source']['sha256']
+
+
+def test_memory_selection_preview_is_bound_and_never_creates_a_job_or_calls_model(memory_workbench):
+    wb,job,model=memory_workbench;value=architecture(wb,job);fact=value['memory']['facts'][0]
+    request=bound(wb,job,selections=[{'capture_id':value['receipt']['id'],'receipt_sha256':value['receipt']['sha256'],
+        'item_id':fact['id'],'item_sha256':fact['sha256']}])
+    before=wb.history();calls=len(model.calls);raw=wb.result_bytes(job['id'])
+    preview=wb.memory.preview(job['id'],request)
+    assert preview['source']==value['source'] and preview['investigation_created'] is False
+    assert preview['selection']['source']['pack_sha256']==sha256(raw).hexdigest()
+    assert preview['selection']['model_calls']==preview['model_calls']==0
+    assert wb.history()==before and wb.result_bytes(job['id'])==raw and len(model.calls)==calls
+
+
+def test_waiting_plan_cannot_use_preview_to_reset_its_budget(memory_workbench,monkeypatch):
+    wb,job,_=memory_workbench;value=architecture(wb,job);fact=value['memory']['facts'][0]
+    pack=json.loads(wb.result_bytes(job['id']));pack['workflow_plan']={'schema':'planned_investigation_v3','waiting':{'state':'waiting_for_user'}}
+    monkeypatch.setattr(wb.memory,'_source',lambda *a:(pack,b'not-used',value['source']))
+    monkeypatch.setattr('issueintel.investigation.question_jobs.replay_snapshot',lambda *a:pytest.fail('Waiting fork inspected Git'))
+    with pytest.raises(ValueError,match='Planned continuation'):
+        wb.memory.preview(job['id'],bound(wb,job,selections=[{'capture_id':value['receipt']['id'],
+            'receipt_sha256':value['receipt']['sha256'],'item_id':fact['id'],'item_sha256':fact['sha256']}]))

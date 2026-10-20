@@ -281,7 +281,28 @@ source excerpts. Trạng thái/draft khóa theo job+pack SHA; stale controls kh�
 model; ack lỗi giữ draft và yêu cầu đọc lại danh sách, queue-full có trạng thái
 riêng. Assessment mới xóa status cũ trước khi chạy để lỗi không giữ badge thành
 công. UI chưa chuyển memory vào query/evidence; đây là phần tiếp theo của mục 6,
-gồm source-bound selection/inference và portable handoff của những nguồn đã dùng.
+gồm source-bound inference và portable handoff của những nguồn đã dùng.
+
+`investigation.memory_selection.preview_memory_selection` chuẩn bị exact bounded
+memory hints cho một product pack/snapshot. Mỗi lựa chọn khóa capture ID, receipt
+SHA và item ID/SHA, tối đa sáu mục; duplicate, repo khác, source/receipt đổi hoặc
+context vượt 16.000 ký tự đều bị từ chối, không tự bỏ item để làm vừa cận.
+Architecture item phải qua current AST/producer/dependency revalidation; item
+không còn khớp trả rejection có reason/status riêng, không có context từng phần.
+Prior hypotheses giữ statement/falsification/note chưa xác minh, source query và
+commit riêng, kèm dependency status; không mang nhãn correctness/human hoặc old
+support/counter IDs vào public hints. Public repository name loại local machine
+path; selection receipt giữ private lineage riêng. Preview luôn khai no runtime/
+causal/historical eligibility, model_calls=0 và automatic_inference=false.
+
+POST `memory-preview` kiểm canonical product authority/pack SHA, chặn waiting
+Planned forks rồi acquire shared capacity, replay Git và chọn đúng immutable
+items. Memory open/capture có `selectable_items` SHA để UI không tự bịa item hash.
+UI giữ selection xuyên capture nhưng khóa vào viewed job/pack; thao tác chọn mới
+xóa context/status cũ và giữ focus checkbox. Preview response phải khớp từng
+item, nguồn, cận và truth flags. Preview không enqueue job, không gọi provider,
+không viết lên pack/query hoặc tự trở thành inference. Paid execution, durable
+selection intent và portable source replay là bước tiếp theo, chưa được khai đã có.
 
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,
