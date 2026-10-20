@@ -220,6 +220,25 @@ Cache giữ text theo SHA256 trong blob gzip dùng chung; index snapshot và gra
 
 ## Temporal và gold isolation
 
+`repository.memory` tạo `repository_architecture_memory_v1` từ snapshot/AST,
+không nhận issue, annotation, gold hoặc model output. Capture giữ định nghĩa và
+quan hệ calls/imports/inherits có đích exact; quan hệ vẫn là static inference,
+không proof runtime. Tối đa 1.000 observations, mặc định 500; chọn luân phiên
+loại để definitions không chiếm hết cận, ghi tổng và số bị bỏ. Mỗi observation
+giữ node/span SHA cùng dependency file hashes; source giữ commit, snapshot,
+parser và graph implementation SHA. Không sao chép code vào từng observation.
+
+Saved replay kiểm source spans và bindings bằng snapshot cache, không chạy Git,
+model hoặc parser hiện tại; receipt parser cũ vẫn xem được. Assessment riêng
+xây AST ở revision đích: unchanged dependency chưa đủ nếu cách resolve quan hệ
+đã đổi. Kết quả phân biệt changed/missing/unavailable, producer change và static
+revalidation, giữ nguyên capture gốc. Historical eligibility còn cần receipt
+đầy đủ của cả nguồn và revision đích, `available_at < cutoff`; Git dates hoặc
+receipt SHA không có nội dung bị từ chối. Authenticity giữ trusted-caller boundary
+hiện có. Đây là lõi đầu tiên của mục 6; persistence, investigation lessons,
+UI/CLI và explicit inference selection chưa triển khai, chưa tự đưa memory vào
+product hoặc benchmark prompts.
+
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,
 global repository ID và OS writer lock; lưu private SQLite/FTS5, snapshot/graph
