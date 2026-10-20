@@ -145,7 +145,8 @@ class CheckFollowups:
             journal = self.host.observation_journals.load(plan, request['plan_job_id'])
             saved = dict(request, mode='check_followup', parent_job_id=plan['source']['source_job_id'],
                          parent_pack_sha256=plan['source']['source_pack_sha256'], journal_revision=journal['revision'])
-            self.input(saved)
+            parent,_,_,_=self.input(saved)
+            self.host._reject_waiting_fork(parent)
             # Source replay may traverse prior check-followup intents. Acquire
             # the write lock only afterwards so ancestry never locks itself.
             db.execute('BEGIN IMMEDIATE')

@@ -235,7 +235,7 @@ test('Planned is an explicit product-only selector and changing it never enables
   assert.deepEqual(selects.filter(match=>/value="planned"/.test(match[2])).map(match=>match[1]),['depth']);
   const main=selects.find(match=>match[1]==='depth');assert.match(main[2],/^<option value="quick"/);
   assert.match(main[2],/id="planned-depth-option" value="planned" disabled/);
-  assert.match(html,/src="\/workflow.js"/);assert.match(appCode,/IssueIntelWorkflow\?\.render\(content,pack.workflow_plan,currentJob,pack\)/);
+  assert.match(html,/src="\/workflow.js"/);assert.match(appCode,/IssueIntelWorkflow\?\.render\(content,pack.workflow_plan,currentJob,pack,\{sourcePackSha256:reportView\?\.source\?\.pack_sha256\}\)/);
   assert.match(appCode,/workflow_plan:pack.workflow_plan/);assert.match(appCode,/\$\('depth'\)\.onchange=updateDepthControls/);
   const source=appCode.slice(appCode.indexOf('function updateDepthControls()'),appCode.indexOf('function switchMode()'));
   const controls=new Map([['mode',{value:'local'}],['depth',{value:'planned'}],['planned-depth-option',{disabled:true}],['depth-note',{dataset:{}}],['use-groq',{checked:false}]]);

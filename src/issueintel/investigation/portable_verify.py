@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import unicodedata
 import zipfile
 
 MAX_BYTES = 100_000_000
@@ -42,6 +43,371 @@ def safe_path(name):
     return (type(name) is str and re.fullmatch(r'[a-zA-Z0-9_./-]+',name) is not None
             and all(part not in {'','.','..'} for part in name.split('/'))
             and not name.startswith('/') and len(name)<160)
+
+
+# Versioned, declarative intake contract copied here deliberately: this file is
+# also run outside an IssueIntel installation, against inert archive bytes.
+_FIELDS = {
+    'observed_behavior': r'actual|observed|fails?|error|exception|traceback|crash|lỗi|thực tế|hiện tại',
+    'expected_behavior': r'expected|expectation|should|mong đợi|kỳ vọng|đáng lẽ',
+    'reproduction': r'reproduc|steps to|```|tái hiện|các bước|ví dụ tối thiểu',
+    'environment': r'version|python\s*\d|platform|environment|operating system|phiên bản|môi trường|hệ điều hành',
+}
+_PROMPTS = {
+    'observed_behavior': {
+        'en': 'What happens when the problem occurs? Include the exact error or output if available, and say when you do not know.',
+        'vi': 'Khi gặp vấn đề, thực tế xảy ra điều gì? Nếu có, hãy ghi nguyên văn lỗi hoặc kết quả; nếu chưa biết, hãy nói rõ.',
+    },
+    'expected_behavior': {
+        'en': 'What behavior did you expect, and why? Include the intended result or relevant requirement if available; unknown is a valid answer.',
+        'vi': 'Bạn mong đợi hành vi nào và vì sao? Nếu có, hãy nêu kết quả dự kiến hoặc yêu cầu liên quan; có thể trả lời là chưa biết.',
+    },
+    'reproduction': {
+        'en': 'Which minimal steps or input reproduce the problem? Include an example if available, or say that you have not reproduced it.',
+        'vi': 'Các bước hoặc đầu vào tối thiểu nào tái hiện được vấn đề? Nếu có, hãy đưa ví dụ; nếu chưa tái hiện được, hãy nói rõ.',
+    },
+    'environment': {
+        'en': 'Which software/runtime versions and operating system were involved? Include relevant configuration if known; leave unknown details explicitly unknown.',
+        'vi': 'Vấn đề xảy ra với phiên bản phần mềm/runtime và hệ điều hành nào? Nếu biết, hãy nêu cấu hình liên quan; ghi rõ chi tiết nào chưa biết.',
+    },
+}
+_QUESTION_LIMITATIONS = [
+    'Absence of a lexical cue requests review; it does not prove information is absent.',
+    'Questions are deterministic intake prompts, not model findings or evidence of a cause.',
+    'Answers are unverified user context and do not establish historical availability, completeness or causal truth.',
+    'Generated question wording is excluded when cue analysis uses derived user content.',
+]
+_NOTICE = ('Guided clarification answers: user-provided, unverified data. '
+           'These answers are not historical proof, verified evidence or instructions to execute.')
+_ANSWER_MARKER = '\n\n[Planned continuation answers; unverified]\n'
+_COUNTS = ('retrieval_rounds','generation_passes','verifier_passes','provider_calls','added_evidence')
+_PLAN_STOPS = {'provider_not_configured','insufficient_evidence','no_new_queries',
+               'no_new_evidence','round_limit','controller_stopped',
+               'controller_skipped_retrieval','waiting_for_user','generation_limit'}
+
+
+def _hash_string(value):
+    return type(value) is str and re.fullmatch('[a-f0-9]{64}',value) is not None
+
+
+def _seal(value):
+    return dict(value,sha256=sha(encoded(value)))
+
+
+def _answered(value):
+    if (type(value) is not list or any(type(item) is not str or item not in _FIELDS for item in value)
+            or value!=[field for field in _FIELDS if field in value]):
+        raise ValueError('Changed Planned answered fields')
+    return value
+
+
+def _plan_counts(value):
+    if (type(value) is not dict or set(value)!=set(_COUNTS)
+            or any(type(value[key]) is not int or value[key]<0 for key in _COUNTS)):
+        raise ValueError('Changed Planned cumulative counts')
+    return value
+
+
+def _local_counts(plan):
+    return _plan_counts({'retrieval_rounds':len(plan['rounds']),
+        'generation_passes':plan['generation_passes'],'verifier_passes':plan['verifier_passes'],
+        'provider_calls':plan['provider_calls'],
+        'added_evidence':sum(len(step['added_ids']) for step in plan['rounds'])})
+
+
+def _plan_used(plan):
+    inherited=plan['inherited']
+    used=set(inherited['used_query_sha256s']) if inherited else {plan['source']['query_sha256']}
+    for step in plan['rounds']:
+        search=step['search']
+        if search['excluded_query_sha256s']!=sorted(used):
+            raise ValueError('Changed Planned attempted query history')
+        for row in search['queries']:
+            if (type(row['query']) is not str or row['query_sha256']!=sha(row['query'].encode())
+                    or row['query_sha256'] in used):
+                raise ValueError('Changed or repeated Planned query')
+            used.add(row['query_sha256'])
+    if not 1<=len(used)<=10 or any(not _hash_string(value) for value in used):
+        raise ValueError('Invalid Planned query history bound')
+    return used
+
+
+def _plan_route(evidence,snapshot,graph,annotation):
+    paths=[]
+    for row in evidence:
+        if row['kind']=='code':
+            match=re.fullmatch(r'(.+):(\d+)-(\d+)',row['locator'])
+            if not match or not 1<=int(match[2])<=int(match[3]):
+                raise ValueError('Changed Planned source span')
+            paths.append(match[1])
+    signals={'code_files':len(set(paths)),
+             'not_found_hypotheses':sum(row['counter_status']=='not_found' for row in (annotation or {}).get('hypotheses',[])),
+             'parse_error_count':len(graph.get('parse_errors',[])),
+             'skipped_file_count':len(snapshot.get('skipped',[]))}
+    reasons=[];maximum=1
+    if signals['code_files']>1:maximum=2;reasons.append('multiple_code_files')
+    if signals['not_found_hypotheses']>=2:maximum=2;reasons.append('missing_counter_evidence')
+    if signals['parse_error_count'] or signals['skipped_file_count']:maximum=3;reasons.append('snapshot_gaps')
+    if signals['code_files']>=3 and signals['not_found_hypotheses']>=3:
+        maximum=3;reasons.append('broad_missing_counter_evidence')
+    return {'kind':'observable_heuristic','reason_codes':reasons or ['single_file_or_no_missing_counter'],
+            'signals':signals,'max_retrieval_rounds':maximum}
+
+
+def _plan_questions(pack):
+    plan=pack['workflow_plan'];link=pack.get('continued_from')
+    text=pack['case']['problem_statement'];cue=link['cue_text'] if link else text
+    answered=_answered(link['answered_fields']) if link else []
+    fields=[field for field,pattern in _FIELDS.items() if not re.search(pattern,cue,re.I) and field not in answered]
+    return _seal({'schema':'issue_clarifications_v1','query_sha256':sha(text.encode()),
+        'cue_text_sha256':sha(cue.encode()),
+        'cue_basis':'user_content_excluding_generated_questions' if link else 'public_query',
+        'questions':[{'id':'missing:'+field,'field':field,'reason':'cue_not_found','prompts':_PROMPTS[field]} for field in fields],
+        'limitations':_QUESTION_LIMITATIONS})
+
+
+def _plan_context(pack):
+    """Replay bounded context excerpts from the included source/receipt bytes."""
+    context=pack.get('repository_context')
+    if context is None:return []
+    if (not sealed(context) or context['schema']!='product_repository_context_v1'
+            or context['query_sha256']!=sha(pack['case']['problem_statement'].encode())
+            or context['historical_verified'] is not False or type(context['sources']) is not list
+            or len(context['sources'])>6):
+        raise ValueError('Changed Planned repository context source')
+    evidence=[]
+    for item in context['sources']:
+        record=item['record'];receipt=item['receipt']
+        if (sha(encoded(record))!=item['record_sha256'] or sha(encoded(receipt))!=item['receipt_sha256']
+                or receipt['records'].get(record['key'])!=item['record_sha256']
+                or record['repository']!=context['repository'] or record['historical_verified'] is not False):
+            raise ValueError('Changed Planned repository source receipt')
+        if record['kind']=='files':
+            text=f'PR #{record["number"]} API file membership: {record["path"]} ({record["status"]}), blob {record["blob_sha"]}'
+        else:text=record['title']+'\n\n'+record['body']
+        if len(text)>122002:raise ValueError('Oversized Planned repository context source')
+        terms=re.findall(r'\w+',pack['case']['problem_statement'][:2000].casefold());lower=text.casefold()
+        match=next((lower.find(term) for term in terms if len(term)>2 and lower.find(term)>=0),0)
+        start=max(0,min(match,len(text))-200);excerpt=text[start:start+1200]
+        if not excerpt.strip():continue
+        proof={'source_record_sha256':item['record_sha256'],'receipt_sha256':item['receipt_sha256'],
+               'start_character':start,'end_character':start+len(excerpt),'source_key':record['key']}
+        evidence.append({'id':'ctx_'+sha(encoded(proof))[:20],'kind':'repository_context',
+            'locator':record['url']+(' · '+record['path'] if record['kind']=='files' else ''),
+            'text':excerpt,'sha256':sha(excerpt.encode()),'revision':None,'available_at':None,
+            'provenance':dict(proof,repository=record['repository'],record_kind=record['kind'],
+                fetched_at=receipt['fetched_at'],retrieval='bounded_current_repository',source_url=record['url'],
+                edit_history='unknown',historical_verified=False,causal_correctness='unverified',truncated=len(excerpt)!=len(text))})
+    return evidence
+
+
+def _continued_answers(pack,parent):
+    link=pack['continued_from'];parent_plan=parent['workflow_plan'];plan=pack['workflow_plan']
+    if (set(link)!={'schema','parent_job_id','parent_pack_sha256','parent_plan_sha256',
+                   'waiting_sha256','policy_sha256','answers_receipt','cue_text','answered_fields','sha256'}
+            or not sealed(link) or link['schema']!='product_planned_continuation_v1'
+            or link['parent_plan_sha256']!=parent_plan['sha256']
+            or parent_plan['waiting'] is None or parent_plan['stop_reason']!='waiting_for_user'
+            or link['waiting_sha256']!=parent_plan['waiting']['sha256']
+            or link['policy_sha256']!=plan['policy_sha256'] or link['policy_sha256']!=parent_plan['policy_sha256']):
+        raise ValueError('Changed Planned continuation pause or policy binding')
+    receipt=link['answers_receipt'];questions=parent_plan['waiting']['questions']
+    if (not sealed(receipt) or set(receipt)!={'schema','questions_sha256','query_sha256','language',
+                                           'answers','additional_context','sha256'}
+            or receipt['schema']!='issue_clarification_answers_v1' or receipt['language'] not in {'en','vi'}
+            or receipt['questions_sha256']!=questions['sha256']
+            or receipt['query_sha256']!=questions['query_sha256']
+            or type(receipt['answers']) is not list or not 1<=len(receipt['answers'])<=4):
+        raise ValueError('Changed Planned unverified answer receipt')
+    offered={row['field']:row for row in questions['questions']};fields=[]
+    for row in receipt['answers']:
+        if (type(row) is not dict or set(row)!={'question_id','field','question','answer'}
+                or type(row['field']) is not str or row['field'] not in offered
+                or row['question_id']!=offered[row['field']]['id']
+                or row['question']!=offered[row['field']]['prompts'][receipt['language']]
+                or type(row['answer']) is not str or not row['answer'].strip() or len(row['answer'])>4000
+                or any(unicodedata.category(char) in {'Cc','Cf','Cs'} and char not in '\t\r\n' for char in row['answer'])):
+            raise ValueError('Changed Planned answer or offered question')
+        fields.append(row['field'])
+    _answered(fields)
+    rows=[{key:row[key] for key in ('question_id','field','question','answer')} for row in receipt['answers']]
+    context=_NOTICE+'\n\n'+json.dumps(rows,ensure_ascii=False,indent=2)
+    expected_case=dict(parent['case'],revision=parent['snapshot']['commit_sha'],issue_created_at=None,
+        problem_statement=parent['case']['problem_statement']+_ANSWER_MARKER+context)
+    prior_link=parent.get('continued_from')
+    cue=(prior_link['cue_text'] if prior_link else parent['case']['problem_statement'])+'\n'+'\n'.join(row['answer'] for row in receipt['answers'])
+    answered=[field for field in _FIELDS if field in fields or field in (prior_link['answered_fields'] if prior_link else [])]
+    if (receipt['additional_context']!=context or pack['case']!=expected_case
+            or link['cue_text']!=cue or link['answered_fields']!=answered
+            or len(cue)>100000 or len(expected_case['problem_statement'])>100000
+            or pack['snapshot']!=parent['snapshot']):
+        raise ValueError('Changed Planned answer query, cue or snapshot source')
+    context=parent.get('repository_context')
+    if context is not None:
+        context=_seal(dict({key:value for key,value in context.items() if key!='sha256'},
+                           query_sha256=sha(expected_case['problem_statement'].encode())))
+    if pack.get('repository_context')!=context:
+        raise ValueError('Changed Planned inherited repository context')
+
+
+def _verify_planned(pack,parent=None):
+    """Replay v3 declared budgets and lineage from included bytes, never Git.
+
+    Like other portable checks this proves internal source consistency only;
+    saved repair counts are not independently authenticated provider receipts.
+    """
+    plan=pack['workflow_plan'];inherited=plan['inherited'];source=plan['source']
+    fields={'schema','policy','source','provider','model','routing','limits','seed_evidence_ids',
+            'seed_annotation','rounds','generation_passes','verifier_passes','provider_calls',
+            'final_decision','stop_reason','sha256','inherited','policy_sha256','waiting'}
+    expected_source={'query_sha256':sha(pack['case']['problem_statement'].encode()),
+                     'snapshot_sha256':pack['snapshot']['snapshot_sha256'],'commit_sha':pack['snapshot']['commit_sha']}
+    if (set(plan)!=fields or not sealed(plan) or plan['schema']!='planned_investigation_v3'
+            or plan['policy']!='bounded_planner_v3' or not _hash_string(plan['policy_sha256'])
+            or source!=expected_source or pack['snapshot']['protocol']!='benchmark_base'
+            or any(key in pack for key in ('followup','context_selection','resumed_from','finalized_from','controller_decisions'))
+            or any(key in pack['case'] for key in ('split','instance_id'))
+            or any(pack['leakage_audit'].get(key) is not False for key in
+                   ('gold_in_inference','strict_issue_time_verified','snapshot_issue_time_verified','original_query_verified'))):
+        raise ValueError('Changed Planned v3 policy, seal or source')
+    evidence=pack['evidence'];seed=evidence[:len(plan['seed_evidence_ids'])]
+    if (not seed or [row['id'] for row in seed]!=plan['seed_evidence_ids']
+            or len({row['id'] for row in evidence})!=len(evidence)
+            or any(sha(row['text'].encode())!=row['sha256']
+                   or row['kind']=='code' and row['revision']!=source['commit_sha'] for row in evidence)):
+        raise ValueError('Changed Planned seed evidence source')
+    if [row for row in seed if row['kind']=='repository_context']!=_plan_context(pack):
+        raise ValueError('Changed Planned repository context excerpt')
+    if inherited is None:
+        if parent is not None or pack.get('continued_from') or plan['routing']!=_plan_route(seed,pack['snapshot'],pack['graph'],plan['seed_annotation']):
+            raise ValueError('Changed Planned original route or ancestry')
+        prior=dict.fromkeys(_COUNTS,0)
+    else:
+        if parent is None:raise ValueError('Missing included Planned parent')
+        parent_plan=parent['workflow_plan'];prior_local=_local_counts(parent_plan)
+        prior_inherited=parent_plan['inherited']
+        prior={key:prior_local[key]+(prior_inherited['counts'][key] if prior_inherited else 0) for key in _COUNTS}
+        expected={'parent_plan_sha256':parent_plan['sha256'],
+                  'root_source':prior_inherited['root_source'] if prior_inherited else parent_plan['source'],
+                  'routing':parent_plan['routing'],'limits':parent_plan['limits'],'counts':prior,
+                  'used_query_sha256s':sorted(_plan_used(parent_plan)),
+                  'answered_fields':parent.get('continued_from',{}).get('answered_fields',[])}
+        if inherited!=expected or plan['routing']!=parent_plan['routing'] or plan['limits']!=parent_plan['limits']:
+            raise ValueError('Changed Planned inherited root budget, counts or query history')
+        _plan_counts(inherited['counts'])
+        _continued_answers(pack,parent)
+        statement=pack['case']['problem_statement']
+        expected_issue={'id':'issue_'+sha(encoded(statement))[:20],'kind':'issue',
+            'locator':pack['case'].get('issue_url') or pack['case']['case_id'],'text':statement,
+            'sha256':sha(statement.encode()),'revision':None,'available_at':None,
+            'provenance':{'kind':'input','edit_history':'unknown'}}
+        expected_code=[row for row in parent['evidence'] if row['kind']=='code']
+        if seed!=[expected_issue]+expected_code+_plan_context(pack):
+            raise ValueError('Changed Planned inherited evidence source')
+    _plan_counts(prior)
+    maximum=plan['routing']['max_retrieval_rounds']
+    if type(maximum) is not int or not 1<=maximum<=3:raise ValueError('Changed Planned root round bound')
+    maxima={'max_retrieval_rounds':maximum,'max_queries_per_round':3,'max_added_per_round':6,
+            'max_added_total':18,'max_generation_passes':maximum+1,'max_verifier_passes':1,'max_provider_calls':2*(maximum+1)+1}
+    if plan['limits']!=maxima or any(type(value) is not int for value in plan['limits'].values()):
+        raise ValueError('Changed Planned original budget')
+    annotation=plan['seed_annotation'];generations=int(annotation is not None)
+    def annotation_calls(value):
+        repairs=value['provenance']['repair_count']
+        if (type(repairs) is not int or repairs not in (0,1)
+                or value['provenance']['provider']!=plan['provider'] or value['provenance']['model']!=plan['model']):
+            raise ValueError('Changed Planned output repair count or provider')
+        return 1+repairs
+    calls=annotation_calls(annotation) if annotation is not None else 0
+    current=list(plan['seed_evidence_ids']);known={row['id']:row for row in evidence}
+    for index,step in enumerate(plan['rounds'],1):
+        if (type(step['round']) is not int or step['round']!=index or annotation is None
+                or step['input_annotation_sha256']!=sha(encoded(annotation)) or step['input_evidence_ids']!=current
+                or step['input_hypotheses']!=[{key:value for key,value in row.items()
+                    if key in {'id','statement','support_ids','counter_ids','counter_status','falsification_test'}}
+                    for row in annotation['hypotheses']]
+                or step['action']!='retrieve' or step['controller']!='rules' or step['fallback'] is not False
+                or step['reason']!='unspent_retrieval_budget'
+                or type(step['added_ids']) is not list or len(step['added_ids'])>6
+                or len(set(step['added_ids']))!=len(step['added_ids']) or set(step['added_ids'])&set(current)
+                or not set(step['added_ids'])<=set(known) or step['search']['added_ids']!=step['added_ids']
+                or any(known[item]['kind']!='code' for item in step['added_ids'])
+                or len(step['search']['queries'])>3 or step['search']['snapshot_sha256']!=source['snapshot_sha256']):
+            raise ValueError('Changed Planned retrieval step or bounded evidence')
+        current+=step['added_ids']
+        if step['added_ids']:
+            annotation=step['output_annotation'];generations+=1;calls+=annotation_calls(annotation)
+            if step['output_annotation_sha256']!=sha(encoded(annotation)):
+                raise ValueError('Changed Planned generation source')
+        elif step['output_annotation'] is not None or step['output_annotation_sha256'] is not None:
+            raise ValueError('Changed Planned generation without new evidence')
+    _plan_used(plan)
+    verification=pack.get('verification');critic=int(verification is not None and verification['kind']=='llm_separate_pass')
+    if (plan['generation_passes']!=generations or plan['verifier_passes']!=critic or plan['provider_calls']!=calls+critic
+            or current!=[row['id'] for row in evidence] or annotation!=pack['annotation']
+            or inherited is not None and annotation is None
+            or annotation is not None and (verification is None or verification['kind'] not in {'structural','llm_separate_pass'}
+                                          or verification.get('independent_human') is not False)):
+        raise ValueError('Changed Planned generation or call counts')
+    local=_local_counts(plan);total={key:local[key]+prior[key] for key in _COUNTS}
+    maximum_counts={'retrieval_rounds':maximum,'generation_passes':maximum+1,'verifier_passes':1,
+                    'provider_calls':2*(maximum+1)+1,'added_evidence':18}
+    left={key:maximum_counts[key]-total[key] for key in _COUNTS}
+    if any(value<0 for value in left.values()):raise ValueError('Planned cumulative original budget exceeded')
+    if plan['stop_reason'] not in _PLAN_STOPS:
+        raise ValueError('Unknown Planned final stop reason')
+    waiting=plan['waiting']
+    if waiting is not None:
+        _plan_counts(waiting['remaining'])
+        last=plan['rounds'][-1] if plan['rounds'] else None
+        questions=_plan_questions(pack)
+        expected=_seal({'schema':'planned_waiting_v1','state':'waiting_for_user',
+            'reason':'no_new_evidence_with_unreviewed_input','after_round':last['round'] if last else None,
+            'input_annotation_sha256':sha(encoded(annotation)),'questions':questions,'remaining':left})
+        if (waiting!=expected or type(waiting['after_round']) is not int
+                or not questions['questions'] or last is None or last['added_ids']
+                or not last['search']['queries'] or annotation is None or total['verifier_passes']!=0
+                or left['generation_passes']<1 or left['provider_calls']<3 or left['verifier_passes']!=1
+                or plan['stop_reason']!='waiting_for_user' or pack['stop_reason']!='waiting_for_user'
+                or plan['final_decision']!={'action':'ask','reason':'unreviewed_user_input','controller':'rules','fallback':False}
+                or verification is None or verification['kind']!='structural'):
+            raise ValueError('Changed Planned waiting questions or remaining budget')
+    elif plan['stop_reason']=='waiting_for_user' or pack['stop_reason']!=plan['stop_reason']:
+        raise ValueError('Missing Planned waiting request')
+    if waiting is None:
+        final=plan['final_decision']
+        if (type(final) is not dict or set(final)!={'action','reason','controller','fallback'}
+                or final['controller']!='rules' or final['fallback'] is not False
+                or final['action'] not in {'verify','stop'} or critic and final['action']!='verify'):
+            raise ValueError('Changed Planned final decision')
+        if annotation is None:
+            expected='provider_not_configured' if any(row['kind']=='code' for row in seed) else 'insufficient_evidence'
+            if (inherited is not None or plan['rounds'] or verification is not None
+                    or plan['stop_reason']!=expected
+                    or final!={'action':'stop','reason':expected,'controller':'rules','fallback':False}):
+                raise ValueError('Offline Planned source claimed a model decision')
+        else:
+            reasons={'verify':{'retrieval_complete','controller_selected_verify'},'stop':{'controller_stopped'}}
+            if final['reason'] not in reasons[final['action']]:
+                raise ValueError('Changed Planned final reason')
+            stop=plan['stop_reason']
+            if stop=='round_limit' and total['retrieval_rounds']!=maximum:
+                raise ValueError('Planned round limit was not reached')
+            if stop=='generation_limit':
+                # A final critic consumes one call, but must not make a
+                # previously available generation slot look exhausted.
+                before=dict(left,provider_calls=left['provider_calls']+critic,
+                            verifier_passes=left['verifier_passes']+critic)
+                if before['generation_passes']>=1 and before['provider_calls']>=3 and before['verifier_passes']==1:
+                    raise ValueError('Planned generation limit was not reached')
+            if stop in {'no_new_queries','no_new_evidence'} and (not plan['rounds'] or plan['rounds'][-1]['search']['stop_reason']!=stop):
+                raise ValueError('Changed Planned empty search reason')
+            if stop=='controller_stopped' and final['action']!='stop':
+                raise ValueError('Changed Planned controller stop action')
+    identity={'case':pack['case'],'snapshot':pack['snapshot']['snapshot_sha256'],'provider':plan['provider'],'model':plan['model'],
+              'evidence':[row['id'] for row in evidence],'annotation':pack['annotation'],'workflow_plan_sha256':plan['sha256']}
+    if pack.get('repository_context') is not None:identity['repository_context']=pack['repository_context']['sha256']
+    if pack['run_id']!=sha(encoded(identity))[:24]:raise ValueError('Changed Planned run identity')
 
 
 def verify(path, *, expected_sha256=None):
@@ -92,6 +458,7 @@ def verify(path, *, expected_sha256=None):
     selected=runs[manifest['source']['selected_job_id']]
     if not selected.get('binding') or selected['binding']['pack_sha256']!=manifest['source']['selected_pack_sha256']:
         raise ValueError('Selected source pack differs from the manifest')
+    packs={}
     for identifier,row in runs.items():
         if not re.fullmatch('[a-f0-9]{24}',identifier):raise ValueError('Invalid handoff job ID')
         if row['parent_job_id'] is not None and row['parent_job_id'] not in runs:
@@ -104,7 +471,7 @@ def verify(path, *, expected_sha256=None):
         prefix='runs/'+identifier+'/'
         pack_raw=contents.get(prefix+'pack.json');report_raw=contents.get(prefix+'report.json')
         if pack_raw is None or report_raw is None:raise ValueError('Missing source pack or report')
-        pack=parsed(pack_raw);report=parsed(report_raw);binding=row['binding']
+        pack=parsed(pack_raw);report=parsed(report_raw);binding=row['binding'];packs[identifier]=pack
         if (not sealed(report) or report!=row['report'] or report['sha256']!=binding['report_sha256']
                 or sha(pack_raw)!=binding['pack_sha256']
                 or report['source']['pack_sha256']!=binding['pack_sha256']
@@ -114,6 +481,12 @@ def verify(path, *, expected_sha256=None):
                 or pack['snapshot']['snapshot_sha256']!=binding['snapshot_sha256']
                 or pack['snapshot']['commit_sha']!=binding['commit_sha']):
             raise ValueError('Changed report/pack source binding')
+        plan=pack.get('workflow_plan') or {}
+        if plan.get('schema')=='planned_investigation_v3':
+            expected={'status':'waiting_for_user' if plan.get('waiting') is not None else 'completed',
+                      'stop_reason':plan['stop_reason']}
+            if report.get('execution')!=expected:
+                raise ValueError('Changed Planned report execution status')
         evidence={e['id']:e for e in pack['evidence']}
         for excerpt in report['evidence']:
             source=evidence.get(excerpt['id'])
@@ -121,9 +494,14 @@ def verify(path, *, expected_sha256=None):
                     or not source['text'].startswith(excerpt['text'])
                     or any(source[k]!=excerpt[k] for k in ('kind','locator','sha256','revision'))):
                 raise ValueError('Changed evidence excerpt binding')
-        link=pack.get('followup') or pack.get('context_selection')
+        link=pack.get('followup') or pack.get('context_selection') or pack.get('continued_from')
         if link and runs[link['parent_job_id']]['binding']['pack_sha256']!=link['parent_pack_sha256']:
             raise ValueError('Changed parent pack binding')
+        if row['mode']=='planned_continuation' and not pack.get('continued_from'):
+            raise ValueError('Missing Planned continuation handoff source')
+        if pack.get('continued_from') and (row['parent_job_id']!=link['parent_job_id']
+                or row['mode']!='planned_continuation'):
+            raise ValueError('Changed Planned continuation handoff parent')
         recovery=pack.get('resumed_from') or pack.get('finalized_from')
         if recovery:
             parent=recovery['source_job_id']
@@ -132,6 +510,26 @@ def verify(path, *, expected_sha256=None):
             for stage,checksum in checkpoints.items():
                 if checksum is not None and sha(contents.get('runs/'+parent+'/stages/'+stage+'.json',b''))!=checksum:
                     raise ValueError('Missing or changed recovery checkpoint')
+    checked=set()
+    def planned(identifier):
+        if identifier in checked:return
+        pack=packs[identifier];plan=pack.get('workflow_plan') or {}
+        if plan.get('schema')=='planned_investigation_v3' or pack.get('continued_from'):
+            link=pack.get('continued_from');parent=None
+            if not link and runs[identifier]['parent_job_id'] is not None:
+                raise ValueError('Changed original Planned handoff ancestry')
+            if link:
+                parent_id=link['parent_job_id']
+                if parent_id not in packs:raise ValueError('Missing included Planned parent pack')
+                parent=packs[parent_id]
+                if (parent.get('workflow_plan') or {}).get('schema')!='planned_investigation_v3':
+                    raise ValueError('Changed Planned parent policy')
+                planned(parent_id)
+            try:_verify_planned(pack,parent)
+            except (KeyError,TypeError,AttributeError,IndexError):
+                raise ValueError('Invalid portable Planned structure') from None
+        checked.add(identifier)
+    for identifier in packs:planned(identifier)
     for item in handoff.get('claim_reviews',[]):
         owner=runs[item['source_job_id']];review=item['bundle'];source=review['source']
         if (not sealed(review) or not sealed(source) or review.get('schema')!='product_claim_review_v1'

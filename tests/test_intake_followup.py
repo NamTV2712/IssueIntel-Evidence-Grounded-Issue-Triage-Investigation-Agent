@@ -80,8 +80,9 @@ def test_invalid_parent_denied_before_provider(tmp_path,monkeypatch):
     monkeypatch.setattr('issueintel.investigation.workbench.RuntimeConfig.load',lambda *a:pytest.fail('Provider config loaded'))
     wb=Workbench(tmp_path)
     try:
-        job=completed(wb,wb.submit({'mode':'followup','parent_job_id':'a'*24,'additional_context':'extra','provider':'groq'})['id'])
-        assert job['status']=='failed'
+        with pytest.raises(ValueError,match='existing completed follow-up source'):
+            wb.submit({'mode':'followup','parent_job_id':'a'*24,'additional_context':'extra','provider':'groq'})
+        assert wb.history()==[]
     finally:wb.close()
 
 

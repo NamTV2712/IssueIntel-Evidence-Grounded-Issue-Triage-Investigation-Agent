@@ -29,6 +29,16 @@ def planned_workbench(tmp_path,monkeypatch):
     monkeypatch.setenv('GROQ_API_KEY','synthetic-secret')
     config=replace(configured(tmp_path),reasoning_effort='high')
     monkeypatch.setattr('issueintel.investigation.workbench.RuntimeConfig.load',lambda _:config)
+    # These saved-job regressions exercise the immutable v2 producer. Current
+    # product dispatch is v3; its actual, unpatched path is covered by the
+    # waiting/continuation service fixtures, including durable child admission.
+    import issueintel.investigation.workbench as module
+    original=module.investigate
+    def legacy_producer(*args,**kwargs):
+        if kwargs.get('planner_policy')!='bounded_planner_v1':
+            kwargs['planner_policy']='bounded_planner_v2'
+        return original(*args,**kwargs)
+    monkeypatch.setattr(module,'investigate',legacy_producer)
     model=PlannedModel();calls=[];fail_at=[None]
     def transport(request,**kwargs):
         body=json.loads(request.data);calls.append(body)
@@ -190,6 +200,7 @@ def test_cli_planned_offline_and_early_benchmark_guard(tmp_path,planned_reposito
     output=capsys.readouterr().out.strip()
     pack=json.loads((Path(output).parent/'pack.json').read_bytes())
     assert pack['workflow_plan']['provider_calls']==0
+    # CLI exports keep typed v2 until they have a persisted continuation owner.
     assert pack['workflow_plan']['policy']=='bounded_planner_v2'
     monkeypatch.setattr('issueintel.benchmarks.store.load_dev_cases',lambda *a:pytest.fail('Opened Dev data'))
     for invalid in [dict(case_id='verified:test-1'),dict(refinement_rounds=1)]:

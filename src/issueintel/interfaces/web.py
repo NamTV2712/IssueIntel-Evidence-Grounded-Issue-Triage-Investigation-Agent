@@ -35,6 +35,8 @@ STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; c
 STATIC['/report.js'] = ('report.js', 'text/javascript; charset=utf-8')
 STATIC['/releases.js'] = ('releases.js', 'text/javascript; charset=utf-8')
 STATIC['/workflow.js'] = ('workflow.js', 'text/javascript; charset=utf-8')
+STATIC['/planned-waiting.js'] = ('planned-waiting.js', 'text/javascript; charset=utf-8')
+STATIC['/planned-waiting.css'] = ('planned-waiting.css', 'text/css; charset=utf-8')
 STATIC['/hypothesis-review.js'] = ('hypothesis-review.js', 'text/javascript; charset=utf-8')
 STATIC['/check-journal.js'] = ('check-journal.js', 'text/javascript; charset=utf-8')
 STATIC['/product-checks.js'] = ('product-checks.js', 'text/javascript; charset=utf-8')
@@ -149,6 +151,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     parts = route.split('/')[3:]
                     if len(parts) == 1:
                         self._json(200, workbench.job(parts[0]))
+                    elif len(parts)==2 and parts[1]=='planned-continuation':
+                        self._json(200,workbench.planned_continuation_preview(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'releases':
                         self._json(200, workbench.release_history(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'releases.json':
@@ -288,6 +292,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     if len(route.split('/')) != 5:
                         raise ValueError('Invalid journal request')
                     self._json(200,workbench.check_journal(route.split('/')[3],request))
+                elif route.startswith('/api/jobs/') and route.endswith('/planned-continuation'):
+                    if len(route.split('/'))!=5:raise ValueError('Invalid Planned continuation route')
+                    self._json(200,workbench.submit_planned_continuation(route.split('/')[3],request))
                 elif route.startswith('/api/jobs/') and route.endswith('/check-observations'):
                     if len(route.split('/'))!=5:raise ValueError('Invalid observation journal route')
                     self._json(200,workbench.check_observations(route.split('/')[3],request))

@@ -35,3 +35,17 @@ def inspect_issue(text):
             'fields': fields, 'missing_information': [key for key, value in fields.items() if value['status']=='not_found'],
             'limitations': ['A matching word or heading does not establish completeness or causal truth.',
                             'Absence of a cue is a request to review, not proof that information is absent.']}
+
+
+def inspect_user_content(text, cue_text):
+    """Bind the real query while excluding generated wrappers from user cues."""
+    result=inspect_issue(cue_text)
+    if text!=cue_text:
+        result.update(query_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                      cue_text_sha256=hashlib.sha256(cue_text.encode()).hexdigest(),
+                      cue_basis='user_content_excluding_generated_questions',cue_text=cue_text)
+        for rows in [*(details['sources'] for details in result['fields'].values()),*result['intent_signals'].values()]:
+            for source in rows:
+                source.update(source_kind='user_content_projection',source_text_sha256=result['cue_text_sha256'])
+        result['limitations'].append('Generated clarification questions and follow-up wrappers are excluded from lexical cues; user answers remain unverified.')
+    return result

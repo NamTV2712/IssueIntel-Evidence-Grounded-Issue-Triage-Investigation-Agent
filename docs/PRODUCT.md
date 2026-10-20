@@ -41,14 +41,14 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F02 | Tìm ứng viên liên quan trong lịch sử local; repository memory ở UI/CLI thêm FTS trên issue/PR/comment đã đồng bộ. Chưa xác nhận duplicate, chưa tự đưa kết quả vào model. |
 | F03 | Định vị file/symbol/dòng qua lexical, identifier và typed graph retrieval ở đúng snapshot. |
 | F04 | Repo đã kết nối tự truy xuất tối đa 6 nguồn; người dùng cũng có thể tìm/chọn chính xác nguồn đã đồng bộ để tái điều tra cùng query/commit. Record, receipt và repository ID được replay; dùng trong generation/critique/export. Current context không phải temporal proof. |
-| F05 | Job/trace/checklist có phiên bản; nhật ký quan sát theo từng saved check, điều kiện/mong đợi/quan sát và commit tự báo, đính chính append-only cùng nguồn. Deep thêm một vòng; Planned một đến ba vòng có budget và chain/stop reason replay được. Tool điều tra mở rộng vẫn còn roadmap. |
+| F05 | Job/trace/checklist có phiên bản; nhật ký quan sát theo từng saved check, điều kiện/mong đợi/quan sát và commit tự báo, đính chính append-only cùng nguồn. Deep thêm một vòng; Planned có typed gap actions. Web rules v3 đã có persisted waiting và explicit continuation giữ budget toàn chuỗi, đang chờ nghiệm thu D05; tool điều tra mở rộng còn roadmap. |
 | F06 | Adapter Typesafe nối tùy chọn vào Planned: bounded public context, choice allowlist, tối đa bốn quyết định, cấu hình/ledger/receipt riêng, fallback được ghi và replay. Đã kiểm kết nối thật 4/4 call tổng hợp ngày 17/10/2026 theo quyền thử riêng; chưa đánh giá chất lượng controller hoặc luồng GitHub thật. Cấu hình thường vẫn tắt/trần 0. |
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Product có kế hoạch bổ sung 0–3 kiểm tra phân biệt, điều kiện kiểm soát, kết quả A/B và dự đoán A/B/unknown cho từng giả thuyết. Gợi ý theo số cặp A/B do model nêu và công sức ước tính; chưa đo chất lượng phân biệt hoặc suy ra nguyên nhân. |
 | F08 | Kiểm citation/hash, tìm thêm code ở Deep/Planned, critique riêng và abstention. Bảng đối chiếu lộ các mục thiếu từ metadata và nhận xét model cần xem lại; chưa coi đây là đánh giá sufficiency/nguyên nhân. Planned dừng rõ khi query/evidence không đổi; counter có thể `not_found`. |
-| F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, tạo follow-up cùng commit, khóa và replay source pack/snapshot/question job/Q&A. Tạo câu hỏi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
+| F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, khóa và replay nguồn/Q&A. Planned Web rules v3 có câu hỏi trong trạng thái chờ, continuation cùng commit không reset budget; generic follow-up bị chặn khi đang chờ. Tạo câu hỏi thích nghi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
 | F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có tiếp tục riêng verifier sau replay checkpoint và duyệt chi phí. Khi verifier đã xong nhưng export lỗi, kết xuất mới từ hai checkpoint với 0 call mới. Mỗi luồng giữ một intent cho mỗi nguồn; chưa resume mọi stage hoặc retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
-| F12 | Quick lấy evidence gọn; Deep thêm tối đa một lượt. Planned chọn một đến ba vòng theo dấu hiệu file/gap/counter còn thiếu từ seed; tối đa chín Groq calls kể cả repair. Đây là heuristic quan sát, chưa phải đánh giá độ khó/chất lượng. Routing benchmark giữ policy/pilot riêng. |
+| F12 | Quick lấy evidence gọn; Deep thêm tối đa một lượt. Planned chọn một đến ba vòng theo dấu hiệu file/gap/counter còn thiếu từ seed; tối đa chín Groq calls kể cả repair. Web rules v3 kế thừa root route/limits và counts qua continuation; CLI/Jev giữ v2, library mặc định v1. Đây là heuristic quan sát, chưa phải đánh giá độ khó/chất lượng. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái/hủy, token và USD theo phiên từ receipt riêng; đang chạy/lỗi/interrupted vẫn xem được cận giữ chỗ. |
 | F14 | Lịch sử, mở lại pack và so sánh hai phiên cùng issue/repo: query/snapshot/proof bindings, evidence và hypotheses; điều tra tiếp với input mới vẫn tạo job riêng. |
 | F15 | Issue URL/collaborator command; HMAC-signed installation/repository events tự onboarding public repos và incremental sync có durable inbox/dedup. App/HTTPS relay thật chưa cấu hình trên máy. |
@@ -407,6 +407,57 @@ correction. Diễn giải giữ user_report_unverified; không là independent h
 validation hoặc kết luận lỗi đã sửa. UI giữ draft khi đổi view/ngôn ngữ hoặc lỗi
 gửi, chặn late response và không gọi model khi đọc/lưu/export.
 
+## Planned chờ dữ kiện và tiếp tục trong cùng ngân sách (D05)
+
+Web Planned với rules dùng `planned_investigation_v3` / `bounded_planner_v3`;
+CLI `investigate --planned` và Jev giữ v2, API Python giữ v1 mặc định. V1/v2 đã
+lưu vẫn đọc nguyên bản. Cả v2/v3 phân biệt support/counter/caller/docs/history,
+khóa gap, hypothesis, query và nguồn cho từng action. Caller là cạnh call tĩnh
+exact; docs/history chỉ dùng snapshot hoặc context có receipt đã được nhận,
+không tự tải lịch sử mới và không nhận current history thành strict proof.
+
+V3 có thể lưu pack **Chờ câu trả lời / Waiting for answers** sau một lượt typed
+search đã thực sự thử query nhưng không thêm evidence, còn câu hỏi intake chưa
+trả lời và còn budget cho generation mới cùng critic. Đây là câu hỏi xem lại cue
+theo template Việt/Anh, chưa chứng minh issue thiếu thông tin. Pack chờ giữ
+annotation và structural citation check; critic chưa chạy. Tab **Trace** cho
+chủ động kiểm khả năng tiếp tục, xem các câu hỏi và budget còn lại. Trả lời một
+phần hoặc “chưa biết” rồi xác nhận chi phí mới tạo child; mở báo cáo, đổi ngôn
+ngữ hoặc xem câu hỏi không tự gọi model.
+
+GET `/api/jobs/{source}/planned-continuation` trả binding source pack, workflow
+plan, waiting và policy SHA cùng remaining counts; không đọc Git hoặc gọi API.
+Nó so policy hiện tại để báo khả năng tiếp tục. POST cùng route yêu cầu đúng bốn
+SHA, answers/language và confirmation `continue_planned_with_api_cost`. Trước
+enqueue, service replay snapshot Git, current policy, nguồn request và owned
+call receipts; kiểm nguồn lại trước từng call/repair và publish. Policy đổi hoặc
+accounting không đủ proof thì chặn gọi tiếp, giữ nguyên bytes/receipts cũ.
+Một durable intent cho mỗi source pause: cùng request trả child cũ, đổi answers
+bị từ chối; child lỗi/hủy/ngắt không được tự thay bằng một paid attempt mới.
+
+Child dùng cùng commit, copy code evidence của cha và giữ đúng context
+records/receipts đã khóa; chỉ rebind context envelope/excerpts sang query có
+answers. Query mới phải sinh hypotheses mới, không gắn annotation cũ sang query
+mới. Answers, cue text và nguồn cha đi trong `continued_from`, giữ unverified;
+câu hỏi/template tự sinh không được tính thành cue người dùng. Root route/limits,
+counts và attempted query hashes được kế thừa: tổng toàn chuỗi tối đa ba vòng
+truy xuất, bốn generation, một critic và chín Groq calls kể cả repair. Route nhỏ
+hơn giữ cận nhỏ hơn; continuation không mở thêm vòng hoặc reset budget. Các
+form follow-up, clarification, context và observation follow-up riêng bị chặn
+khi đang chờ; dùng continuation để giữ đúng cận.
+
+Saved reports/dossier/handoff replay nguồn và lineage đã ghi, không cần Git,
+API key, model hoặc policy hiện tại. Handoff chọn child sẽ thêm các tổ tiên bắt
+buộc; portable verifier kiểm bindings/counters/answers/frozen sources trên bytes
+được đưa vào gói. Kiểm này không chứng nhận semantic truth, hóa đơn provider,
+người gán nhãn hoặc proof lịch sử. Waiting/continuation đã qua 85 test lõi
+Planned, 60 test service/tương thích, 53 test handoff, 212 test frontend và
+kiểm trình duyệt tổng hợp Việt/Anh, sáng/tối. Chuỗi ba phiên giữ cùng commit,
+dùng ba vòng truy xuất và bốn call giả lập tổng cộng, với một critic cuối;
+partial/unknown answers, budget kế thừa và timeline cha–con đã được kiểm.
+D05 còn chờ CI của commit triển khai; D08 resume stage lỗi và V01/V02 quality
+evaluation vẫn giữ phạm vi/cổng riêng. Không gọi provider thật hoặc mở evaluation.
+
 ## Backlog được tác giả yêu cầu ngày 19/10/2026
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
@@ -423,7 +474,7 @@ với commit `7e9c5b0`. Cả ba CI thành công; mục chưa nghiệm thu vẫn 
 | D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
-| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đang triển khai: typed retrieval v2 dùng snapshot/caller exact/pinned context và action receipts; waiting/continuation giữ budget toàn chuỗi còn thiếu, issue vẫn mở |
+| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Typed retrieval đã push `56de029`; Web rules v3 waiting/continuation đã qua synthetic integration/UI/handoff và review nguồn/budget/idempotency; chờ CI của commit triển khai, issue vẫn mở |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Chưa triển khai |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
 | D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |

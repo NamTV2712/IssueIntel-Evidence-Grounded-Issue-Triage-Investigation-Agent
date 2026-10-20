@@ -136,13 +136,15 @@ async function openJob(id) {
 }
 function renderPack() {
   if(!pack)return;
+  const waiting=pack.workflow_plan?.schema==='planned_investigation_v3' && !!pack.workflow_plan.waiting;
   document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
+    planned_waiting:waiting,
     clarifications_available:intake?.clarifications_available===true,adaptive_available:intake?.clarifications_available===true,intake,pack,
     release_available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
-    context_available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
+    context_available:!waiting && !pack.case.split && !pack.followup && !pack.continued_from && pack.snapshot.protocol==='benchmark_base' && pack.case.case_id===pack.case.issue_url && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/[1-9][0-9]*$/.test(pack.case.case_id),
     available:!pack.case.split && !pack.followup && pack.snapshot.protocol==='benchmark_base' && !pack.case.case_id.startsWith('verified:') && !pack.case.case_id.startsWith('live:')}}));
   $('empty-state').hidden=true;$('result').hidden=false;$('exports').hidden=false;
-  $('followup-panel').hidden=false;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
+  $('followup-panel').hidden=waiting;$('followup-parent').textContent=t('Phiên nguồn: ')+currentJob;
   $('result-title').textContent=pack.case.case_id;
   $('viewed-job').hidden=false;$('viewed-job').textContent=t('Đang xem phiên: {id}',{id:currentJob});
   const strict=pack.leakage_audit.strict_issue_time_verified;
@@ -339,7 +341,7 @@ function renderTab() {
     const list=node('ol');for(const step of pack.recommended_steps) list.append(node('li',recommendedText(step)));content.append(list);
   }
   if(activeTab==='trace') {
-    window.IssueIntelWorkflow?.render(content,pack.workflow_plan,currentJob,pack);
+    window.IssueIntelWorkflow?.render(content,pack.workflow_plan,currentJob,pack,{sourcePackSha256:reportView?.source?.pack_sha256});
     if(pack.refinement)content.append(node('p',t('Vòng truy xuất bổ sung: {rounds}/1 · lượt sinh: {passes}',{rounds:pack.refinement.retrieval_rounds,passes:pack.refinement.generation_passes}),'notice'));
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,controller_decisions:pack.controller_decisions,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,finalized_from:pack.finalized_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
   }
@@ -542,6 +544,10 @@ document.addEventListener('issueintel:clarificationcreated',event=>{
 });
 document.addEventListener('issueintel:checkfollowupcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'check_followup'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:plannedcontinuation-created',event=>{
+  if(event.detail?.source_job_id!==currentJob||event.detail.source_pack_sha256!==reportView?.source?.pack_sha256)return;
+  if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'planned_continuation'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:showevidence',event=>{
   if(event.detail.job_id!==currentJob || !pack?.evidence.some(e=>e.id===event.detail.evidence_id))return;

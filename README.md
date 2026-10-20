@@ -61,17 +61,30 @@ Chọn Planned không tự bật Groq; có thể chạy offline với zero call.
 hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; routing này chưa phải
 điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
 Planned chưa hỗ trợ Main Dev, follow-up hoặc tiếp tục paid stage sau lỗi.
-Planned mới trên Web/CLI lưu policy `bounded_planner_v2`: mỗi hành động chỉ rõ
+Planned mới trên Web với rules lưu policy `bounded_planner_v3`; CLI và Jev giữ
+`bounded_planner_v2`. Các policy này dùng truy xuất theo khoảng trống: mỗi hành động chỉ rõ
 giả thuyết, khoảng trống và mục tiêu support/counter/caller/documentation/history.
 Caller đi ngược cạnh call tĩnh có đích exact; tài liệu và changelog chỉ tìm trong
 snapshot đã khóa. Lịch sử issue/PR chỉ xem context có receipt đã được chọn, không
 tự tải nguồn mới hoặc coi lịch sử hiện tại là proof trước ngày issue. Không có
 nguồn thì ghi unavailable; chưa tìm thấy không chứng minh nguồn không tồn tại.
 Vòng không có excerpt mới có thể chuyển sang mục tiêu kế tiếp trong budget còn
-lại, không gọi generation. Hồ sơ v1 vẫn đọc/replay nguyên bản; API Python giữ
-policy v1 mặc định, có thể chọn v2 bằng `planner_policy='bounded_planner_v2'`.
-Trạng thái waiting-for-user và continuation giữ budget toàn chuỗi vẫn thuộc D05
-chưa hoàn tất; hiện có câu hỏi/follow-up riêng, chưa phải continuation Planned.
+lại, không gọi generation. Hồ sơ v1/v2 vẫn đọc/replay nguyên bản; API Python giữ
+policy v1 mặc định, nhận policy v2/v3 khi caller chọn rõ.
+Với Web rules v3, sau một lượt tìm thực sự không thêm evidence, hệ thống có thể
+lưu trạng thái **Chờ câu trả lời** khi còn câu hỏi intake chưa được trả lời và
+còn budget cho generation mới cùng critic. Tab **Trace** cho kiểm khả năng tiếp
+tục, xem câu hỏi Việt/Anh và giới hạn còn lại. Trả lời một phần hoặc “chưa biết”,
+rồi duyệt chi phí để tạo đúng một phiên con cho lần dừng đó. Không tự gọi API
+khi mở báo cáo, đổi ngôn ngữ hoặc xem câu hỏi; lỗi/hủy/restart không tự thử lại.
+Phiên con dùng cùng commit, giữ code evidence và context đã khóa của cha, sinh
+giả thuyết mới cho query có câu trả lời chưa xác minh. Tổng toàn chuỗi vẫn chịu
+cận gốc: tối đa ba vòng truy xuất, bốn lượt generation, một critic và chín call
+Groq kể cả schema repair; continuation không đặt lại budget hoặc mở rộng nguồn.
+Các form follow-up/context riêng bị chặn khi Planned đang chờ. Báo cáo, hồ sơ
+issue và gói bàn giao giữ lineage/câu trả lời; gói cần cả tổ tiên để kiểm offline.
+Phần waiting/continuation đã triển khai và đang chờ nghiệm thu D05; chưa phải
+resume stage lỗi hoặc bằng chứng cải thiện chất lượng điều tra.
 Planned có tùy chọn **Jev / Typesafe** để chọn retrieve/verify/stop từ các bước
 được code cho phép. Mặc định vẫn dùng rules. API key là `TYPESAFE_API_KEY` trong
 `.env`; cấu hình riêng ở `configs/typesafe.toml` mặc định tắt, trần request và

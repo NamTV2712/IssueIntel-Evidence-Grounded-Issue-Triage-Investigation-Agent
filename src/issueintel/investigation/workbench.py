@@ -145,6 +145,8 @@ class Workbench:
         self.check_followups=CheckFollowups(self)
         from .finalization_jobs import FinalizationJobs
         self.finalizations=FinalizationJobs(self)
+        from .planned_continuations import PlannedContinuations
+        self.planned_continuations=PlannedContinuations(self)
         from .dossier import Dossiers
         self.dossiers=Dossiers(self)
         from .release_jobs import ReleaseJobs
@@ -273,7 +275,19 @@ class Workbench:
             self._selected_context(request)  # Reject changed sources before queueing or provider construction.
         elif request['mode']=='clarification':
             self._clarification_input(request)
+        elif request['mode']=='followup':
+            try:
+                parent,_,_=self._load_pack(request['parent_job_id'])
+            except FileNotFoundError:
+                raise ValueError('Choose an existing completed follow-up source') from None
+            self._reject_waiting_fork(parent)
         return self._enqueue(request, self._run)
+
+    @staticmethod
+    def _reject_waiting_fork(pack):
+        plan=pack.get('workflow_plan') or {}
+        if plan.get('schema')=='planned_investigation_v3' and plan.get('waiting') is not None:
+            raise ValueError('Use the Planned continuation to preserve the waiting investigation budget')
 
     def typesafe_status(self):
         from issueintel.runtime.typesafe import TypesafeConfig, TypesafeError
@@ -283,6 +297,10 @@ class Workbench:
             return {'ready':False,'enabled':False,'key_configured':bool(os.environ.get('TYPESAFE_API_KEY')),
                     'reason':'invalid_configuration','model':'jev-1.13.0','max_calls_per_run':4,
                     'per_call_usd_bound':None,'daily_requests':0,'daily_usd':'0','monthly_usd':'0'}
+
+    def planned_continuation_preview(self,identifier):return self.planned_continuations.preview(identifier)
+
+    def submit_planned_continuation(self,identifier,request):return self.planned_continuations.submit(identifier,request)
 
     def _clarification_product(self, identifier, pack):
         """Retain product authority through mixed follow-up/context ancestry."""
@@ -297,7 +315,10 @@ class Workbench:
             if (pack['snapshot']['protocol']!='benchmark_base' or pack['case'].get('split') is not None
                     or pack['leakage_audit']['strict_issue_time_verified'] is not False):
                 raise ValueError('Clarifications require product sources outside benchmark splits')
-            if mode in {'followup','clarification','check_followup'}:
+            if mode=='planned_continuation':
+                self.planned_continuations.validate_child(identifier,pack,request)
+                identifier=pack['continued_from']['parent_job_id']
+            elif mode in {'followup','clarification','check_followup'}:
                 link=pack.get('followup') or {}
                 if link.get('parent_job_id')!=request.get('parent_job_id'):
                     raise ValueError('Clarification request authority changed')
@@ -332,6 +353,8 @@ class Workbench:
 
     def _cue_text(self, pack):
         """Do not let generated question wording manufacture input cues."""
+        if pack.get('continued_from'):
+            return pack['continued_from']['cue_text']
         link=pack.get('followup')
         if not link:
             return pack['case']['problem_statement']
@@ -346,16 +369,8 @@ class Workbench:
 
     @staticmethod
     def _inspect_query(text, cue_text):
-        result=inspect_issue(cue_text)
-        if text!=cue_text:
-            result.update(query_sha256=hashlib.sha256(text.encode()).hexdigest(),
-                          cue_text_sha256=hashlib.sha256(cue_text.encode()).hexdigest(),
-                          cue_basis='user_content_excluding_generated_questions',cue_text=cue_text)
-            for rows in [*(details['sources'] for details in result['fields'].values()),*result['intent_signals'].values()]:
-                for source in rows:
-                    source.update(source_kind='user_content_projection',source_text_sha256=result['cue_text_sha256'])
-            result['limitations'].append('Generated clarification questions and follow-up wrappers are excluded from lexical cues; user answers remain unverified.')
-        return result
+        from .intake import inspect_user_content
+        return inspect_user_content(text,cue_text)
 
     def _questions_for_pack(self, pack):
         text=pack['case']['problem_statement']
@@ -364,6 +379,7 @@ class Workbench:
 
     def _clarification_input(self, request):
         pack,raw,depth=self._load_pack(request['parent_job_id'])
+        self._reject_waiting_fork(pack)
         self._clarification_product(request['parent_job_id'],pack)
         if depth>=8 or hashlib.sha256(raw).hexdigest()!=request['parent_pack_sha256']:
             raise ValueError('Clarification source changed or generation limit reached')
@@ -457,6 +473,7 @@ class Workbench:
         from issueintel.integrations.github_index import RepositoryIndex
         from issueintel.retrieval.repository_context import collect_selected_context
         pack,raw,depth=self._context_parent(request['parent_job_id'],request['parent_pack_sha256'])
+        self._reject_waiting_fork(pack)
         context=collect_selected_context(RepositoryIndex(self.root,pack['case']['repository']),
             pack['case']['issue_url'],pack['case']['problem_statement'],request['selected_sources'])
         return pack,raw,depth,context
@@ -862,7 +879,11 @@ class Workbench:
             extra = {}
             followup = None
             context_selection = None
-            if request['mode']=='context':
+            if request['mode']=='planned_continuation':
+                parent,raw,case,receipt,link=self.planned_continuations.input(request,row['id'],admission=True)
+                local=Path(parent['snapshot']['repository'])
+                extra={'planned_parent':parent,'planned_continuation':link}
+            elif request['mode']=='context':
                 from issueintel.repository.snapshot import build_snapshot
                 from .versions import compare_versions
                 parent,raw,depth,context=self._selected_context(request)
@@ -891,6 +912,7 @@ class Workbench:
                     extra={'snapshot':snapshot}
                 else:
                     parent, raw, depth = self._load_pack(request['parent_job_id'])
+                self._reject_waiting_fork(parent)
                 if depth >= 8:
                     raise ValueError('Follow-up depth is bounded to eight generations')
                 additional = (check_observations or clarification or request)['additional_context']
@@ -945,6 +967,19 @@ class Workbench:
                     self.check_followups.assert_intent(request,row['id'])
                     _,_,_,current=self.check_followups.input(request)
                     if current!=followup['check_observations']:raise ValueError('Check observation source changed')
+                if request['mode']=='planned_continuation':
+                    self.planned_continuations.input(request,row['id'],admission=True)
+                if planned_v3:
+                    from .planned_waiting import policy_sha256
+                    saved=json.loads(self._job_path(row['id']).read_bytes())
+                    if (saved.get('request')!=request or saved.get('id')!=row['id']
+                            or any(saved.get(key)!=request[key] for key in ('mode','provider','depth'))
+                            or policy_sha256()!=planned_policy_hash):
+                        raise ValueError('Planned source request or policy changed')
+            planned_v3=request['depth']=='planned' and request.get('controller','rules')!='jev'
+            if planned_v3:
+                from .planned_waiting import policy_sha256
+                planned_policy_hash=policy_sha256()
             check_observation_source()
             # No provider exists until the public/Main Dev boundary has replayed.
             selected_controller=None
@@ -966,6 +1001,8 @@ class Workbench:
                 client=(self.typesafe_factory or TypesafeClient)(typesafe_config,on_receipt=capture_typesafe)
                 selected_controller=TypesafePlannedController(client,row['id'],on_decision=capture_decision)
             config = RuntimeConfig.load(self.root) if request['provider'] == 'groq' else None
+            if planned_v3 and config is not None and config.model!='openai/gpt-oss-120b':
+                raise ValueError('Planned waiting model has no supported authorization')
             if request['mode']=='check_followup' and config is not None and config.model!='openai/gpt-oss-120b':
                 raise ValueError('Check follow-up model has no supported authorization')
             context = ({'category': 'ARTIFACT_GENERATION_COST', 'reasoning_effort': config.reasoning_effort,
@@ -1005,6 +1042,10 @@ class Workbench:
                 return answer
             if provider and hasattr(provider, 'complete_structured'):
                 complete.complete_structured = structured
+            if provider and hasattr(provider,'complete_json'):
+                def json_fallback(messages,*,max_output_tokens):
+                    return complete(messages,max_output_tokens)
+                complete.complete_json=json_fallback
             stage_store=StageCheckpoints(self.root,self.directory/'runs'/row['id']/'stages')
             def save_stage(stage,record):
                 self._check_cancelled(row['id'])
@@ -1018,7 +1059,7 @@ class Workbench:
                 top_k=4 if request['depth'] == 'quick' else 12,
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
-                **({'planned_workflow':True,'planner_policy':'bounded_planner_v2'} if request['depth']=='planned' else {}),
+                **({'planned_workflow':True,'planner_policy':'bounded_planner_v3' if planned_v3 else 'bounded_planner_v2'} if request['depth']=='planned' else {}),
                 **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
             self._check_cancelled(row['id'])
             validate_controller_ownership(pack,row)
@@ -1043,11 +1084,16 @@ class Workbench:
             if context_selection:
                 pack['context_selection']=context_selection
             check_observation_source()
+            if request['mode']=='planned_continuation':
+                self.planned_continuations.validate_child(row['id'],pack,request)
             directory = self.directory/'runs'/row['id']
             export_pack(pack, directory)
             refs = {name: {'path': (directory/name).relative_to(self.root).as_posix(),
                          'sha256': hashlib.sha256((directory/name).read_bytes()).hexdigest()}
                     for name in ['pack.json', 'report.md']}
+            check_observation_source()
+            if request['mode']=='planned_continuation':
+                self.planned_continuations.validate_child(row['id'],pack,request)
             self._save(row, status='completed', stage='completed', run_id=pack['run_id'],
                        case_id=case['case_id'], strict_issue_time_verified=pack['leakage_audit']['strict_issue_time_verified'],
                        result=refs, stop_reason=pack['stop_reason'])
@@ -1191,6 +1237,12 @@ class Workbench:
             validate_planned(pack)
         saved_job=json.loads(self._job_path(identifier).read_bytes())
         saved_request=saved_job['request']
+        if saved_request.get('mode')=='planned_continuation' or 'continued_from' in pack:
+            if saved_request.get('mode')!='planned_continuation' or not pack.get('continued_from'):
+                raise ValueError('Planned continuation receipt and job authority must match')
+            parent,_,depth=self._load_pack(pack['continued_from']['parent_job_id'],seen)
+            self.planned_continuations.validate_child(identifier,pack,saved_request)
+            return pack,raw,depth+1
         if saved_request.get('mode')=='finalization' or 'finalized_from' in pack:
             if saved_request.get('mode')!='finalization' or not pack.get('finalized_from'):
                 raise ValueError('Finalization receipt and job authority must match')
@@ -1287,7 +1339,8 @@ class Workbench:
         cue_text=self._cue_text(pack)
         try:
             self._clarification_product(identifier,pack)
-            available=depth<8
+            plan=pack.get('workflow_plan') or {}
+            available=depth<8 and not (plan.get('schema')=='planned_investigation_v3' and plan.get('waiting'))
             journal_available=True
         except (ValueError,KeyError,TypeError,OSError):
             available=False
@@ -1317,8 +1370,9 @@ class Workbench:
 
     def _source_case(self, pack):
         # The entire chain was replayed by _load_pack before this traversal.
-        while pack.get('followup'):
-            pack = json.loads(self._export_bytes(pack['followup']['parent_job_id']))
+        while pack.get('followup') or pack.get('continued_from'):
+            link=pack.get('followup') or pack['continued_from']
+            pack = json.loads(self._export_bytes(link['parent_job_id']))
         return pack['case']
 
     @staticmethod
@@ -1348,8 +1402,9 @@ class Workbench:
                 root_pack = candidate
                 root_raw = candidate_raw
                 root_id = row['id']
-                while root_pack.get('followup'):
-                    root_id = root_pack['followup']['parent_job_id']
+                while root_pack.get('followup') or root_pack.get('continued_from'):
+                    link=root_pack.get('followup') or root_pack['continued_from']
+                    root_id = link['parent_job_id']
                     root_raw = self._export_bytes(root_id)
                     root_pack = json.loads(root_raw)
                 text=original['problem_statement']

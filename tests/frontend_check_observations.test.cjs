@@ -91,3 +91,15 @@ test('a child created after detachment can be opened later without resubmitting'
   const pending=app.click('Tạo phiên từ quan sát đã chọn');app.module.cancel();finish({id:job('8')});await pending;assert.equal(app.dispatched.length,0);
   await app.render();await app.click('Mở phiên đã tạo');assert.equal(app.dispatched[0].detail.job_id,job('8'));assert.equal(app.calls.length,2);
 });
+
+test('paused Planned keeps observation journal available while hiding generic child budget reset',async()=>{
+  const value=add(fixture());value.report.execution={status:'waiting_for_user',stop_reason:'waiting_for_user'};
+  const app=boot(value);await app.render();
+  assert.equal(app.calls.length,1);
+  assert.ok(app.field('conditions'));
+  assert.match(app.text(app.target),/Dùng biểu mẫu trong Trace/);
+  assert.equal(app.all(app.target).filter(row=>row.tag==='button'&&row.textContent==='Tạo phiên từ quan sát đã chọn').length,0);
+  app.language.value='en';app.events.get('issueintel:languagechange')();
+  assert.match(app.text(app.target),/Use the form in Trace/);
+  assert.equal(app.calls.length,1);
+});

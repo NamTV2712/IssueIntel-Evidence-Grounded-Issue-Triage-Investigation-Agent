@@ -52,7 +52,7 @@ _HYPOTHESIS = _object({'id': _ID, 'statement': _TEXT, 'support_ids': _IDS,
     'counter_ids': _IDS, 'counter_status': {'enum': ['found', 'not_found']},
     'verification': _VERIFICATION, 'falsification_test': _TEXT})
 _PROVENANCE = _object({'kind': {'enum': ['followup', 'clarification', 'resume', 'context_selection',
-    'repository_context', 'focused_retrieval', 'planned_workflow', 'typesafe_controller']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
+    'repository_context', 'focused_retrieval', 'planned_workflow', 'planned_continuation', 'typesafe_controller']}, 'details': {'type': 'string', 'minLength': 1, 'maxLength': 100000}})
 
 # This is an ordinary JSON Schema document and can be exported by any interface.
 # The small validator below keeps the zero-dependency runtime intact.
@@ -71,7 +71,7 @@ REPORT_SCHEMA = {
         'issue': _object({'case_id': _ID, 'repository': _TEXT, 'issue_url': _URL,
             'description_excerpt': {'type': 'string', 'minLength': 1, 'maxLength': DESCRIPTION_LIMIT},
             'description_truncated': {'type': 'boolean'}}),
-        'execution': _object({'status': {'const': 'completed'}, 'stop_reason': _ID}),
+        'execution': _object({'status': {'enum': ['completed','waiting_for_user']}, 'stop_reason': _ID}),
         'findings': _object({'status': {'enum': ['evidence_only', 'hypotheses_unverified', 'abstained']},
             'causal_status': {'const': 'unverified'}, 'severity': {'const': 'unassessed'},
             'confidence_probability': _NULL, 'confidence_method': _NULL}),
@@ -220,6 +220,13 @@ def _provenance(pack):
         details={key:plan[key] for key in ('policy','sha256','routing','limits','generation_passes','verifier_passes','stop_reason')}
         details['completed_retrieval_rounds']=sum(step.get('search') is not None for step in plan['rounds'])
         rows.append({'kind':'planned_workflow','details':json.dumps(details,ensure_ascii=False,sort_keys=True)})
+    if pack.get('continued_from'):
+        link=pack['continued_from']
+        rows.append({'kind':'planned_continuation','details':json.dumps({
+            key:link[key] for key in ('parent_job_id','parent_pack_sha256','parent_plan_sha256',
+                                     'waiting_sha256','policy_sha256','answered_fields')
+        }|{'answers_sha256':link['answers_receipt']['sha256'],'user_answers_verified':False},
+            ensure_ascii=False,sort_keys=True)})
     if pack.get('controller_decisions'):
         sidecar=pack['controller_decisions'];records=sidecar['records']
         receipts=[record['receipt'] for record in records if record['receipt'] is not None]
@@ -328,7 +335,8 @@ def build_report(pack, *, source_pack_sha256, job_id=None, source_hash_kind='ser
         'issue': {'case_id': case['case_id'], 'repository': case['repository'],
             'issue_url': case.get('issue_url') if origin else None,
             'description_excerpt': description, 'description_truncated': len(description) != len(case['problem_statement'])},
-        'execution': {'status': 'completed', 'stop_reason': pack['stop_reason']},
+        'execution': {'status': 'waiting_for_user' if (pack.get('workflow_plan') or {}).get('waiting') is not None else 'completed',
+                      'stop_reason': pack['stop_reason']},
         'findings': {'status': ('abstained' if abstention and abstention['label'] == 'abstain'
                      else 'hypotheses_unverified' if hypotheses else 'evidence_only'),
             'causal_status': 'unverified', 'severity': 'unassessed',
@@ -457,7 +465,7 @@ def _markdown(report, *, compact, detail_limit=None, text_limit=None):
     source = report['source']
     lines = ['# IssueIntel investigation', '',
         f"Case: {safe(report['issue']['case_id'])}",
-        f"Run completed; finding status: **{report['findings']['status']}**; causal correctness: **unverified**.",
+        f"{'Investigation paused for user input' if report['execution']['status']=='waiting_for_user' else 'Run completed'}; finding status: **{report['findings']['status']}**; causal correctness: **unverified**.",
         f"Stop: {safe(report['execution']['stop_reason'])}", '',
         '## Summary — issue excerpt', '', quoted(report['summary']['text']),
         'Source: ' + references(report['summary']['evidence_ids']) +
@@ -509,7 +517,7 @@ def _markdown(report, *, compact, detail_limit=None, text_limit=None):
     names = {'followup': 'Follow-up provenance', 'clarification': 'Guided clarification answers',
         'resume': 'Explicit verifier continuation', 'context_selection': 'User-selected repository context',
         'repository_context': 'Current repository context', 'focused_retrieval': 'Bounded hypothesis-focused retrieval',
-        'planned_workflow': 'Planned investigation workflow', 'typesafe_controller':'Typesafe Jev controller'}
+        'planned_workflow': 'Planned investigation workflow', 'planned_continuation':'Source-bound Planned answers', 'typesafe_controller':'Typesafe Jev controller'}
     for row in report['provenance']:
         title = names[row['kind']]
         if row['kind']=='resume':

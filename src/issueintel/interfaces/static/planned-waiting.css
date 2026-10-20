@@ -1,0 +1,7 @@
+.planned-waiting{margin-top:var(--space-5,1.5rem);padding:var(--space-4,1rem);border:1px solid var(--border);border-radius:var(--radius,8px);background:var(--surface-2,var(--surface))}
+.planned-waiting h3{margin-top:0}.planned-waiting-form{display:grid;gap:1rem;max-width:960px}.planned-waiting-question{display:grid;gap:.4rem;font-weight:600}
+.planned-waiting-question textarea{width:100%;min-height:5.5rem;resize:vertical;font-weight:400;line-height:1.5;box-sizing:border-box}
+.planned-waiting-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}.planned-waiting-controls .checkbox,.planned-waiting-controls p{flex-basis:100%}
+.planned-waiting .hash-note{overflow-wrap:anywhere}.planned-waiting .workflow-budgets{margin:.75rem 0}
+.planned-waiting .error{color:var(--error);font-size:12px;line-height:1.7}.planned-waiting-question span{font-size:13px;line-height:1.7}
+@media(max-width:600px){.planned-waiting{padding:.75rem}.planned-waiting-controls button{width:100%}.planned-waiting-question textarea{min-height:7rem}}

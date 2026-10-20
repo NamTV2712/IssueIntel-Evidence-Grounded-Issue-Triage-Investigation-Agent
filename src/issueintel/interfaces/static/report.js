@@ -16,7 +16,7 @@
       ||report.summary.kind!=='issue_excerpt'||!['evidence_only','hypotheses_unverified','abstained'].includes(report.findings?.status)
       ||report.findings.causal_status!=='unverified'||report.findings.severity!=='unassessed'
       ||report.findings.confidence_probability!==null||report.findings.confidence_method!==null
-      ||report.execution?.status!=='completed'||!Array.isArray(report.evidence)||!Array.isArray(report.hypotheses)
+      ||!['completed','waiting_for_user'].includes(report.execution?.status)||!Array.isArray(report.evidence)||!Array.isArray(report.hypotheses)
       ||!Array.isArray(report.candidate_locations)||!Array.isArray(report.next_checks)||!strings(report.unknowns)||!strings(report.limitations)
       ||(report.provenance!==undefined&&(!Array.isArray(report.provenance)||report.provenance.some(row=>!text(row?.kind)||!text(row?.details)))))return false;
     if(expected&&['pack_sha256','query_sha256','snapshot_sha256','commit_sha'].some(key=>report.source[key]!==expected[key]))return false;
@@ -129,7 +129,7 @@
     }
     const binding=Object.freeze({job,sha256:report.sha256});active=binding;
     const overview=node('div',undefined,'investigation-report');
-    const state=node('div',undefined,'report-status');state.append(node('span',t('Lượt phân tích đã hoàn tất'),'badge'),
+    const state=node('div',undefined,'report-status');state.append(node('span',t(report.execution.status==='waiting_for_user'?'Đang chờ câu trả lời':'Lượt phân tích đã hoàn tất'),'badge'),
       node('strong',t(report.findings.status==='evidence_only'?'Đã thu thập bằng chứng · chưa có giả thuyết':'Cần xác minh thêm')));overview.append(state);
     const identity=node('p',report.issue.repository+' · '+report.issue.case_id,'report-identity');overview.append(identity,
       node('p',t('Commit đã phân tích: ')+report.source.commit_sha,'hash-note'));

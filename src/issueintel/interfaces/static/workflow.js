@@ -11,8 +11,9 @@
     missing_counter_evidence:'Giả thuyết còn thiếu nguồn phản bác',snapshot_gaps:'Snapshot có phần không đọc được',broad_missing_counter_evidence:'Nhiều file và thiếu nguồn phản bác'};
   const stops={provider_not_configured:'Chưa bật provider; dừng ở bằng chứng',insufficient_evidence:'Chưa đủ bằng chứng để sinh giả thuyết',
     no_new_queries:'Không còn truy vấn mới trong giới hạn',no_new_evidence:'Không tìm thêm bằng chứng mới',round_limit:'Đã chạm giới hạn vòng tìm thêm',
-    controller_stopped:'Controller chọn dừng',controller_skipped_retrieval:'Controller chuyển thẳng sang verifier'};
-  const actions={retrieve:'Tìm thêm bằng chứng',verify:'Chuyển sang verifier',stop:'Dừng điều tra'};
+    controller_stopped:'Controller chọn dừng',controller_skipped_retrieval:'Controller chuyển thẳng sang verifier',
+    waiting_for_user:'Đang chờ dữ kiện từ người dùng',generation_limit:'Đã chạm giới hạn sinh giả thuyết'};
+  const actions={retrieve:'Tìm thêm bằng chứng',verify:'Chuyển sang verifier',stop:'Dừng điều tra',ask:'Hỏi dữ kiện còn thiếu'};
   const purposes={support:'Tìm nguồn hỗ trợ',counter:'Tìm nguồn phản bác',caller:'Lần theo caller tĩnh',
     documentation:'Tìm tài liệu trong snapshot',history:'Tìm lịch sử trong nguồn đã khóa'};
   const purposeReasons={support:'Tìm code bổ sung trong cùng snapshot; độ liên quan từ vựng chưa xác nhận hỗ trợ ngữ nghĩa.',
@@ -64,7 +65,8 @@
 
   function valid(plan,job,pack){
     if(!plan||plan!==pack?.workflow_plan||!((plan.schema==='planned_investigation_v1'&&plan.policy==='bounded_planner_v1')
-      ||(plan.schema==='planned_investigation_v2'&&plan.policy==='bounded_planner_v2'))
+      ||(plan.schema==='planned_investigation_v2'&&plan.policy==='bounded_planner_v2')
+      ||(plan.schema==='planned_investigation_v3'&&plan.policy==='bounded_planner_v3'))
       ||!/^[a-f0-9]{24}$/.test(job||'')||!digest(plan.sha256)||!Array.isArray(pack.evidence)
       ||!digest(plan.source?.query_sha256)||!digest(plan.source?.snapshot_sha256)
       ||plan.source.commit_sha!==pack.snapshot?.commit_sha||plan.source.snapshot_sha256!==pack.snapshot.snapshot_sha256
@@ -83,11 +85,24 @@
       ||plan.rounds.length>limits.max_retrieval_rounds||!bound(plan.generation_passes,0,limits.max_generation_passes)||!bound(plan.provider_calls,0,limits.max_provider_calls)
       ||!bound(plan.verifier_passes,0,limits.max_verifier_passes)||!strings(plan.seed_evidence_ids)
       ||!plan.seed_evidence_ids.length||plan.seed_evidence_ids.some(id=>!evidence.has(id)))return false;
+    const inherited=plan.schema==='planned_investigation_v3'?(plan.inherited?.counts||{retrieval_rounds:0,generation_passes:0,verifier_passes:0,provider_calls:0,added_evidence:0}):null;
+    const used={retrieval_rounds:plan.rounds.length,generation_passes:plan.generation_passes,
+      verifier_passes:plan.verifier_passes,provider_calls:plan.provider_calls,added_evidence:pack.evidence.length-plan.seed_evidence_ids.length};
+    if(plan.schema==='planned_investigation_v3'){
+      if(!digest(plan.policy_sha256)||!(plan.inherited===null||plan.inherited?.counts)
+        ||!Object.keys(used).every(key=>bound(inherited[key],0,18)))return false;
+      const maximum={retrieval_rounds:limits.max_retrieval_rounds,generation_passes:limits.max_generation_passes,
+        verifier_passes:limits.max_verifier_passes,provider_calls:limits.max_provider_calls,added_evidence:limits.max_added_total};
+      if(Object.keys(used).some(key=>used[key]+inherited[key]>maximum[key]))return false;
+      if(plan.waiting!==null&&(!window.IssueIntelPlannedWaiting?.validPlan?.(plan)))return false;
+      if((plan.waiting!==null)!==(plan.stop_reason==='waiting_for_user')
+        ||(plan.waiting!==null)!==(plan.final_decision?.action==='ask'))return false;
+    }else if(plan.stop_reason==='waiting_for_user'||plan.stop_reason==='generation_limit')return false;
     const known=new Set(plan.seed_evidence_ids);
     const refs=(values,ids)=>strings(values)&&values.every(value=>ids.has(value));
     const hypotheses=(rows,ids)=>Array.isArray(rows)&&rows.every(row=>text(row?.id)&&text(row.statement)
       &&refs(row.support_ids,ids)&&refs(row.counter_ids,ids)&&text(row.falsification_test))&&new Set(rows.map(row=>row.id)).size===rows.length;
-    const decision=row=>row&&Object.hasOwn(actions,row.action)&&text(row.reason)&&text(row.controller)&&typeof row.fallback==='boolean';
+    const decision=row=>row&&Object.hasOwn(actions,row.action)&&(plan.schema==='planned_investigation_v3'||row.action!=='ask')&&text(row.reason)&&text(row.controller)&&typeof row.fallback==='boolean';
     if(plan.seed_annotation!==null&&!hypotheses(plan.seed_annotation?.hypotheses,known))return false;
     for(const [index,row] of plan.rounds.entries()){
       if(row.round!==index+1||!decision(row)||!refs(row.input_evidence_ids,known)||row.input_evidence_ids.length!==known.size
@@ -100,7 +115,7 @@
         if(row.action!=='retrieve'||search.counter_evidence_confirmed!==false||search.snapshot_sha256!==plan.source.snapshot_sha256
           ||!refs(search.added_ids,added)||search.added_ids.length!==added.size||!Array.isArray(search.queries)||search.queries.length>3
           ||search.queries.some(query=>!text(query.query)||!digest(query.query_sha256)||!hypothesisIds.has(query.seed_hypothesis_id)||!refs(query.added_ids,added)))return false;
-        if(plan.schema==='planned_investigation_v2'&&!gapSearchValid(search,known,added,hypothesisIds,evidence))return false;
+        if(plan.schema!=='planned_investigation_v1'&&!gapSearchValid(search,known,added,hypothesisIds,evidence))return false;
       }else if(row.added_ids.length)return false;
       row.added_ids.forEach(id=>known.add(id));
       if(row.output_annotation!==null&&!hypotheses(row.output_annotation?.hypotheses,known))return false;
@@ -173,15 +188,16 @@
     const provenance=node('details');provenance.append(node('summary',t('Nguồn quyết định')),node('p','Decision SHA256 '+sidecar.sha256,'hash-note'),
       node('p','Plan SHA256 '+sidecar.workflow_plan_sha256,'hash-note'));panel.append(provenance);
   }
-  function render(target,plan,job,pack){
+  function render(target,plan,job,pack,options={}){
     active=null;
+    window.IssueIntelPlannedWaiting?.cancel();
     const area=node('section',undefined,'investigation-workflow');area.append(node('h3',t('Điều phối điều tra')));target.append(area);
     if(!plan){area.append(node('p',t('Báo cáo này dùng luồng Quick/Deep cũ, không có kế hoạch Planned đã lưu. Trace gốc bên dưới giữ nguyên; không suy diễn các vòng chưa ghi nhận.'),'notice'));return;}
     let matches=false;try{matches=valid(plan,job,pack);}catch(_){/* A malformed saved artifact must not break the report view. */}
     if(!matches){area.append(node('p',t('Không thể gắn kế hoạch với query và snapshot của báo cáo này. Citation đã ẩn; có thể xem JSON gốc để kiểm tra.'),'notice'));return;}
     const binding={job,plan,pack};active=binding;
     area.append(node('p',t('Kế hoạch hữu hạn theo tín hiệu quan sát; chưa đánh giá độ khó hoặc chất lượng. Nguồn tìm thêm chưa phải phản bác đã xác nhận.'),'notice'));
-    const gapDirected=plan.schema==='planned_investigation_v2';
+    const gapDirected=plan.schema!=='planned_investigation_v1';
     if(gapDirected)area.append(node('p',t('Mỗi hành động gắn với một khoảng trống đã ghi. Caller là quan hệ tĩnh; chưa khả dụng chỉ nói về phạm vi nguồn hiện có.'),'notice'));
     const route=node('div',undefined,'workflow-routing');route.append(node('h4',t('Vì sao có giới hạn này?')));
     for(const reason of plan.routing.reason_codes)route.append(node('p',t(reasons[reason]),'workflow-reason'));
@@ -189,6 +205,20 @@
     route.append(node('p',t('{files} file code · {missing} giả thuyết thiếu phản bác · {parse} lỗi parse · {skipped} file bị bỏ qua',
       {files:signal.code_files,missing:signal.not_found_hypotheses,parse:signal.parse_error_count,skipped:signal.skipped_file_count}),'notice'));
     area.append(route);
+    const counts=plan.schema==='planned_investigation_v3'?(plan.inherited?.counts||{retrieval_rounds:0,generation_passes:0,verifier_passes:0,provider_calls:0,added_evidence:0}):null;
+    const local={retrieval_rounds:plan.rounds.length,generation_passes:plan.generation_passes,
+      verifier_passes:plan.verifier_passes,provider_calls:plan.provider_calls,added_evidence:pack.evidence.length-plan.seed_evidence_ids.length};
+    if(counts){
+      area.append(node('h4',t('Ngân sách toàn chuỗi điều tra')),
+        node('p',t('Giới hạn giữ nguyên từ phiên gốc; tiếp tục không cấp lại vòng tìm kiếm hoặc call API.'),'notice'));
+      const cumulative=node('dl',undefined,'workflow-budgets');
+      for(const [key,label,maximum] of [['retrieval_rounds','Vòng tìm thêm',plan.limits.max_retrieval_rounds],
+        ['generation_passes','Lượt sinh giả thuyết',plan.limits.max_generation_passes],['verifier_passes','Lượt verifier riêng',plan.limits.max_verifier_passes],
+        ['provider_calls','Call sinh và verifier đã ghi nhận',plan.limits.max_provider_calls],['added_evidence','Trích đoạn mới',plan.limits.max_added_total]]){
+        const entry=node('div');entry.append(node('dt',t(label)),node('dd',(counts[key]+local[key])+' / '+maximum));cumulative.append(entry);
+      }
+      area.append(cumulative,node('h4',t('Sử dụng trong phiên đang xem')));
+    }
     const budgets=node('dl',undefined,'workflow-budgets');
     for(const [label,value] of [[t('Vòng tìm thêm'),plan.rounds.filter(row=>row.action==='retrieve').length+' / '+plan.limits.max_retrieval_rounds],
       [t('Lượt sinh giả thuyết'),plan.generation_passes+' / '+plan.limits.max_generation_passes],[t('Lượt verifier riêng'),plan.verifier_passes+' / '+plan.limits.max_verifier_passes],
@@ -223,6 +253,7 @@
       node('p','Query SHA256 '+plan.source.query_sha256,'hash-note'),node('p','Commit '+plan.source.commit_sha,'hash-note'),
       node('p','Snapshot SHA256 '+plan.source.snapshot_sha256,'hash-note'),node('p','Plan SHA256 '+plan.sha256,'hash-note'));
     area.append(provenance);
+    if(plan.schema==='planned_investigation_v3'&&plan.waiting)window.IssueIntelPlannedWaiting?.render(area,plan,job,pack,options);
   }
   document.addEventListener('issueintel:packchange',()=>{active=null;});
   window.IssueIntelWorkflow=Object.freeze({render});

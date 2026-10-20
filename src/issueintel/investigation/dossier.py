@@ -18,7 +18,7 @@ from .report import build_report
 
 
 SCHEMA = 'investigation_dossier_v1'
-MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization'}
+MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization','planned_continuation'}
 ORIGINAL = {'local','github','example'}
 FLAGS = {'provenance':'user_report_unverified','causal_verified':False,
          'fix_verified':False,'independent_human':False,'evaluation_performed':False}
@@ -117,7 +117,7 @@ class Dossiers:
                     identity={'kind':'synthetic','repository':'synthetic/example',
                               'issue_url':None,'query_sha256':None}
                 return identifier,dict(identity,sha256=digest(identity))
-            identifier=request.get('source_job_id') if mode in {'resume','finalization'} else request.get('parent_job_id')
+            identifier=request.get('source_job_id') if mode in {'resume','finalization','planned_continuation'} else request.get('parent_job_id')
         raise ValueError('Dossier ancestry exceeds the product bound')
 
     def _db(self):
@@ -228,7 +228,7 @@ class Dossiers:
                 continue
             if digest(candidate)!=digest(identity):continue
             row=host.job(job_id);request=raw['request'];mode=row['mode']
-            parent=(request.get('source_job_id') if mode in {'resume','finalization'} else request.get('parent_job_id'))
+            parent=(request.get('source_job_id') if mode in {'resume','finalization','planned_continuation'} else request.get('parent_job_id'))
             run={'job_id':job_id,'root_job_id':root,'parent_job_id':parent,'status':row['status'],
                  'mode':mode,'provider':row['provider'],'depth':row['depth'],
                  'created_at':row['created_at'],'updated_at':row.get('updated_at',row['created_at']),
@@ -305,7 +305,7 @@ class Dossiers:
             transition={'parent_job_id':parent_id,'child_job_id':job_id,
                 'parent_binding':by_id[parent_id]['binding'],'child_binding':run['binding'],
                 'comparison':comparison,'observation_source':None,'prediction_delta':[],
-                'reason':'user_context' if child.get('followup') else 'selected_repository_context',
+                'reason':'user_context' if child.get('followup') or child.get('continued_from') else 'selected_repository_context',
                 'semantic_hypothesis_correspondence':'not_inferred'}
             if receipt:
                 journal=journal_by_plan.get(receipt['source']['plan_job_id'])

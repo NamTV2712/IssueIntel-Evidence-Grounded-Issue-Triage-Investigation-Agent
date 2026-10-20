@@ -106,7 +106,9 @@ vào inference, GitHub draft hoặc dataset; pack/report v1/receipts giữ nguy�
 riêng từ pack đã lưu và SHA256 của đúng bytes nguồn. Projection không đọc Git,
 network, gold hoặc gọi model; Workbench replay export và lineage trước khi dựng.
 Web Overview, Markdown và nháp GitHub dùng cùng fields/citations/truth levels.
-`execution.status=completed` chỉ nói lượt điều tra đã hoàn tất; model critique
+`execution.status=completed` chỉ nói lượt điều tra đã hoàn tất;
+`waiting_for_user` biểu thị một pack Planned v3 đã lưu nhưng đang chờ dữ kiện.
+Model critique
 không chuyển `causal_status` hoặc semantic support sang verified. Severity giữ
 unassessed, confidence probability giữ null, checks giữ not-executed. Excerpt
 có hash riêng và dấu truncated; link code chỉ dùng repo khớp issue, commit đầy
@@ -407,10 +409,11 @@ quyền thực thi tool/code hoặc benchmark evaluation. Các stage cố địn
 `planned_input`, `planned_retrieval_1..3`, `planned_generation_1..3`,
 `planned_complete` giữ tiến độ khi lỗi; receipt chi phí gắn đúng stage.
 
-Web/CLI Planned mới dùng `planned_investigation_v2` / `bounded_planner_v2`;
-library `investigate` giữ v1 mặc định cho caller cũ và nhận explicit
-`planner_policy='bounded_planner_v2'`. Cả hai đi qua cùng pipeline/validator,
-version pair phải khớp; không sửa hoặc chuyển đổi pack v1 đã lưu. V2 dùng
+Web rules Planned mới dùng `planned_investigation_v3` / `bounded_planner_v3`;
+CLI `--planned` và Jev giữ v2. Library `investigate` giữ v1 mặc định cho caller
+cũ và nhận explicit `planner_policy='bounded_planner_v2'` hoặc v3. Mọi phiên bản
+đi qua cùng pipeline/validator, version pair phải khớp; không sửa hoặc chuyển
+đổi pack v1/v2 đã lưu. V2/v3 dùng
 `retrieval.gap_directed` thay focused query chung: mỗi action khóa purpose,
 gap/reason, input hypothesis, query/hash và source IDs. Support/counter tìm code
 theo statement hoặc falsification; caller chỉ đi ngược cạnh `call` exact tới
@@ -426,9 +429,49 @@ snapshot, exact bytes/span và không overlap. Khi không thêm excerpt, v2 có 
 thử purpose tiếp trong số vòng còn lại mà không generation; v1 giữ stop behavior
 gốc. Pure replay đối chiếu query/action/source/provenance, exact caller edge và
 lọc loại đường dẫn bên cạnh source/inventory/budget validation chung. UI render
-cùng action receipt, giữ candidate/counter status chưa xác nhận. Đây là phần
-typed retrieval của D05; persisted waiting và explicit continuation giữ tổng
-budget qua lineage chưa được cung cấp, không dùng follow-up reset budget thay.
+cùng action receipt, giữ candidate/counter status chưa xác nhận.
+
+`investigation.planned_waiting` bổ sung pure replay cho v3 và persisted
+`planned_waiting_v1`. Chỉ một lượt typed search thực sự đã attempted query nhưng
+không thêm excerpt mới mới có thể dẫn tới `waiting_for_user`: còn cue intake
+chưa được xem và còn một generation, một repair dự phòng cùng critic trong
+budget. Câu hỏi lấy từ template clarification v1 Việt/Anh, loại những field đã
+trả lời ở tổ tiên; “chưa biết” vẫn là câu trả lời chưa xác minh, không phải proof
+thông tin đầy đủ. Pack chờ chỉ có structural verification, chưa gọi critic.
+`inherited` giữ root source, routing/limits, counts, query hashes đã attempted
+và answered fields. Tổng cha + con không vượt cận route gốc: 1–3 retrieval rounds,
+tối đa bốn generation (mỗi lượt tối đa một repair), một critic và chín Groq calls.
+Một câu trả lời không cấp vòng/call mới và không đặt lại routing.
+
+`planned_continuations.PlannedContinuations` dùng queue/pipeline chung. GET
+`/api/jobs/{source}/planned-continuation` replay nguồn/receipt và trả preview
+khóa source pack, workflow plan, waiting và policy SHA; so policy hiện tại để
+báo availability, không đọc Git hoặc gọi provider. POST cùng route yêu cầu đủ
+bốn binding, answers/language và `continue_planned_with_api_cost`. Admission
+replay snapshot Git, policy hiện tại và owned call receipts của đúng source job;
+worker kiểm nguồn lại trước mỗi call/repair và trước publish. Reserved hoặc
+không rõ accounting bị chặn; failed call chỉ nhận khi có đúng repair hoàn tất
+đã ghi. SQLite intent khóa một child cho mỗi source pause, kể cả lỗi/hủy/ngắt;
+gửi lại cùng request trả child cũ, đổi answers bị từ chối, không tạo paid retry.
+
+Child giữ canonical case identity và exact snapshot của cha; query thêm nguyên
+văn answers với provenance unverified và luôn chạy generation mới. Code evidence
+của cha được copy theo thứ tự; context records/receipts đã chọn được giữ nguyên,
+chỉ rebind envelope/excerpts vào query mới. Không đọc mutable history index hoặc
+tìm context nguồn mới. `continued_from` khóa parent pack/plan/waiting/policy,
+answer receipt và user cue projection; template text tự sinh không được tính
+thành cue người dùng. Các đường generic follow-up, clarification, context và
+observation follow-up từ pack đang chờ bị chặn trước enqueue và provider, để
+không mở một budget mới thay continuation. Journals và review sidecars vẫn đọc
+được theo cổng riêng.
+
+Saved-read replay toàn lineage, intent và bindings bằng bytes/policy đã ghi,
+không đọc Git, API config, provider hoặc policy hiện tại. Report có trạng thái
+chờ và provenance continuation; dossier giữ cùng issue identity. Handoff tự thêm
+tổ tiên, portable verifier kiểm chain/query/answers/counters và frozen sources
+trên included bytes bằng Python chuẩn. Nó không xác thực hóa đơn provider,
+authorship, historical availability hoặc semantic truth. D05 waiting/continuation
+đã triển khai trong code; nghiệm thu tích hợp/UI và exact CI vẫn là cổng đóng issue.
 
 `investigation.stages` ghi checkpoint private sau từng stage đã hoàn tất, giữ
 seed khi stage sau lỗi; không overwrite, không retry hoặc tự resume paid calls.

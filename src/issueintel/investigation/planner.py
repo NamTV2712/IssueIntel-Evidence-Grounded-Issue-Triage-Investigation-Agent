@@ -18,7 +18,9 @@ SCHEMA='planned_investigation_v1'
 POLICY='bounded_planner_v1'
 GAP_SCHEMA='planned_investigation_v2'
 GAP_POLICY='bounded_planner_v2'
-VERSIONS={POLICY:SCHEMA,GAP_POLICY:GAP_SCHEMA}
+WAIT_SCHEMA='planned_investigation_v3'
+WAIT_POLICY='bounded_planner_v3'
+VERSIONS={POLICY:SCHEMA,GAP_POLICY:GAP_SCHEMA,WAIT_POLICY:WAIT_SCHEMA}
 STOP_REASONS={'provider_not_configured','insufficient_evidence','no_new_queries',
               'no_new_evidence','round_limit','controller_stopped','controller_skipped_retrieval'}
 _HASH=re.compile(r'[a-f0-9]{64}')
@@ -83,6 +85,9 @@ def limits(maximum):
 def start_plan(case, snapshot, graph, evidence, annotation, *, provider, model, policy=POLICY):
     if policy not in VERSIONS:
         raise ValueError('Unsupported Planned workflow policy')
+    if policy==WAIT_POLICY:
+        from .planned_waiting import start_plan as start_waiting_plan
+        return start_waiting_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model)
     route=routing(evidence,snapshot,graph,annotation)
     return {'schema':VERSIONS[policy],'policy':policy,'source':{
                 'query_sha256':hashlib.sha256(case['problem_statement'].encode()).hexdigest(),
@@ -227,6 +232,9 @@ def _validate_search(search, hypotheses, current, added, known, source, used):
 def validate_planned(pack):
     """Replay saved step/source/hash/budget links, without judging model claims."""
     try:
+        if (pack.get('workflow_plan') or {}).get('policy')==WAIT_POLICY:
+            from .planned_waiting import validate_plan
+            return validate_plan(pack)
         return _validate_planned(pack)
     except (KeyError,TypeError,AttributeError,IndexError):
         raise ValueError('Invalid saved planned investigation structure') from None

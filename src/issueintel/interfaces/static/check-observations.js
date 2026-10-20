@@ -119,6 +119,10 @@
     }area.append(history);
   }
   function renderFollowup(){
+    if(report?.execution?.status==='waiting_for_user'){
+      area.append(node('p',t('Phiên Planned đang chờ. Dùng biểu mẫu trong Trace để giữ ngân sách của chuỗi điều tra.'),'notice'));
+      return;
+    }
     const section=node('section',undefined,'check-observation-followup'),eligible=activeEvents().filter(row=>row.observation.outcome!=='not_run'),locked=loading||saving||creating||!!created;
     section.append(node('h4',t('Điều tra tiếp từ quan sát đã chọn')),node('p',t('Chỉ chọn bản ghi đang có hiệu lực và đã báo kết quả. Phiên mới truy xuất lại code ở commit báo cáo; commit tự báo đã thử vẫn chỉ là dữ kiện chưa xác minh.'),'notice'));
     section.append(node('p',t('Chọn tối đa 3 quan sát đang có hiệu lực cho mỗi phiên tiếp nối.'),'field-note'));

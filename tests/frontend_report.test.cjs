@@ -147,3 +147,11 @@ test('report labels are bilingual with matching placeholders and HTML wires an e
   const html=fs.readFileSync(path.join(base,'index.html'),'utf8');
   assert.match(html,/data-tab="overview"/);assert.match(html,/id="export-report-json"/);assert.match(html,/src="\/report.js"/);
 });
+
+test('waiting overview preserves unverified findings and has a distinct bilingual status without fetching',()=>{
+  const value=report();value.execution={status:'waiting_for_user',stop_reason:'waiting_for_user'};
+  const app=boot();app.render(value);assert.match(app.text(app.target),/Đang chờ câu trả lời/);
+  assert.match(app.text(app.target),/Cần xác minh thêm/);
+  app.language('en');app.render(value);assert.match(app.text(app.target),/Waiting for user input/);
+  assert.match(app.text(app.target),/Cause unverified/);
+});

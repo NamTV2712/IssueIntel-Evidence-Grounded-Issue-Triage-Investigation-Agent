@@ -53,14 +53,41 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 independent_critic=True, snapshot=None, graph=None, max_output_tokens=2048,
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
                 repository_context=None, resumable=False, planned_workflow=False,
-                planner_policy='bounded_planner_v1') -> dict:
+                planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None) -> dict:
     case = public_case(case)
     if type(planned_workflow) is not bool:
         raise ValueError('Planned workflow must be an explicit boolean')
-    from .planner import POLICY as LEGACY_PLANNER_POLICY, GAP_POLICY, VERSIONS
+    from .planner import POLICY as LEGACY_PLANNER_POLICY, GAP_POLICY, WAIT_POLICY, VERSIONS
     if (not isinstance(planner_policy,str) or planner_policy not in VERSIONS
             or not planned_workflow and planner_policy!=LEGACY_PLANNER_POLICY):
         raise ValueError('Unsupported Planned workflow policy')
+    if ((planned_parent is not None or planned_continuation is not None)
+            and (not planned_workflow or planner_policy!=WAIT_POLICY
+                 or planned_parent is None or planned_continuation is None)):
+        raise ValueError('Planned continuation requires an exact waiting source and v3 policy')
+    waiting_policy_hash=None
+    if planned_workflow and planner_policy==WAIT_POLICY:
+        from .planned_waiting import policy_sha256, validate_plan, build_continuation, continued_context
+        if controller is not None and type(controller) is not RuleController:
+            raise ValueError('Planned waiting supports the rules controller only')
+        waiting_policy_hash=policy_sha256()
+        if planned_parent is not None:
+            validate_plan(planned_parent)
+            receipt=planned_continuation['answers_receipt']
+            prepared=build_continuation(planned_parent,
+                [{'question_id':row['question_id'],'answer':row['answer']} for row in receipt['answers']],receipt['language'])
+            if (case!=prepared['case'] or receipt!=prepared['receipt']
+                    or planned_continuation['parent_plan_sha256']!=planned_parent['workflow_plan']['sha256']
+                    or planned_continuation['policy_sha256']!=waiting_policy_hash
+                    or planned_parent['workflow_plan']['policy_sha256']!=waiting_policy_hash
+                    or planned_continuation['cue_text']!=prepared['cue_text']
+                    or planned_continuation['answered_fields']!=prepared['answered_fields']
+                    or provider!=planned_parent['workflow_plan']['provider']
+                    or model!=planned_parent['workflow_plan']['model'] or complete_json is None):
+                raise ValueError('Planned continuation query, policy or model differs from its source')
+            if repository_context is not None:
+                raise ValueError('Planned continuation cannot acquire new repository context')
+            repository_context=continued_context(planned_parent,case)
     if controller is not None:
         from .typesafe_controller import TypesafePlannedController
         if isinstance(controller,TypesafePlannedController) and not planned_workflow:
@@ -122,10 +149,21 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     graph = graph or build_graph(snapshot)
     if graph.snapshot_sha256 != snapshot.snapshot_sha256 or graph.commit_sha != snapshot.commit_sha:
         raise ValueError("Graph differs from selected snapshot")
-    evidence = (deepcopy(prepared_evidence) if prepared_evidence is not None
+    if planned_parent is not None:
+        descriptor=snapshot.to_dict()
+        descriptor['files']=[{key:value for key,value in file.to_dict().items() if key!='text'} for file in snapshot.files]
+        if digest(descriptor)!=digest(planned_parent['snapshot']):
+            raise ValueError('Planned continuation snapshot differs from its admitted parent')
+        validate_prepared_evidence(planned_parent['case'],
+            [row for row in planned_parent['evidence'] if row['kind']!='repository_context'],snapshot)
+    evidence = (deepcopy([row for row in planned_parent['evidence'] if row['kind']=='code']) if planned_parent is not None
+                else deepcopy(prepared_evidence) if prepared_evidence is not None
                 else retrieve_evidence(case["problem_statement"], snapshot, graph, top_k=top_k))
     statement = case["problem_statement"]
     intake = inspect_issue(statement)
+    if planned_continuation is not None:
+        from .intake import inspect_user_content
+        intake=inspect_user_content(statement,planned_continuation['cue_text'])
     if prepared_evidence is not None:
         validate_prepared_evidence(case, evidence, snapshot)
         evidence = [record for record in evidence if record["kind"] != "issue"]
@@ -137,6 +175,32 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             "edit_history": "opening_event_matched" if query_verified else "unknown",
             **({"receipt": query_receipt} if query_verified else {})}})
     controller = controller or RuleController()
+    if waiting_policy_hash is not None and complete_json is not None:
+        original_complete=complete_json
+        def policy_guard():
+            if policy_sha256()!=waiting_policy_hash:
+                raise ValueError('Planned policy changed before a model call')
+            snapshot.verify()
+        def guarded_complete(messages,max_output_tokens):
+            policy_guard()
+            answer=original_complete(messages,max_output_tokens)
+            policy_guard()
+            return answer
+        if hasattr(original_complete,'complete_structured'):
+            def guarded_structured(messages,*,max_output_tokens,schema):
+                policy_guard()
+                answer=original_complete.complete_structured(messages,max_output_tokens=max_output_tokens,schema=schema)
+                policy_guard()
+                return answer
+            guarded_complete.complete_structured=guarded_structured
+        if hasattr(original_complete,'complete_json'):
+            def guarded_json(messages,*,max_output_tokens):
+                policy_guard()
+                answer=original_complete.complete_json(messages,max_output_tokens=max_output_tokens)
+                policy_guard()
+                return answer
+            guarded_complete.complete_json=guarded_json
+        complete_json=guarded_complete
     trace = [{"stage": "snapshot", "protocol": snapshot.protocol, "sha256": snapshot.snapshot_sha256},
              {"stage": "retrieval", "evidence_ids": [e["id"] for e in evidence]}]
     if repository_context is not None:
@@ -189,6 +253,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if workflow_plan is not None:
             from .planner import planned_run_id
             pack['workflow_plan']=deepcopy(workflow_plan)
+        if planned_continuation is not None:
+            pack['continued_from']=deepcopy(planned_continuation)
         if checkpoints:
             pack['stage_checkpoints'] = checkpoints
         pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
@@ -199,7 +265,8 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                                            workflow_plan,repository_context)
         return pack
     if planned_workflow:
-        checkpoint('planned_input',{'case':case,'evidence':evidence,'policy':planner_policy})
+        checkpoint('planned_input',{'case':case,'evidence':evidence,'policy':planner_policy,
+            **({'policy_sha256':waiting_policy_hash} if waiting_policy_hash is not None else {})})
     code_count = sum(e["kind"] == "code" for e in evidence)
     if code_count == 0:
         stop_reason = "insufficient_evidence"
@@ -216,12 +283,23 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if planned_workflow:
             from .planner import start_plan, choose_action, seal_plan
             from issueintel.annotations.public_inputs import model_hypotheses
-            workflow_plan=start_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model,
-                                     policy=planner_policy)
-            maximum=workflow_plan['limits']['max_retrieval_rounds']
-            used_queries={workflow_plan['source']['query_sha256']}
+            waiting_enabled=planner_policy==WAIT_POLICY
+            if waiting_enabled:
+                from .planned_waiting import start_plan as start_waiting_plan, remaining, used_queries as prior_queries, can_generate, maybe_waiting
+                workflow_plan=start_waiting_plan(case,snapshot,graph,evidence,annotation,
+                    provider=provider,model=model,parent=planned_parent)
+                maximum=remaining(workflow_plan)['retrieval_rounds']
+                used_queries=prior_queries(workflow_plan)
+            else:
+                workflow_plan=start_plan(case,snapshot,graph,evidence,annotation,provider=provider,model=model,
+                                         policy=planner_policy)
+                maximum=workflow_plan['limits']['max_retrieval_rounds']
+                used_queries={workflow_plan['source']['query_sha256']}
             planned_stop=None;decision=None;decision_record=None
             for number in range(1,maximum+1):
+                if waiting_enabled and not can_generate(workflow_plan):
+                    planned_stop='generation_limit'
+                    break
                 if hasattr(controller,'bind_context'):
                     controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
@@ -237,7 +315,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 if decision!=Action.RETRIEVE:
                     planned_stop='controller_stopped' if decision==Action.STOP else 'controller_skipped_retrieval'
                     break
-                if planner_policy==GAP_POLICY:
+                if planner_policy in {GAP_POLICY,WAIT_POLICY}:
                     from issueintel.retrieval.gap_directed import expand_for_gaps
                     added,search=expand_for_gaps(annotation['hypotheses'],evidence,snapshot,graph,
                                                exclude_query_sha256s=used_queries)
@@ -253,7 +331,17 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                     'query_count':len(search['queries']),'added_ids':search['added_ids'],
                     'stop_reason':search['stop_reason'],'rounds_remaining':maximum-number})
                 if not added:
-                    if planner_policy==GAP_POLICY and search['stop_reason']!='no_new_queries':
+                    if waiting_enabled:
+                        waiting=maybe_waiting(case,annotation,workflow_plan,
+                            cue_text=(planned_continuation or {}).get('cue_text'),
+                            answered_fields=(planned_continuation or {}).get('answered_fields',()))
+                        if waiting is not None:
+                            workflow_plan['waiting']=waiting
+                            planned_stop='waiting_for_user'
+                            decision=Action.ASK
+                            decision_record={'action':'ask','reason':'unreviewed_user_input','controller':'rules','fallback':False}
+                            break
+                    if planner_policy in {GAP_POLICY,WAIT_POLICY} and search['stop_reason']!='no_new_queries':
                         continue
                     planned_stop=search['stop_reason']
                     break
@@ -264,7 +352,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 workflow_plan['provider_calls']+=1+annotation['provenance']['repair_count']
                 step.update(output_annotation_sha256=digest(annotation),output_annotation=deepcopy(annotation))
                 checkpoint(f'planned_generation_{number}',{'round':number,'annotation':annotation})
-            if decision not in (Action.VERIFY,Action.STOP):
+            if decision not in (Action.VERIFY,Action.STOP,Action.ASK):
                 if hasattr(controller,'bind_context'):
                     controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
