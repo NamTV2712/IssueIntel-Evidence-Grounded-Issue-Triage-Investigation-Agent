@@ -18,6 +18,21 @@ def main(argv=None) -> int:
     handoff = commands.add_parser('verify-handoff', help='Verify a portable handoff offline without Git, credentials or model calls')
     handoff.add_argument('archive',type=Path)
     handoff.add_argument('--expected-sha256')
+    memory_capture=commands.add_parser('memory-capture',help='Retain source-bound architecture or unverified prior hypotheses locally; no model')
+    memory_capture.add_argument('--pack',type=Path,required=True)
+    memory_capture.add_argument('--kind',choices=('architecture','lesson'),default='architecture')
+    memory_capture.add_argument('--max-facts',type=int)
+    memory_capture.add_argument('--hypothesis',action='append',default=[])
+    memory_capture.add_argument('--note',default='')
+    memory_list=commands.add_parser('memory-list',help='Search private memory without Git, credentials or model calls')
+    memory_list.add_argument('--repo',required=True)
+    memory_list.add_argument('--query',default='')
+    memory_list.add_argument('--limit',type=int,default=20)
+    memory_show=commands.add_parser('memory-show',help='Replay an immutable private memory capture')
+    memory_show.add_argument('--id',required=True)
+    memory_assess=commands.add_parser('memory-assess',help='Compare captured dependencies with another product pack revision; no model')
+    memory_assess.add_argument('--id',required=True)
+    memory_assess.add_argument('--pack',type=Path,required=True)
     commands.add_parser("bootstrap", help="Download pinned SWE-bench sources and import cases")
     web = commands.add_parser("serve", help="Run the read-only local investigation workbench")
     web.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
@@ -141,6 +156,13 @@ def main(argv=None) -> int:
     if args.command=='verify-handoff':
         from issueintel.investigation.portable_verify import main as verify_handoff
         return verify_handoff([str(args.archive)]+(['--expected-sha256',args.expected_sha256] if args.expected_sha256 else []))
+    if args.command.startswith('memory-'):
+        try:
+            print(json.dumps(_memory(args),ensure_ascii=True,indent=2))
+            return 0
+        except (ValueError,RuntimeError,OSError) as error:
+            print(f'IssueIntel: {error}',file=sys.stderr)
+            return 2
     load_local_env(args.root / ".env")
     try:
         if args.command in {"connect-repository", "pause-repository", "github-connections"}:
@@ -287,6 +309,28 @@ def main(argv=None) -> int:
     except (ValueError, RuntimeError, OSError, PermissionError) as error:
         print(f"IssueIntel: {error}", file=sys.stderr)
         return 2
+
+
+def _memory(args):
+    from issueintel.repository.memory_store import MemoryStore,MAX_OBJECT_BYTES,product_memory_pack
+    store=MemoryStore(args.root)
+    if args.command=='memory-list':return store.list(args.repo,query=args.query,limit=args.limit)
+    if args.command=='memory-show':return store.read(args.id)
+    if args.pack.stat().st_size>MAX_OBJECT_BYTES:raise ValueError('Memory source pack exceeds the private object bound')
+    raw=args.pack.read_bytes();pack=product_memory_pack(raw)
+    from issueintel.investigation.question_jobs import replay_snapshot
+    snapshot=replay_snapshot(pack)
+    repository=pack['case']['repository']
+    if args.command=='memory-assess':
+        if store.read(args.id)['receipt']['repository']!=repository:
+            raise ValueError('Memory assessment requires the same product repository')
+        return store.assess(args.id,snapshot)
+    if args.kind=='architecture':
+        if args.hypothesis or args.note:raise ValueError('Hypothesis selection and notes require --kind lesson')
+        return store.capture_architecture(snapshot,repository,max_facts=args.max_facts if args.max_facts is not None else 500,
+                                          source_raw=raw)
+    if args.max_facts is not None:raise ValueError('--max-facts applies to architecture captures only')
+    return store.capture_lesson(raw,snapshot,repository,hypothesis_ids=args.hypothesis,note=args.note)
 
 
 def _investigate(args):

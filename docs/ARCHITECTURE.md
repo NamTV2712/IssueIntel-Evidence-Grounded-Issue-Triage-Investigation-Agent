@@ -235,9 +235,33 @@ xây AST ở revision đích: unchanged dependency chưa đủ nếu cách resol
 revalidation, giữ nguyên capture gốc. Historical eligibility còn cần receipt
 đầy đủ của cả nguồn và revision đích, `available_at < cutoff`; Git dates hoặc
 receipt SHA không có nội dung bị từ chối. Authenticity giữ trusted-caller boundary
-hiện có. Đây là lõi đầu tiên của mục 6; persistence, investigation lessons,
-UI/CLI và explicit inference selection chưa triển khai, chưa tự đưa memory vào
-product hoặc benchmark prompts.
+hiện có.
+
+`repository.memory_store.MemoryStore` giữ các capture bất biến trong SQLite,
+payload dedup theo hash, pack witness gzip và snapshot cache dùng chung. SQLite
+transaction serialize writes; cùng authority/source/payload trả receipt cũ qua
+restart và không nhân bản source blobs. Gzip witnesses được publish nguyên khối
+bằng atomic create sau fsync; ngắt trước transaction commit không để source
+hash nửa chừng. Target đã có bytes xung đột bị từ chối, không ghi đè. Read/search replay receipt, object,
+pack và source spans từ bytes đã lưu; không Git/parser/provider/config. FTS5
+chỉ index tối đa 16.000 ký tự/capture, trả bounded local candidates, chưa đo
+semantic recall. Receipt ghi caller-supplied source; Workbench phải xác minh
+owned job authority trước khi gọi store, không suy ra authentic ownership từ
+một ID tự truyền vào. Hash không là chữ ký hoặc chứng nhận người tạo.
+
+`repository_investigation_lesson_v1` chỉ giữ những hypothesis ID được chọn theo
+thứ tự nguồn, statement/falsification/support/counter verbatim, note chưa xác
+minh và exact pack SHA. Không copy source-quality/judgment/correctness thành
+nhãn đúng. Lesson luôn `unverified_prior_investigation`, không runtime/causal/
+human verification và không historical eligibility. Code dependency assessment
+giữ changed/missing/unavailable/no-code riêng; nguồn còn nguyên không xác minh
+giả thuyết hoặc tính áp dụng cho issue mới. Không dùng recorded_at làm proof.
+
+CLI `memory-capture/list/show/assess` gọi cùng store, không nạp `.env` hay model
+config. Product-pack preflight từ chối split/instance IDs, restricted case IDs,
+strict protocol/audit trước Git replay. Capture/assessment replay actual commit
+bytes, show/list không cần checkout còn trên máy. UI và explicit inference
+selection của mục 6 còn triển khai; memory chưa tự đi vào product/benchmark prompts.
 
 Product repository memory nằm riêng trong `integrations.github_index`:
 `RepositoryIndex` đồng bộ REST read-only có page receipts/cursor transaction,

@@ -268,6 +268,32 @@ giá cuối và không chờ đủ 400 strict. [Quyết định](configs/develop
 không tự mở evaluation, đóng băng cohort mới hay khởi động lại bulk LLM.
 Trạng thái implementation theo proposal nằm trong [docs/PRODUCT.md](docs/PRODUCT.md).
 
+## Memory repository lưu trên máy
+
+Memory kiến trúc và giả thuyết từ phiên product đã lưu có CLI dùng riêng,
+không gọi model hoặc đọc token. Chọn đúng `pack.json` trong export của phiên:
+
+```powershell
+.\.venv\Scripts\python.exe -m issueintel memory-capture --pack artifacts/demo/runs/JOB_ID/pack.json --max-facts 500
+.\.venv\Scripts\python.exe -m issueintel memory-capture --pack artifacts/demo/runs/JOB_ID/pack.json --kind lesson --hypothesis H1 --note "Cần xem lại guard này"
+.\.venv\Scripts\python.exe -m issueintel memory-list --repo "OWNER/REPO" --query "parser"
+.\.venv\Scripts\python.exe -m issueintel memory-show --id CAPTURE_ID
+.\.venv\Scripts\python.exe -m issueintel memory-assess --id CAPTURE_ID --pack artifacts/demo/runs/OTHER_JOB_ID/pack.json
+```
+
+Thay `H1` bằng hypothesis ID thực trong pack; repository identity lấy đúng từ
+`case.repository` (có thể là đường dẫn Git local). Capture/assessment đọc lại
+Git tại commit đã khóa, không chạy code đích. Show/list dùng chứng cứ đã lưu,
+không cần checkout hoặc credentials. Kho private ở `artifacts/repository_memory/`
+dùng SQLite/FTS, source pack và cache snapshot nén theo hash; cùng blob code
+không được chép lại cho mỗi observation. Gửi lặp cùng capture trả cùng receipt.
+Nguồn hỏng bị từ chối, không ghi đè hash. Search chỉ index tối đa 16.000 ký tự
+cho mỗi capture, chưa đo semantic recall. `lesson` giữ nguyên giả thuyết được
+chọn và ghi chú chưa xác minh, không là nguyên nhân/bản sửa đã kiểm chứng;
+luôn bị chặn khỏi strict inference. Các lệnh này từ chối benchmark/strict packs
+trước khi đọc Git. Memory chưa tự đi vào prompt; phần UI/chọn inference của
+mục 6 vẫn đang triển khai.
+
 ## Dữ liệu: 400 Main Dev gốc
 
 ### Diagnostic chính sách điều tra và kiểm tra phân biệt giả thuyết
