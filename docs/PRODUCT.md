@@ -497,12 +497,24 @@ selection/context attachment và source ancestors; standalone verifier kiểm
 recorded projection/query/item/receipt/truth bindings, không tái chứng minh AST
 hoặc tính xác thực capture gốc. Đã qua 77 test memory/selection/handoff và 239
 test frontend tổng hợp; bộ hồi quy rộng đạt 514 test, kiểm tra backend cuối đạt
-36 test sau bổ sung malformed provider/depth inputs. CI của mốc đang chờ hoàn tất.
+36 test sau bổ sung malformed provider/depth inputs. [CI toàn bộ của commit
+`8bada45` đã thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39434454066).
 Browser tổng hợp đã chạy offline từ preview, mở lại memory đã dùng, kiểm consent
 Groq, English/dark và viewport 390 px không tràn. Lỗi provider giả lập giữ receipt,
 không có report thành công giả và kiểm lại cùng intent không tạo phiên/call mới.
 Transport Groq là giả lập;
 không có provider thật, Holdout/Live hoặc evaluation.
+
+Mục 6 đã nghiệm thu trên commit `8bada45`: core/store/UI và confirmed selection
+đã hoàn chỉnh trong phạm vi product. `test_repository_memory.py` kiểm source span,
+dependency/relationship/producer invalidation và full source/target availability
+**strictly trước cutoff**; Git dates/hash riêng lẻ bị từ chối. Store/lesson tests
+kiểm immutable source pack/query/revision, saved read không có checkout và prior
+hypotheses luôn chưa xác minh. Product/API/UI/inference/dossier/handoff tests ở
+trên kiểm source ownership, explicit intent, guards và mở lại offline. Đây là
+nghiệm thu chức năng, không phải chứng minh memory cải thiện chẩn đoán hoặc đã
+thu thập lịch sử thực cho một cohort mới. Lessons không được cấp historical
+eligibility; portable hash verification không thay cho proof lịch sử/AST.
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
@@ -520,7 +532,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
 | D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
-| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đang nghiệm thu: core, store/CLI, owned API/UI, tối đa 6 exact items/16.000 ký tự, confirmed product inference với durable intent và source/policy guards, saved provenance/dossier/handoff. Static observations cần revalidation; prior hypotheses vẫn chưa xác minh. Còn kiểm hồi quy, CI và đối chiếu tiêu chí toàn mục; issue vẫn mở |
+| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
 | D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Chưa triển khai; verifier/export recovery đã có |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
