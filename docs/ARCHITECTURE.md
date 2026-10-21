@@ -711,8 +711,27 @@ child/portable validators bắt buộc giá trị đúng theo recorded policy. C
 không có marker vẫn được đọc theo policy đã ghi, không sửa bytes/hash để nâng
 thành policy mới; current admission policy vẫn có thể từ chối gọi tiếp.
 
-Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev,
-follow-up và answer continuation bị lỗi chưa được nhận vào **stage recovery**.
+`product_stage_recovery_source_v3` và `product_stage_handoff_v3` mở rộng journal
+cho `planned_continuation` mới. Context khóa original job/request, exact answer
+link và inherited plan projection; không lưu bản sao receipt của cha. Source
+replay xác thực durable answer intent và pack cha, dựng lại case/context/counts
+rồi đối chiếu journal. Pipeline dùng lại các input/stage cùng protocol như
+phiên trả lời ban đầu; admission kiểm policy/Git, saved reads dùng recorded
+bytes. Lease từ queued và global attempt sequence được giữ cả qua nhiều phiên
+phục hồi lỗi. `continuation_root_budget_v1` lấy root call limit trừ inherited
+calls, không routing lại bằng seed của câu trả lời mới để cấp thêm call.
+Preview có `budget_scope: planned_continuation_remaining`, inherited/root counts
+và cận local; các attempt lỗi mới vẫn nằm trong phần còn lại đó. Handoff tự lấy
+ancestry của cả answer parent lẫn recovery parent; verifier độc lập kiểm request,
+answer link, inherited counts và journal bindings. Partial answers sau recovery
+tiếp tục mang debit chưa nằm trong logical counts đúng một lần.
+Saved intent validation dùng SQLite `mode=ro`; chỉ worker mới dispatch mới chờ
+transaction tạo intent bằng write barrier. Điều này tránh khóa lồng khi cha là
+một phiên phục hồi và child tạo recovery intent mới. Admission dành một hop cho
+child trong cận ancestry 11 của dossier; không tạo pack mà dossier không thể mở.
+
+Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev và
+follow-up bị lỗi chưa được nhận vào **stage recovery**.
 Planned phục hồi ở waiting state có thể dùng luồng trả lời
 riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts
 vượt logical completed-stage calls từ recorded recovery binding. Source service

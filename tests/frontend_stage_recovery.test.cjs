@@ -117,6 +117,38 @@ test('exhausted inherited route budget is explicit and never offers another paid
   assert.equal(a.consent(),undefined);a.language('en');assert.match(a.text(a.area),/Used 7\/7 attempts/);assert.equal(a.calls.length,1);
 });
 
+test('failed Planned answers display inherited root use and require consent for only the remaining budget',async()=>{
+  const r={...row(),mode:'planned_continuation',depth:'planned'};
+  const a=boot(async(route,body,normal)=>{const p=await normal(route,body);if(!body)Object.assign(p,{
+    budget_scope:'planned_continuation_remaining',root_max_provider_calls:9,inherited_root_provider_calls:3,max_provider_calls:6});return p;});
+  a.show(r);assert.equal(a.nodes.get('stage-recovery-panel').hidden,false);assert.equal(a.calls.length,0);
+  await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/Phiên cha đã dùng 3\/9 lượt/);
+  assert.match(a.text(a.area),/1\/6/);assert.equal(a.button('Tiếp tục phần còn thiếu').disabled,true);
+  a.language('en');assert.match(a.text(a.area),/parent has used 3\/9 attempts/);
+  a.consent().checked=true;a.consent().onchange();await a.click('Continue missing work');
+  assert.equal(a.calls[1][1].confirmation,'resume_product_stages_with_api_cost');
+});
+
+test('unbound or changed inherited budget never enables a recovery request',async()=>{
+  for(const mutate of [p=>delete p.budget_scope,p=>p.root_max_provider_calls=4,p=>p.inherited_root_provider_calls=0,
+    p=>p.inherited_root_provider_calls=3.5,p=>p.max_provider_calls=9,p=>p.budget_scope='unknown']){
+    const a=boot(async(route,body,normal)=>{const p=await normal(route,body);Object.assign(p,{
+      budget_scope:'planned_continuation_remaining',root_max_provider_calls:9,inherited_root_provider_calls:3,max_provider_calls:6});mutate(p);return p;});
+    a.show({...row(),mode:'planned_continuation',depth:'planned'});await a.click('Kiểm tra các stage để tiếp tục');
+    assert.equal(a.consent(),undefined);assert.equal(a.calls.length,1);
+  }
+});
+
+test('exhausted Planned answer recovery shows both budget scopes without another POST',async()=>{
+  const a=boot(()=>({available:false,source_job_id:id('a'),reason:'original_call_budget_exhausted',
+    budget_scope:'planned_continuation_remaining',root_max_provider_calls:9,inherited_root_provider_calls:3,
+    prior_provider_calls:6,max_provider_calls:6,automatic_retry:false,model_calls:0}));
+  a.show({...row(),mode:'stage_resume',depth:'planned',pipeline_context_sha256:hash('d'),stage_checkpoints:{}});
+  await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/Đã dùng 6\/6 lượt thử/);
+  assert.match(a.text(a.area),/Phiên cha đã dùng 3\/9 lượt/);assert.equal(a.consent(),undefined);
+  assert.equal(a.calls.length,1);
+});
+
 test('altered recovery ancestry cannot enable consent or another paid request',async()=>{
   const mutations=[p=>p.root_job_id=id('c'),p=>p.source_job_ids.reverse(),p=>p.source_job_ids=[id('a'),id('a')],
     p=>p.source_job_ids=[],p=>p.source_job_ids=[id('b'),'bad',id('a')],p=>p.source_job_ids=Array.from({length:9},(_,i)=>String(i).repeat(24))];

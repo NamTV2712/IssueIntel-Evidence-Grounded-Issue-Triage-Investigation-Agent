@@ -12,7 +12,7 @@ from .pipeline import investigate,export_pack
 from .stage_recovery import SCHEMA,StageTape,RecoveryBudgetExhausted,recorded_call_limit,policy_sha256 as core_policy
 
 
-MODES={'example','local','github'}
+MODES={'example','local','github','planned_continuation'}
 TERMINAL={'failed','cancelled','interrupted'}
 
 
@@ -28,7 +28,12 @@ def bind_original(request,context):
     from .resume import validate_product_case
     from issueintel.integrations.github import github_input
     from .finalization import _snapshot_descriptor
-    if (digest(validate_request(request))!=digest(request) or request['mode'] not in MODES
+    continuation=request.get('mode')=='planned_continuation'
+    if continuation:
+        from .planned_continuations import validate_request as validate_continuation
+        canonical=validate_continuation(request,saved=True)
+    else:canonical=validate_request(request)
+    if (digest(canonical)!=digest(request) or request['mode'] not in MODES
             or request.get('controller','rules')!='rules'):
         raise ValueError('Stage recovery requires canonical original product authority')
     case=context['case'];snapshot=context['snapshot'];options=context['options']
@@ -43,7 +48,12 @@ def bind_original(request,context):
             or set(options)!=set(expected)|{'repository_context','max_output_tokens'}
             or type(options['max_output_tokens']) is not int or not 0<options['max_output_tokens']<=65536):
         raise ValueError('Saved stage recipe differs from its original request')
-    if request['mode']=='local':
+    if continuation:
+        authority=context['continuation']
+        if authority['origin']['request']!=request or context.get('call_budget_policy')!='continuation_root_budget_v1':
+            raise ValueError('Continuation recovery authority changed')
+    elif 'continuation' in context:raise ValueError('Original recovery cannot inherit a continuation budget')
+    elif request['mode']=='local':
         expected_case={'case_id':'local:'+digest(request)[:16],'repository':request['repository'].strip(),
             'revision':request['revision'].strip(),'problem_statement':request['issue_text'],'issue_created_at':None}
         if digest(case)!=digest(expected_case):raise ValueError('Local stage query differs from its owner')
@@ -68,8 +78,8 @@ def source_binding(segments,inventory,context,policy):
     """Versioned immutable ownership projection; never copy prior stage files."""
     last=segments[-1];request=last['request'];root=segments[0]['request']
     attempts=[a for s in segments for a in s['attempts']]
-    many=len(segments)>1
-    binding={'schema':'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+    continuation=root['mode']=='planned_continuation';many=len(segments)>1 or continuation
+    binding={'schema':'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
         'source_job_id':last['job_id'],'source_request_sha256':digest(request),'context_sha256':digest(context),
         'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
         'attempts_sha256':digest(attempts),'prior_provider_calls':len(attempts),
@@ -168,6 +178,14 @@ class StageRecoveryJobs:
             if context is None:
                 if not local or local[0][0]['stage']!='execution_input':raise ValueError('Missing recovery header')
                 context=local[0][0]['payload']['context'];bind_original(root_request,context)
+                if root_request['mode']=='planned_continuation':
+                    parent,_,case,_,link=host.planned_continuations.input(root_request,original['id'],admission=admission)
+                    from .planned_waiting import _inherit,continued_context
+                    expected={'origin':{'job_id':original['id'],'request':root_request},'link':link,'inherited':_inherit(parent)}
+                    if (context['continuation']!=expected or context['case']!=case
+                            or context['snapshot']!=parent['snapshot']
+                            or context['options']['repository_context']!=continued_context(parent,case)):
+                        raise ValueError('Continuation journal differs from its source-bound answers')
             context_sha=digest(context);local_attempts=row.get('pipeline_attempts')
             if (not isinstance(local_attempts,list) or len(attempts)+len(local_attempts)>limit
                     or row.get('pipeline_context_sha256')!=context_sha
@@ -204,10 +222,25 @@ class StageRecoveryJobs:
 
     def _invoke(self,context,records,prior,*,complete,on_stage,on_attempt):
         options=deepcopy(context['options'])
+        extra={}
+        if context.get('continuation'):
+            origin=context['continuation']['origin']
+            parent,_,case,_,link=self.host.planned_continuations.input(origin['request'],origin['job_id'],admission=True)
+            if case!=context['case'] or link!=context['continuation']['link']:raise ValueError('Continuation input changed')
+            options['repository_context']=None
+            extra={'planned_parent':parent,'planned_continuation':link,'recovery_origin':origin}
         return investigate(context['case'],context['snapshot']['repository'],**options,complete_json=complete,
-            recoverable=True,recovery_records=records,prior_provider_calls=prior,on_stage=on_stage,on_recovery_attempt=on_attempt)
+            recoverable=True,recovery_records=records,prior_provider_calls=prior,on_stage=on_stage,on_recovery_attempt=on_attempt,**extra)
+
+    @staticmethod
+    def _budget_preview(context):
+        if not context.get('continuation'):return {}
+        inherited=context['continuation']['inherited']
+        return {'budget_scope':'planned_continuation_remaining','inherited_root_provider_calls':inherited['counts']['provider_calls'],
+                'root_max_provider_calls':inherited['limits']['max_provider_calls']}
 
     def admit(self,identifier):
+        self.host.dossiers._origin(identifier,max_hops=10)
         lease=self.lease(identifier)
         try:
             row,records,context,binding=self.source(identifier,admission=True,owns_execution_lease=True)
@@ -226,8 +259,9 @@ class StageRecoveryJobs:
         try:
             try:row,records,context,binding,paid,next_stage=self.admit(identifier)
             except RecoveryBudgetExhausted as error:
+                context=self.source(identifier)[2]
                 return {'available':False,'source_job_id':identifier,'reason':'original_call_budget_exhausted',
-                    'prior_provider_calls':error.used,'max_provider_calls':error.limit,'automatic_retry':False,'model_calls':0}
+                    'prior_provider_calls':error.used,'max_provider_calls':error.limit,'automatic_retry':False,'model_calls':0,**self._budget_preview(context)}
             except (ValueError,KeyError,TypeError,AttributeError,OSError,sqlite3.Error):
                 return {'available':False,'source_job_id':identifier,'reason':'no_valid_owned_recovery_journal','model_calls':0}
             return {'schema':'product_stage_recovery_preview_v1','available':True,'source_job_id':identifier,
@@ -237,7 +271,7 @@ class StageRecoveryJobs:
                 'source_job_ids':[s['job_id'] for s in binding.get('source_chain',[])] or [identifier],
                 'completed_stages':[r['stage'] for r in records],'next_stage':next_stage,
                 'prior_provider_calls':binding['prior_provider_calls'],'max_provider_calls':recorded_call_limit(context,records),
-                'requires_api':paid,'automatic_retry':False,'model_calls':0}
+                'requires_api':paid,'automatic_retry':False,'model_calls':0,**self._budget_preview(context)}
         finally:self.host.capacity.release()
 
     def _saved_intent(self,identifier,request,*,wait_for_dispatch=False):
@@ -260,8 +294,8 @@ class StageRecoveryJobs:
             raise ValueError('Saved recovery execution authority changed')
         return binding
 
-    def _intent(self,identifier,request):
-        binding=self._saved_intent(identifier,request,wait_for_dispatch=True)
+    def _intent(self,identifier,request,*,wait_for_dispatch=False):
+        binding=self._saved_intent(identifier,request,wait_for_dispatch=wait_for_dispatch)
         if self.source(request['source_job_id'])[3]!=binding:raise ValueError('Saved recovery source changed')
         return binding
 
@@ -299,7 +333,7 @@ class StageRecoveryJobs:
         try:
             lease=host._take_execution_lease(row['id']) or self.lease(row['id'],create=True)
             host._check_cancelled(row['id'])
-            request=row['request'];binding=self._intent(row['id'],request)
+            request=row['request'];binding=self._intent(row['id'],request,wait_for_dispatch=True)
             def guard():
                 self._intent(row['id'],request)
                 current=self.admit(request['source_job_id'])
@@ -378,8 +412,12 @@ class StageRecoveryJobs:
                     'recorded_provider_calls':r['recovery']['provider_calls']} for r in records]
                 or any(pack['leakage_audit'].get(k) is not False for k in
                     ('strict_issue_time_verified','gold_in_inference','snapshot_issue_time_verified','original_query_verified'))
-                or any(k in pack for k in ('followup','continued_from','resumed_from','finalized_from','context_selection','controller_decisions'))):
+                or any(k in pack for k in ('followup','resumed_from','finalized_from','context_selection','controller_decisions'))
+                or bool(context.get('continuation'))!=bool(pack.get('continued_from'))):
             raise ValueError('Recovered child differs from its owned stage source')
+        if context.get('continuation'):
+            origin=context['continuation']['origin']
+            self.host.planned_continuations.validate_child(origin['job_id'],pack,origin['request'])
         row=json.loads(self.host._job_path(identifier).read_bytes())
         attempts=row.get('pipeline_attempts',[])
         if (value.get('new_provider_calls')!=len(attempts)

@@ -115,7 +115,8 @@ def recovery_call_debit(pack):
     prior=value.get('inherited_provider_calls');new=value.get('new_provider_calls')
     if (link.get('schema')!='product_stage_resume_v1' or link.get('automatic_retry') is not False
             or value.get('schema')!='product_pipeline_recovery_v1'
-            or plan.get('inherited') is not None or pack.get('continued_from')
+            or (plan.get('inherited') is not None)!=bool(pack.get('continued_from'))
+            or plan.get('inherited') is not None and source.get('schema')!='product_stage_recovery_source_v3'
             or source.get('provider')!='groq' or source.get('depth')!='planned'
             or source.get('context_sha256')!=value.get('context_sha256')
             or source.get('core_policy_sha256')!=value.get('policy_sha256')
@@ -124,7 +125,7 @@ def recovery_call_debit(pack):
             or type(prior) is not int or type(new) is not int or min(prior,new)<0
             or value.get('max_provider_calls')!=9 or value.get('call_count_kind')!='attempt_upper_bound'
             or value.get('automatic_retry') is not False or value.get('billing_verified') is not False
-            or not plan['provider_calls']<=prior+new<=plan['limits']['max_provider_calls']):
+            or not plan['provider_calls']<=prior+new<=plan['limits']['max_provider_calls']-(plan.get('inherited') or {}).get('counts',{}).get('provider_calls',0)):
         raise ValueError('Unknown or inconsistent recovered Planned attempt budget')
     return prior+new-plan['provider_calls']
 

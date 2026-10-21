@@ -1,5 +1,6 @@
 """Local product jobs calling the shared read-only investigation pipeline."""
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
@@ -512,7 +513,7 @@ class Workbench:
             row['repository'] = request['repository']
         lease=None
         try:
-            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github'}
+            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github','planned_continuation'}
                     and request.get('controller','rules')=='rules'):
                 # Hold ownership while queued as well as while executing. The
                 # connection is transferred to exactly one callback and released
@@ -911,7 +912,7 @@ class Workbench:
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
-            if request['mode'] in {'local','github','example'} and request.get('controller','rules')=='rules':
+            if request['mode'] in {'local','github','example','planned_continuation'} and request.get('controller','rules')=='rules':
                 from .stage_jobs import job_policy_sha256
                 if recovery_lease is None:recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
                 capture_policy=job_policy_sha256()
@@ -919,9 +920,10 @@ class Workbench:
             followup = None
             context_selection = None
             if request['mode']=='planned_continuation':
-                parent,raw,case,receipt,link=self.planned_continuations.input(request,row['id'],admission=True)
+                parent,raw,case,receipt,link=self.planned_continuations.input(request,row['id'],admission=True,wait_for_dispatch=True)
                 local=Path(parent['snapshot']['repository'])
-                extra={'planned_parent':parent,'planned_continuation':link}
+                extra={'planned_parent':parent,'planned_continuation':link,
+                    'recovery_origin':{'job_id':row['id'],'request':deepcopy(request)}}
             elif request['mode']=='context':
                 from issueintel.repository.snapshot import build_snapshot
                 from .versions import compare_versions
@@ -1318,6 +1320,9 @@ class Workbench:
                 raise ValueError('Stage recovery receipt and job authority differ')
             self.stage_recoveries.validate_child(identifier,pack,saved_request)
             compare_packs(pack,pack)
+            if pack.get('continued_from'):
+                _,_,depth=self._load_pack(pack['continued_from']['parent_job_id'],seen)
+                return pack,raw,depth+1
             return pack,raw,0
         if saved_request.get('mode')=='planned_continuation' or 'continued_from' in pack:
             if saved_request.get('mode')!='planned_continuation' or not pack.get('continued_from'):

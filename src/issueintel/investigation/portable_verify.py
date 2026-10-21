@@ -122,8 +122,8 @@ def _verify_memory(pack,parent,parent_raw,identifier):
 
 def _stage_chain_binding(segments,inventory,context,policy):
     """Standalone declarative projection; no runtime service or SQLite import."""
-    checksum=lambda v:sha(encoded(v));last=segments[-1];root=segments[0]['request'];many=len(segments)>1
-    binding={'schema':'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+    checksum=lambda v:sha(encoded(v));last=segments[-1];root=segments[0]['request'];continuation=root['mode']=='planned_continuation';many=len(segments)>1 or continuation
+    binding={'schema':'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
         'source_job_id':last['job_id'],'source_request_sha256':checksum(last['request']),'context_sha256':checksum(context),
         'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
         'attempts_sha256':checksum([a for s in segments for a in s['attempts']]),
@@ -140,8 +140,10 @@ def _stage_chain_binding(segments,inventory,context,policy):
 
 def _verify_stage_chain(witness,source,runs,contents,names):
     checksum=lambda v:sha(encoded(v));segments=witness['source_chain']
+    continuation=source['schema']=='product_stage_recovery_source_v3'
     if (set(witness)!={'schema','source','source_chain','new_attempts','requires_api'}
-            or witness['schema']!='product_stage_handoff_v2' or type(segments) is not list or not 2<=len(segments)<=8
+            or witness['schema']!=('product_stage_handoff_v3' if continuation else 'product_stage_handoff_v2')
+            or type(segments) is not list or not (1 if continuation else 2)<=len(segments)<=8
             or source.get('root_job_id')!=segments[0]['job_id'] or source['source_job_id']!=segments[-1]['job_id']
             or not _hash_string(source['job_policy_sha256'])):
         raise ValueError('Changed portable recovery chain witness')
@@ -161,7 +163,9 @@ def _verify_stage_chain(witness,source,runs,contents,names):
             raise ValueError('Changed portable recovery segment owner/accounting')
         seen.add(identifier);receipt_ids.update(segment['usage']['receipts'])
         if index==0:
-            if run['mode'] not in {'example','local','github'} or run['parent_job_id'] is not None:
+            if (not continuation and (run['mode'] not in {'example','local','github'} or run['parent_job_id'] is not None)
+                    or continuation and (run['mode']!='planned_continuation' or run['parent_job_id']!=request['source_job_id']
+                        or runs[request['source_job_id']]['status']!='completed')):
                 raise ValueError('Changed portable recovery root authority')
         elif (run['mode']!='stage_resume' or run['parent_job_id']!=segments[index-1]['job_id']
                 or request!={'mode':'stage_resume','provider':source['provider'],'depth':source['depth'],
@@ -201,14 +205,14 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
         'refined_generation','verification_input','verification','planned_input','planned_complete',
         *('planned_retrieval_'+str(n) for n in range(1,4)),*('planned_generation_'+str(n) for n in range(1,4))}
     if (link!={'schema':'product_stage_resume_v1','source':source,'automatic_retry':False}
-            or not sealed(source) or source['schema'] not in {'product_stage_recovery_source_v1','product_stage_recovery_source_v2'}
+            or not sealed(source) or source['schema'] not in {'product_stage_recovery_source_v1','product_stage_recovery_source_v2','product_stage_recovery_source_v3'}
             or run['mode']!='stage_resume' or run['parent_job_id']!=parent['job_id']
             or parent['status'] not in {'failed','interrupted','cancelled'}
             or parent['request_sha256']!=source['source_request_sha256']
             or witness['source']!=source):
         raise ValueError('Changed portable stage recovery owner/source witness')
     records=[]
-    if source['schema']=='product_stage_recovery_source_v2':
+    if source['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3'}:
         request,records,old_attempts=_verify_stage_chain(witness,source,runs,contents,names)
         owner=runs[source['root_job_id']]
     else:
@@ -241,7 +245,8 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
             or pack['snapshot']['protocol']!='benchmark_base' or pack['snapshot']['cutoff'] is not None
             or any(k in case for k in ('instance_id','split')) or case['case_id'].startswith(('verified:','live:','main_dev:','main_test:'))
             or pack['leakage_audit']['strict_issue_time_verified'] is not False
-            or any(pack.get(k) is not None for k in ('resumed_from','finalized_from','continued_from','followup','context_selection','controller_decisions'))
+            or any(pack.get(k) is not None for k in ('resumed_from','finalized_from','followup','context_selection','controller_decisions'))
+            or bool(context.get('continuation'))!=bool(pack.get('continued_from'))
             or options['provider']!=source['provider'] or options['model']!=('none' if source['provider']=='none' else 'openai/gpt-oss-120b')):
         raise ValueError('Changed portable recovery case, snapshot or truth scope')
     if request['mode']=='local' and (case['case_id']!='local:'+checksum(request)[:16]
@@ -250,6 +255,15 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
     if request['mode']=='example' and (case['case_id']!='synthetic:parse-list' or case['repository']!='synthetic/example'
             or case['problem_statement']!='parser.parse_list fails on None input. Inspect how missing values are handled.'):
         raise ValueError('Changed portable example recovery query')
+    if request['mode']=='planned_continuation':
+        authority=context['continuation'];link=pack['continued_from'];receipt=link['answers_receipt']
+        expected={'mode':'planned_continuation','provider':'groq','depth':'planned','source_job_id':link['parent_job_id'],
+            'source_pack_sha256':link['parent_pack_sha256'],'workflow_plan_sha256':link['parent_plan_sha256'],
+            'waiting_sha256':link['waiting_sha256'],'policy_sha256':link['policy_sha256'],'language':receipt['language'],
+            'answers':[{k:r[k] for k in ('question_id','answer')} for r in receipt['answers']]}
+        if (source['schema']!='product_stage_recovery_source_v3' or authority['origin']!={'job_id':owner['job_id'],'request':request}
+                or request!=expected or authority['link']!=link or authority['inherited']!=pack['workflow_plan']['inherited']):
+            raise ValueError('Changed portable continuation recovery authority or inherited budget')
     limit=0 if source['provider']=='none' else 9 if source['depth']=='planned' else 6 if source['depth']=='deep' else 4
     new_attempts=witness['new_attempts'];prior=source['prior_provider_calls']
     if (type(old_attempts) is not list or type(new_attempts) is not list or type(prior) is not int or len(old_attempts)!=prior
@@ -285,7 +299,12 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
             raise ValueError('Changed portable recovery journal sequence/source')
         previous=checksum(record);last_calls=proof['provider_calls'];seen.add(record['stage'])
     effective=limit;budget_policy=context.get('call_budget_policy')
-    if budget_policy is not None:
+    if budget_policy=='continuation_root_budget_v1':
+        inherited=context['continuation']['inherited'];maximum=inherited['limits']['max_provider_calls'];used=inherited['counts']['provider_calls']
+        if (source['schema']!='product_stage_recovery_source_v3' or type(maximum) is not int or maximum not in {5,7,9}
+                or type(used) is not int or not 0<=used<=maximum):raise ValueError('Changed portable inherited recovery budget')
+        effective=min(limit,maximum-used)
+    elif budget_policy is not None:
         if budget_policy!='profile_and_seed_route_v1' or not options['planned_workflow']:
             raise ValueError('Unknown portable recovery call budget policy')
         seed=next((r for r in full if r['stage']=='seed_generation'),None)
@@ -558,10 +577,11 @@ def _verify_planned(pack,parent=None):
             # logical completed-generation calls alone would reset that debit.
             telemetry=parent['stage_recovery']
             attempts=telemetry['inherited_provider_calls']+telemetry['new_provider_calls']
-            if prior_inherited is not None or not prior['provider_calls']<=attempts<=parent_plan['limits']['max_provider_calls']:
+            inherited_calls=prior_inherited['counts']['provider_calls'] if prior_inherited else 0
+            if not prior_local['provider_calls']<=attempts<=parent_plan['limits']['max_provider_calls']-inherited_calls:
                 raise ValueError('Changed recovered Planned continuation attempt budget')
-            extra=attempts-prior['provider_calls']
-            prior['provider_calls']=attempts
+            extra=attempts-prior_local['provider_calls']
+            prior['provider_calls']+=extra
         expected={'parent_plan_sha256':parent_plan['sha256'],
                   'root_source':prior_inherited['root_source'] if prior_inherited else parent_plan['source'],
                   'routing':parent_plan['routing'],'limits':parent_plan['limits'],'counts':prior,
@@ -776,7 +796,8 @@ def verify(path, *, expected_sha256=None):
             raise ValueError('Changed parent pack binding')
         if row['mode']=='planned_continuation' and not pack.get('continued_from'):
             raise ValueError('Missing Planned continuation handoff source')
-        if pack.get('continued_from') and (row['parent_job_id']!=link['parent_job_id']
+        recovered_continuation=(row['mode']=='stage_resume' and (pack.get('recovered_from') or {}).get('source',{}).get('schema')=='product_stage_recovery_source_v3')
+        if pack.get('continued_from') and not recovered_continuation and (row['parent_job_id']!=link['parent_job_id']
                 or row['mode']!='planned_continuation'):
             raise ValueError('Changed Planned continuation handoff parent')
         recovery=pack.get('resumed_from') or pack.get('finalized_from')

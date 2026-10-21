@@ -75,10 +75,10 @@ class Dossiers:
             raise ValueError('Dossier product job authority changed')
         return value
 
-    def _origin(self,identifier,*,authenticate=False):
+    def _origin(self,identifier,*,authenticate=False,max_hops=11):
         from .workbench import validate_request
         seen=set()
-        for _ in range(11):
+        for _ in range(max_hops):
             if identifier in seen:raise ValueError('Dossier source cycle')
             seen.add(identifier)
             row=self._raw(identifier);request=row['request'];mode=request['mode']

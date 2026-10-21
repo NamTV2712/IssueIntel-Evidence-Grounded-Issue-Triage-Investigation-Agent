@@ -14,6 +14,7 @@ from issueintel.runtime.io import digest
 
 SCHEMA='product_pipeline_recovery_v1'
 BUDGET_POLICY='profile_and_seed_route_v1'
+CONTINUATION_BUDGET_POLICY='continuation_root_budget_v1'
 
 
 class RecoveryBudgetExhausted(ValueError):
@@ -28,6 +29,14 @@ def recorded_call_limit(context,records):
     profile=0 if options['provider']=='none' else 9 if options['planned_workflow'] else 6 if options['refinement_rounds'] else 4
     policy=context.get('call_budget_policy')
     if policy is None:return profile
+    if policy==CONTINUATION_BUDGET_POLICY:
+        inherited=context['continuation']['inherited']
+        maximum=inherited['limits']['max_provider_calls'];used=inherited['counts']['provider_calls']
+        if (not options['planned_workflow'] or options['provider']!='groq'
+                or type(maximum) is not int or maximum not in {5,7,9}
+                or type(used) is not int or not 0<=used<=maximum):
+            raise ValueError('Invalid inherited continuation recovery budget')
+        return min(profile,maximum-used)
     if policy!=BUDGET_POLICY or not options['planned_workflow']:raise ValueError('Unknown recovery call budget policy')
     seed=next((r for r in records if r['stage']=='seed_generation'),None)
     if seed is None or profile==0:return profile
@@ -69,7 +78,7 @@ def saved_commit(records):
 
 
 class StageTape:
-    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None):
+    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None,continuation=None):
         from .resume import validate_product_case
         validate_product_case(case,snapshot.protocol)
         if ('instance_id' in case or not callable(on_stage) or not isinstance(options['provider'],str)
@@ -83,7 +92,9 @@ class StageTape:
         descriptor['files']=[{k:v for k,v in file.to_dict().items() if k!='text'} for file in snapshot.files]
         self.context={'schema':SCHEMA,'case':deepcopy(case),'snapshot':descriptor,
             'graph_sha256':digest(graph.to_dict()),'options':deepcopy(options),'policy_sha256':policy_sha256()}
-        if options['planned_workflow']:
+        if continuation is not None:
+            self.context.update(call_budget_policy=CONTINUATION_BUDGET_POLICY,continuation=deepcopy(continuation))
+        elif options['planned_workflow']:
             self.context.update(call_budget_policy=BUDGET_POLICY,call_budget_inputs={'parse_error_count':len(graph.parse_errors)})
         self.context_sha=digest(self.context)
         self.base={'schema':'product_investigation_stage_v1','case_id':case['case_id'],

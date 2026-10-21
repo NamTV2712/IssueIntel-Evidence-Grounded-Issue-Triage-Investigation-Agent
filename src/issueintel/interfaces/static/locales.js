@@ -1,4 +1,5 @@
 window.IssueIntelMessages = {
+  "Phiên cha đã dùng {used}/{max} lượt. Giới hạn phục hồi bên dưới là phần còn lại của cùng ngân sách.":{"vi":"Phiên cha đã dùng {used}/{max} lượt. Giới hạn phục hồi bên dưới là phần còn lại của cùng ngân sách.","en":"The parent has used {used}/{max} attempts. The recovery limit below is the remainder of that same budget."},
   "Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.":{"vi":"Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.","en":"Used {used}/{max} attempts under the original bound. Recovery cannot call the model again or reset this budget."},
   "Phục hồi điều tra":{"vi":"Phục hồi điều tra","en":"Investigation recovery"},
   "Lượt gốc: {id}":{"vi":"Lượt gốc: {id}","en":"Original run: {id}"},

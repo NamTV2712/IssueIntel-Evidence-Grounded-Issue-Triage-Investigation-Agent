@@ -136,7 +136,13 @@ Planned mới giữ thêm cận 5/7/9 của routing sau seed; preview dùng cậ
 cả khi cận này nhỏ hơn profile chung 9. Đã hết cận thì không gọi thêm model.
 Nguồn thiếu attempt ledger/intent hoặc đã hết cận không được nhận. Hồ sơ và gói
 bàn giao giữ cả các tổ tiên lỗi, không chép lại stage/receipt cũ sang phiên mới.
-Luồng mới chưa nhận checkpoint legacy, Jev, follow-up hoặc answer continuation
+Phiên trả lời bổ sung Planned mới cũng có journal: nếu lỗi, preview giữ đúng
+pack cha và câu trả lời đã xác nhận. Phần đã dùng ở cha được trừ trước khi cấp
+cận phục hồi; UI hiển thị riêng số kế thừa và số lượt thử của đoạn đang phục hồi.
+Generation đã xong không chạy lại khi critic lỗi. Lỗi export sau khi đủ stage
+có thể phục hồi không API. Luồng này dùng chung Workbench, CLI và gói bàn giao;
+không chép receipt của cha hoặc cấp lại ngân sách khi đổi phiên.
+Luồng mới chưa nhận checkpoint legacy, Jev hoặc follow-up
 bị lỗi. Với Planned được phục hồi rồi
 dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
 thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không

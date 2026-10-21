@@ -71,13 +71,14 @@ class PlannedContinuations:
                 or digest(saved.get('request')) != digest(request)):
             raise ValueError('Saved Planned continuation child authority changed')
 
-    def assert_intent(self, request, identifier):
+    def assert_intent(self, request, identifier,*,wait_for_dispatch=False):
         request = validate_request(request, saved=True)
-        # The dispatch transaction is authoritative. Waiting for it also prevents
-        # a newly started worker from observing its own uncommitted intent.
-        db = self._db()
+        # Only a newly dispatched worker waits for its creating transaction.
+        # Saved validation stays read-only, including inside a recovery intent.
+        db = (self._db() if wait_for_dispatch else sqlite3.connect(
+            (self.host.directory/'planned_continuations.sqlite').as_uri()+'?mode=ro',uri=True,timeout=30))
         try:
-            db.execute('BEGIN IMMEDIATE')
+            if wait_for_dispatch:db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT request_sha,target_job FROM intents WHERE source_job=?',
                              (request['source_job_id'],)).fetchone()
             db.commit()
@@ -148,7 +149,6 @@ class PlannedContinuations:
             # recovered pack. Account all attempts, including failed originals;
             # successful logical stages alone cannot authorize further calls.
             self.host.stage_recoveries.validate_child(identifier,parent,request)
-            if 'continued_from' in parent:raise ValueError('Unexpected recovered continuation lineage')
             validate_plan(parent)
         else:
             if 'continued_from' in parent:
@@ -233,11 +233,11 @@ class PlannedContinuations:
             return {'source_job_id': identifier, 'available': False,
                     'reason': 'no_valid_product_planned_pause', 'continuation_job': None}
 
-    def input(self, request, identifier=None, *, admission=True):
+    def input(self, request, identifier=None, *, admission=True,wait_for_dispatch=False):
         from .planned_waiting import build_continuation
         request = validate_request(request, saved=True)
         if identifier is not None:
-            self.assert_intent(request, identifier)
+            self.assert_intent(request, identifier,wait_for_dispatch=wait_for_dispatch)
         parent, raw, binding, _ = self._source(request['source_job_id'], admission=admission)
         if digest(binding) != digest({key: request[key] for key in binding}):
             raise ValueError('Planned source, waiting questions or policy binding changed')
