@@ -660,7 +660,25 @@ chứng minh AST, hóa đơn, tác giả hoặc semantic truth. Browser có prev
 Việt/Anh và chặn stale selection/ack; chuyển xem phiên khác không để background
 completion ghi đè report hoặc chi phí đang xem.
 
-Mục 8 còn mở: CLI chưa bật journal mới; không tự chuyển checkpoint legacy. Jev,
+CLI `investigate --durable` dùng canonical original product request và dispatcher
+của Workbench, không sao chép pipeline/recovery logic. `resume-stages` mặc định
+preview; execution cần binding SHA cùng một trong hai cờ consent có/không API.
+Các lệnh này tạo Workbench với `automatic_sync=False`, giữ nguyên connection
+states và không khởi động scheduler/reconciliation. Preview/duplicate không đọc
+key hoặc cấu hình model. Initial remote acquisition có thể đọc `.env` để lấy
+GitHub credential; nguồn local offline không đọc. Khi cần model mới, provider
+factory mới đọc key. CLI thường giữ recipe/output cũ, không tự migrate.
+
+Lease SQLite cho original rules jobs và stage-resume jobs bắt đầu ngay khi
+enqueue; dispatcher chuyển connection cho đúng một worker. Cancel/dispatch
+failure/worker-finally giải phóng lock và queue slot. Observer ở process khác
+probe lock thực để giữ queued/running; không suy đoán worker chết chỉ vì local
+active set trống. Admission đã giữ lease dùng stopped-source check riêng để
+không nhầm lock của chính reader là worker sống sau crash. Không có lock thì
+raw queued/running có thể được trình bày interrupted; chỉ journal đủ proof mới
+được nhận. Legacy jobs chưa có lease vẫn dùng recovery contract hiện có.
+
+Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev,
 follow-up, answer continuation và recovery descendants chưa được nhận vào
 **stage recovery**. Planned phục hồi ở waiting state có thể dùng luồng trả lời
 riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts

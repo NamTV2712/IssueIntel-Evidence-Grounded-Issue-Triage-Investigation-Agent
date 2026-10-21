@@ -62,7 +62,7 @@ hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; rou
 điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
 Planned chưa hỗ trợ Main Dev hoặc follow-up; phục hồi stage lỗi của phiên gốc
 được mô tả bên dưới.
-Planned mới trên Web với rules lưu policy `bounded_planner_v3`; CLI và Jev giữ
+Planned mới trên Web hoặc CLI `--durable` với rules lưu policy `bounded_planner_v3`; CLI thường và Jev giữ
 `bounded_planner_v2`. Các policy này dùng truy xuất theo khoảng trống: mỗi hành động chỉ rõ
 giả thuyết, khoảng trống và mục tiêu support/counter/caller/documentation/history.
 Caller đi ngược cạnh call tĩnh có đích exact; tài liệu và changelog chỉ tìm trong
@@ -129,7 +129,7 @@ gửi lặp trả cùng phiên con; lỗi/hủy/restart không tự retry. Worke
 thực thi thì nguồn chưa được nhận phục hồi. Policy/source đổi có thể từ chối
 phục hồi nhưng không sửa hồ sơ đã lưu. Hồ sơ issue và gói bàn giao giữ journal,
 attempt accounting và lineage để kiểm các bytes đã gửi mà không gọi model.
-Luồng mới chưa nhận checkpoint legacy, CLI, Jev, follow-up, answer continuation
+Luồng mới chưa nhận checkpoint legacy, Jev, follow-up, answer continuation
 hoặc phục hồi tiếp một phiên con đã phục hồi. Với Planned được phục hồi rồi
 dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
 thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không
@@ -460,6 +460,31 @@ ngoại lệ theo stage. Nhãn mới vẫn automatic/unverified.
 ```
 
 `--provider none` xuất snapshot, graph, bằng chứng và báo phần còn thiếu; không giả lập nhãn LLM. `--judge` là bước đánh giá tự động theo patch/tests tham chiếu, không phải kiểm người hay xác nhận chân lý nhân quả. Báo cáo JSON/Markdown nằm trong `artifacts/investigations/`.
+
+CLI có thể dùng cùng job store/journal với Workbench bằng `--durable`:
+
+```powershell
+.\.venv\Scripts\python.exe -m issueintel investigate --durable --repo D:\path\to\repo --revision COMMIT --issue-file issue.txt
+.\.venv\Scripts\python.exe -m issueintel resume-stages --job JOB_ID
+# Sau khi xem preview, dùng đúng binding SHA và một xác nhận tương ứng:
+.\.venv\Scripts\python.exe -m issueintel resume-stages --job JOB_ID --binding-sha256 SHA --with-api
+# Hoặc --without-api khi preview không cần call mới.
+```
+
+`--durable` chỉ nhận product gốc với rules và critic, không benchmark case,
+custom output hoặc tắt critic. Quick mặc định, `--refinement-rounds 1` chọn Deep,
+`--planned` chọn rules v3; chỉ thêm `--provider groq` khi muốn gọi API. CLI thường
+vẫn giữ contract/output cũ. Durable output ở `artifacts/demo/runs/JOB_ID/`, hiện
+trong lịch sử Workbench; job ID được in ngay vào stderr, trạng thái cuối ở JSON
+stdout. Job lỗi trả exit 2 và giữ stage/receipt; không tự retry.
+
+`resume-stages` không có flags xác nhận chỉ kiểm preview, không load `.env`,
+API config/provider hoặc khởi động đồng bộ GitHub. Preview vẫn đọc Git để kiểm
+nguồn. Khi xác nhận, dùng lại đúng intent của Web; gửi lặp không tạo child/call
+mới. Phiên còn được tiến trình khác sở hữu được giữ queued/running bằng lease,
+không coi interrupted chỉ vì CLI mới không có trong active set của Web. Lease
+được giữ từ enqueue tới khi worker kết thúc, kể cả hủy; sau process crash, lock
+được OS thả và nguồn đủ journal mới có thể được nhận phục hồi.
 
 ## Benchmark và dữ liệu
 

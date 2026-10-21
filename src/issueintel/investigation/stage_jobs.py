@@ -61,6 +61,9 @@ def bind_original(request,context):
 class NeedCall(Exception):pass
 
 
+class ExecutionOwned(ValueError):pass
+
+
 class StageRecoveryJobs:
     def __init__(self,host):self.host=host
 
@@ -69,13 +72,23 @@ class StageRecoveryJobs:
         path=self.host.directory/'runs'/identifier/'execution-lease.sqlite'
         if create:path.parent.mkdir(parents=True,exist_ok=True)
         elif not path.is_file():raise ValueError('Missing durable execution lease')
-        db=sqlite3.connect(path.as_uri()+('?mode=rwc' if create else '?mode=rw'),uri=True,timeout=0)
+        db=sqlite3.connect(path.as_uri()+('?mode=rwc' if create else '?mode=rw'),uri=True,timeout=0,check_same_thread=False)
         try:
             if create:db.execute('CREATE TABLE IF NOT EXISTS owner (id INTEGER)')
             db.execute('BEGIN IMMEDIATE')
-        except sqlite3.Error:
-            db.close();raise ValueError('Source execution is still owned by another worker') from None
+        except sqlite3.Error as error:
+            db.close()
+            if getattr(error,'sqlite_errorcode',0)&255 in {sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED}:
+                raise ExecutionOwned('Source execution is still owned by another worker') from None
+            raise ValueError('Cannot determine durable execution ownership') from None
         return db
+
+    def externally_owned(self,identifier):
+        self.host._job_path(identifier)
+        if not (self.host.directory/'runs'/identifier/'execution-lease.sqlite').is_file():return False
+        try:lease=self.lease(identifier)
+        except ExecutionOwned:return True
+        lease.close();return False
 
     def _db(self):
         db=sqlite3.connect(self.host.directory/'stage_recovery.sqlite',timeout=30)
@@ -87,11 +100,16 @@ class StageRecoveryJobs:
         return dict(self.host.job(identifier),stage_recovery_source={
             'source_job_id':request['source_job_id'],'binding_sha256':request['binding_sha256']})
 
-    def source(self,identifier,*,admission=False):
+    def source(self,identifier,*,admission=False,owns_execution_lease=False):
         host=self.host;row=json.loads(host._job_path(identifier).read_bytes());request=row.get('request')
+        # Admission already holds the lease. Do not probe that same lock and
+        # mistake our own reader for a live source worker after a crash.
+        if owns_execution_lease:
+            stopped=row.get('status') in TERMINAL or row.get('status') in {'queued','running'} and identifier not in host.active
+        else:stopped=host.job(identifier)['status'] in TERMINAL
         if (row.get('id')!=identifier or not isinstance(request,dict) or request.get('mode') not in MODES
                 or any(row.get(k)!=request.get(k) for k in ('mode','provider','depth'))
-                or host.job(identifier)['status'] not in TERMINAL or request.get('controller','rules')!='rules'
+                or not stopped or request.get('controller','rules')!='rules'
                 or not re.fullmatch('[a-f0-9]{64}',row.get('recovery_job_policy_sha256',''))):
             raise ValueError('No owned stopped product journal is available')
         refs=row.get('stage_checkpoints') or {}
@@ -152,7 +170,7 @@ class StageRecoveryJobs:
     def admit(self,identifier):
         lease=self.lease(identifier)
         try:
-            row,records,context,binding=self.source(identifier,admission=True)
+            row,records,context,binding=self.source(identifier,admission=True,owns_execution_lease=True)
             pending=[]
             def attempt(value):pending.append(value['stage']);raise NeedCall()
             def never(*a,**k):raise AssertionError('Preview must not invoke a provider')
@@ -228,7 +246,8 @@ class StageRecoveryJobs:
     def _run(self,row):
         host=self.host;lease=None
         try:
-            host._check_cancelled(row['id']);lease=self.lease(row['id'],create=True)
+            lease=host._take_execution_lease(row['id']) or self.lease(row['id'],create=True)
+            host._check_cancelled(row['id'])
             request=row['request'];binding=self._intent(row['id'],request)
             def guard():
                 self._intent(row['id'],request)

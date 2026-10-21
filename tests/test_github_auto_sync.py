@@ -1,4 +1,5 @@
 """Automatic connection/webhook tests are synthetic, local and provider-free."""
+from copy import deepcopy
 from hashlib import sha256
 import hmac
 import json
@@ -169,6 +170,19 @@ def test_restart_resumes_pending_connection_and_no_network_for_idle_server(autom
     GitHubSync(index.root).connect(REPO)
     wb=Workbench(index.root)
     try:assert wait_ready(wb)['phase']=='ready'
+    finally:wb.close()
+
+
+def test_cli_style_workbench_does_not_reconcile_or_schedule_connected_repositories(automatic):
+    index,reader=automatic;sync=GitHubSync(index.root)
+    sync.connect(REPO);sync.batch(REPO)
+    before=deepcopy(sync.connection(REPO));reader.calls.clear()
+    assert before['phase']=='ready'
+    wb=Workbench(index.root,automatic_sync=False)
+    try:
+        assert wb.sync_thread is None and sync.connection(REPO)==before
+        assert not wb.stage_recoveries.preview('a'*24)['available']
+        assert reader.calls==[] and wb.repository_history()==[]
     finally:wb.close()
 
 

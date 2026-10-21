@@ -575,8 +575,27 @@ toàn bộ **253 test frontend** đạt. Standalone handoff kiểm riêng việc
 inherited attempt debit rồi reseal mọi wrapper vẫn bị từ chối. Browser tổng hợp
 đã giữ nháp khi đổi Việt/Anh, yêu cầu consent và chạy từ 2/7 attempts (còn 5)
 đến continuation hoàn tất với 4/7 toàn chuỗi, không có provider thật.
+[CI toàn bộ của mốc `98b2c9f` đã thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39522837044).
 
-Mục 8 vẫn chưa nghiệm thu toàn bộ: CLI chưa bật journal mới; custom/Jev,
+Mốc CLI thêm `investigate --durable` để original product dùng cùng owned job
+store/journal với Web, có thể chọn Quick/Deep/rules Planned v3. `resume-stages
+--job ID` mặc định preview; binding SHA cùng `--with-api`/`--without-api` mới tạo
+child. Một intent được dùng chung qua CLI/Web, kể cả duplicate sau restart;
+CLI không tự retry. Không hỗ trợ benchmark, custom output hoặc bỏ critic trong
+durable mode; legacy CLI giữ contract cũ. Preview/duplicate không đọc `.env`,
+model config/provider và không chạy scheduler hoặc reconciliation GitHub.
+Lease được giữ ngay khi queued, chuyển cho worker và thả khi cancel/dispatch
+failure/complete; observer khác process giữ đúng queued/running khi lock còn
+được sở hữu. Crash có lock được OS thả không bị nhầm với reader của admission.
+Bộ hồi quy rộng đạt **461 test backend**; bộ CLI cuối đạt **16 test**, gồm
+Quick/Deep/Planned offline, exact consent, duplicate sau restart, live/queued
+ownership, cancel/dispatch cleanup và initial GitHub credential loading. Test
+auto-sync xác nhận observer CLI không đổi connection hoặc gọi GitHub ngầm.
+Smoke bằng tiến trình CLI thật trên repo tổng hợp phục hồi một lỗi export với
+preview 0 model calls, 0 reservation mới và gửi lặp trả cùng child. Không có
+provider thật, Holdout/Live hoặc evaluation.
+
+Mục 8 vẫn chưa nghiệm thu toàn bộ: custom/Jev,
 follow-up, phục hồi lỗi của chính answer continuation và recovery descendants
 còn thiếu. Luồng trả lời đã có thể nhận recovered waiting parent; điều này không
 cấp quyền resume tùy ý những phiên con đó hoặc bỏ cổng chi tiêu/evaluation.
@@ -599,7 +618,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
-| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core và original Workbench có owned journal/attempts/lease, explicit API/UI, source/policy guards, lineage/handoff; tương thích verifier/export cũ. Trả lời sau recovered waiting giữ failed attempt debit qua nhiều phiên; 432 backend/253 frontend và GUI tổng hợp đã kiểm. Còn CLI, phục hồi lỗi của descendants/Jev/follow-up/answer continuations và nghiệm thu toàn mục |
+| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core, original Workbench và opt-in durable CLI có journal/attempts/queued-worker lease, explicit consent, source/policy guards và lineage/handoff; tương thích verifier/export cũ. Trả lời sau recovered waiting giữ failed attempt debit qua nhiều phiên. Còn phục hồi lỗi của descendants/Jev/follow-up/answer continuations và nghiệm thu toàn mục |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
 | D10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
 | D11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |

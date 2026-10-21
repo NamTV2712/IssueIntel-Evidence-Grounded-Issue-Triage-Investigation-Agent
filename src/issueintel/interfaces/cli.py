@@ -115,6 +115,7 @@ def main(argv=None) -> int:
     investigate.add_argument("--issue-file", type=Path)
     investigate.add_argument("--case-id", help="main_dev case only")
     investigate.add_argument("--provider", choices=("none", "groq"), default="none")
+    investigate.add_argument('--durable',action='store_true',help='Use owned Workbench product jobs/journals and receipts; no automatic retry')
     investigate.add_argument("--controller", choices=("rules","jev"), default="rules",
         help="Jev is opt-in for --planned with Groq; requires separate Typesafe configuration and limits")
     investigate.add_argument("--output", type=Path, default=Path("artifacts/investigations"))
@@ -123,6 +124,12 @@ def main(argv=None) -> int:
         help="Product-only planned workflow: 1–3 search rounds, at most four generation passes and one critic; generation repair slots remain bounded")
     investigate.add_argument("--refinement-rounds", type=int, choices=(0,1), default=0,
                              help="At most one hypothesis-focused retrieval round; may add a generation call")
+    recovery=commands.add_parser('resume-stages',help='Preview owned product stage recovery; execution requires the exact binding SHA and explicit consent')
+    recovery.add_argument('--job',required=True)
+    recovery.add_argument('--binding-sha256')
+    consent=recovery.add_mutually_exclusive_group()
+    consent.add_argument('--with-api',action='store_true',help='Approve the preview-bound remaining API calls and their costs')
+    consent.add_argument('--without-api',action='store_true',help='Approve only the preview-bound completion without new API calls')
     batch = commands.add_parser("annotate", help="Resumable dev annotation, budget guarded")
     batch.add_argument("--limit", type=int, default=1)
     batch.add_argument("--case-id")
@@ -156,6 +163,13 @@ def main(argv=None) -> int:
     if args.command=='verify-handoff':
         from issueintel.investigation.portable_verify import main as verify_handoff
         return verify_handoff([str(args.archive)]+(['--expected-sha256',args.expected_sha256] if args.expected_sha256 else []))
+    if args.command=='resume-stages' or args.command=='investigate' and args.durable:
+        try:
+            result=_owned_product(args)
+            print(json.dumps(result,ensure_ascii=True,indent=2))
+            return 2 if result.get('status') in {'failed','cancelled','interrupted'} else 0
+        except (ValueError,RuntimeError,OSError) as error:
+            print(f'IssueIntel: {error}',file=sys.stderr);return 2
     if args.command.startswith('memory-'):
         try:
             print(json.dumps(_memory(args),ensure_ascii=True,indent=2))
@@ -309,6 +323,52 @@ def main(argv=None) -> int:
     except (ValueError, RuntimeError, OSError, PermissionError) as error:
         print(f"IssueIntel: {error}", file=sys.stderr)
         return 2
+
+
+def _product_workbench(root):
+    from issueintel.investigation.workbench import Workbench
+    from issueintel.investigation.providers import GroqProvider
+    def provider(config,**options):
+        # Read credentials only when a worker actually needs a new paid call.
+        # Preview and duplicate-intent reads never enter this factory.
+        load_local_env(root/'.env')
+        return GroqProvider(config,**options)
+    return Workbench(root,provider_factory=provider,automatic_sync=False)
+
+
+def _owned_product(args):
+    if args.command=='resume-stages':
+        execute=args.with_api or args.without_api
+        if bool(args.binding_sha256)!=execute:
+            raise ValueError('Preview without flags, or choose --binding-sha256 and exactly one of --with-api/--without-api')
+        request=({'binding_sha256':args.binding_sha256,'confirmation':
+            'resume_product_stages_with_api_cost' if args.with_api else 'resume_product_stages_without_api'} if execute else None)
+    else:
+        if (args.case_id or args.no_critic or args.controller!='rules' or not args.revision
+                or args.planned and args.refinement_rounds or args.output!=Path('artifacts/investigations')):
+            raise ValueError('--durable requires original product input/revision, rules and critic; no benchmark case, custom output or combined Planned/refinement')
+        request={'mode':'local' if args.issue_file else 'github','provider':args.provider,
+            'revision':args.revision,'depth':'planned' if args.planned else 'deep' if args.refinement_rounds else 'quick'}
+        if args.issue_file:request.update(repository=args.repo,issue_text=args.issue_file.read_text(encoding='utf-8'))
+        else:request['issue_url']=args.repo
+        from issueintel.investigation.workbench import validate_request
+        request=validate_request(request)
+        if request['mode']=='github' or not Path(request['repository']).is_dir():
+            # Explicit initial remote acquisition may need the local GitHub
+            # credential; a recovery preview/duplicate never enters this path.
+            load_local_env(args.root/'.env')
+    wb=_product_workbench(args.root);job=None
+    try:
+        if args.command=='resume-stages' and request is None:return wb.stage_recoveries.preview(args.job)
+        job=wb.stage_recoveries.submit(args.job,request) if args.command=='resume-stages' else wb.submit(request)
+        print(json.dumps({'job_id':job['id'],'automatic_retry':False}),file=sys.stderr,flush=True)
+    except KeyboardInterrupt:
+        if job is not None:wb.cancel(job['id'])
+        raise
+    finally:wb.close()
+    # close() joins only this process's executor. An existing intent owned by
+    # another live worker returns its current status; it is never resubmitted.
+    return wb.job(job['id'])
 
 
 def _memory(args):

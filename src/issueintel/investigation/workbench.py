@@ -123,7 +123,8 @@ def validate_request(request):
 
 
 class Workbench:
-    def __init__(self, root, *, provider_factory=GroqProvider, typesafe_factory=None):
+    def __init__(self, root, *, provider_factory=GroqProvider, typesafe_factory=None, automatic_sync=True):
+        if type(automatic_sync) is not bool:raise ValueError('Choose an explicit automatic sync policy')
         self.root = Path(root).resolve()
         self.directory = self.root/'artifacts/demo'
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -160,19 +161,22 @@ class Workbench:
         self.lock = threading.RLock()
         self.pack_reads = threading.local()
         self.active = set()
+        self.execution_leases = {}
         self.cancelled = set()
         self.plans = PlanStore(self.directory/'plans.sqlite')
         from .check_journal import CheckJournalStore
         self.check_journals = CheckJournalStore(self.directory/'plans.sqlite')
         from issueintel.integrations.github_sync import GitHubSync
         self.github_sync = GitHubSync(self.root)
-        # Reconcile changes that might have occurred while the local server was off.
-        for connection in self.github_sync.connections():
-            if not connection['paused'] and connection['phase']=='ready':
-                self.github_sync.change(connection['repository'], phase='initial', initial_started=False)
         self.sync_stop = threading.Event()
-        self.sync_thread = threading.Thread(target=self._auto_sync_loop, name='issueintel-sync-scheduler', daemon=True)
-        self.sync_thread.start()
+        self.sync_thread = None
+        if automatic_sync:
+            # Reconcile changes that might have occurred while the local server was off.
+            for connection in self.github_sync.connections():
+                if not connection['paused'] and connection['phase']=='ready':
+                    self.github_sync.change(connection['repository'], phase='initial', initial_started=False)
+            self.sync_thread = threading.Thread(target=self._auto_sync_loop, name='issueintel-sync-scheduler', daemon=True)
+            self.sync_thread.start()
 
     def _auto_sync_loop(self):
         while not self.sync_stop.is_set():
@@ -251,7 +255,8 @@ class Workbench:
     def job(self, identifier):
         with self.lock:
             row = json.loads(self._job_path(identifier).read_bytes())
-            if row['status'] in {'queued', 'running'} and identifier not in self.active:
+            if (row['status'] in {'queued', 'running'} and identifier not in self.active
+                    and not self.stage_recoveries.externally_owned(identifier)):
                 row = dict(row, status='interrupted', stage='interrupted',
                            error='Interrupted before completion; no automatic model retry.')
             from .usage import job_usage
@@ -505,17 +510,30 @@ class Workbench:
             row['typesafe_decisions']=[]
         if request['mode'] == 'repository':
             row['repository'] = request['repository']
-        with self.lock:
-            write_json(self._job_path(identifier), row)
-            self.active.add(identifier)
+        lease=None
         try:
+            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github'}
+                    and request.get('controller','rules')=='rules'):
+                # Hold ownership while queued as well as while executing. The
+                # connection is transferred to exactly one callback and released
+                # on cancellation/dispatch failure; it never leaves this process.
+                lease=self.stage_recoveries.lease(identifier,create=True)
+            with self.lock:
+                write_json(self._job_path(identifier), row)
+                self.active.add(identifier)
+                if lease is not None:self.execution_leases[identifier]=lease
             self.executor.submit(callback, row)
         except BaseException:
             with self.lock:
                 self.active.discard(identifier)
+                self.execution_leases.pop(identifier,None)
+            if lease is not None:lease.close()
             self.capacity.release()
             raise
         return self.job(identifier)
+
+    def _take_execution_lease(self,identifier):
+        with self.lock:return self.execution_leases.pop(identifier,None)
 
     def repository_history(self):
         return self._history_mode(True, 20)
@@ -889,12 +907,13 @@ class Workbench:
     def _run(self, row):
         recovery_lease=None;capture_policy=None
         try:
+            recovery_lease=self._take_execution_lease(row['id'])
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
             if request['mode'] in {'local','github','example'} and request.get('controller','rules')=='rules':
                 from .stage_jobs import job_policy_sha256
-                recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
+                if recovery_lease is None:recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
                 capture_policy=job_policy_sha256()
             extra = {}
             followup = None
@@ -1584,5 +1603,5 @@ class Workbench:
 
     def close(self):
         self.sync_stop.set()
-        self.sync_thread.join(5)
+        if self.sync_thread is not None:self.sync_thread.join(5)
         self.executor.shutdown(wait=True)
