@@ -70,7 +70,7 @@ test('following a zero-call child describes checkpoint finalization throughout q
   for(const language of ['vi','en']){
     const controls=new Map(),logs=[],calls=[],opened=[],cleared=[],states=[{status:'queued',stage:'prepare_snapshot'},{status:'running',stage:'export'},{status:'completed'}];
     const get=id=>{if(!controls.has(id))controls.set(id,{disabled:false,hidden:false});return controls.get(id);};
-    const context={window:{IssueIntelFinalization:{show:value=>cleared.push(value)}},$:get,
+    const context={viewGeneration:0,window:{IssueIntelFinalization:{show:value=>cleared.push(value)}},$:get,
       t:key=>{assert.ok(messages[key]?.[language],key);return messages[key][language];},message:text=>logs.push(text),
       api:async(route,body)=>{calls.push([route,body]);return states.shift();},showUsage(){},showStageArtifacts(){throw Error('Unexpected failure');},
       openJob:async id=>opened.push(id),history:async()=>{},setTimeout:fn=>fn(),stageView:null,activeJob:null};

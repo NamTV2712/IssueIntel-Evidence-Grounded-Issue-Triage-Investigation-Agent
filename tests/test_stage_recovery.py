@@ -29,6 +29,7 @@ class Journal:
 
 def run(fixture,model,journal,*,records=None,prior=None,**options):
     case,path=fixture
+    if records is not None:records=json.loads(json.dumps(records))
     return investigate(case,path,complete_json=model,provider='groq',model='openai/gpt-oss-120b',top_k=1,
         on_stage=journal,recoverable=True,recovery_records=records,prior_provider_calls=prior,**options)
 

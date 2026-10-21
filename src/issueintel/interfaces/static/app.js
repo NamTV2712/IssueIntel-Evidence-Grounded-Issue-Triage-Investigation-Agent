@@ -90,18 +90,22 @@ async function submit(event) {
 async function runJob(request,existingJob=null) {
   window.IssueIntelClaimReview?.cancel();
   if($('run-button').disabled)return;
+  window.IssueIntelStageRecovery?.show(null);
   window.IssueIntelFinalization?.show(null);
   window.IssueIntelDossier?.cancel();
-  const finalizing=request.mode==='finalization';
+  const finalizing=request.mode==='finalization',originView=viewGeneration;
   try {
     stageView=null;$('stage-artifacts').hidden=true;
     $('run-button').disabled=true;$('followup-button').disabled=true;message(t(finalizing?'Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…':"Đang chuẩn bị snapshot và bằng chứng…"));
     const job=existingJob||await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
       const state=await api('/api/jobs/'+job.id);
-      showUsage(state);
+      const following=viewGeneration===originView;
+      if(following)showUsage(state);
       if(['completed','failed','cancelled','interrupted'].includes(state.status)) {
-        if(state.status==='completed') {
+        if(!following){
+          message(t('Phiên {id} đã kết thúc; mở lại trong lịch sử để xem trạng thái và kết quả.',{id:job.id}));
+        }else if(state.status==='completed') {
           await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));
           if(request.mode==='followup' && $('additional-context').value===request.additional_context)$('additional-context').value='';
         }
@@ -124,6 +128,7 @@ async function openJob(id) {
   const loaded=await api('/api/jobs/'+id+'/pack.json');
   const [inspected,plan,cost,report,review,journal]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json'),readHypothesisReview(id),readCheckJournal(id)]);
   if(generation!==viewGeneration)return;
+  if(!activeJob)message(t('Đang xem phiên: {id}',{id}));
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   reportView=report.status==='fulfilled'?report.value:null;
   hypothesisReview=review.status==='fulfilled'?review.value:null;
@@ -171,6 +176,7 @@ function recommendedText(text) {
 }
 function showStageArtifacts(row) {
   stageView=row;
+  window.IssueIntelStageRecovery?.show(row);
   window.IssueIntelResume?.show(row);
   window.IssueIntelFinalization?.show(row);
   const refs=row.stage_checkpoints || {},container=$('stage-list');container.replaceChildren();
@@ -535,6 +541,9 @@ $('export-json').onclick=()=>download('pack.json');
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{activeTab=button.dataset.tab;renderTab();});
 document.addEventListener('issueintel:resumecreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'resume'},{id:event.detail.job_id});
+});
+document.addEventListener('issueintel:stagerecoverycreated',event=>{
+  if(/^[a-f0-9]{24}$/.test(event.detail?.job_id))runJob({mode:'stage_resume'},{id:event.detail.job_id});
 });
 document.addEventListener('issueintel:finalizationcreated',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail.job_id))runJob({mode:'finalization'},{id:event.detail.job_id});

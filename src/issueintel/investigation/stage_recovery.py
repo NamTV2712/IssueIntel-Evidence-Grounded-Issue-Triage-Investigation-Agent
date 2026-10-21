@@ -114,7 +114,7 @@ class StageTape:
         inputs=payload if inputs is None else inputs
         cached=self._cached(stage,inputs)
         if cached is not None:
-            if cached!=payload:raise ValueError('Recovered deterministic stage differs from its source')
+            if digest(cached)!=digest(payload):raise ValueError('Recovered deterministic stage differs from its source')
             return
         record=dict(self.base,stage=stage,payload=deepcopy(payload),recovery={
             'schema':SCHEMA,'context_sha256':self.context_sha,'index':len(self.completed),

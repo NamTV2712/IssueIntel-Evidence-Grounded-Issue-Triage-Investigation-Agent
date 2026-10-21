@@ -120,6 +120,100 @@ def _verify_memory(pack,parent,parent_raw,identifier):
         raise ValueError('Changed portable memory query or child binding')
 
 
+def _verify_stage_recovery(identifier,pack,runs,contents):
+    """Recorded journal/attempt consistency only; no Git, AST or provider replay."""
+    link=pack['recovered_from'];source=link['source'];run=runs[identifier]
+    witness=parsed(contents.get('runs/'+identifier+'/stage-recovery.json',b'{}'))
+    parent=runs[source['source_job_id']]
+    checksum=lambda value:sha(encoded(value))
+    if (link!={'schema':'product_stage_resume_v1','source':source,'automatic_retry':False}
+            or not sealed(source) or source['schema']!='product_stage_recovery_source_v1'
+            or run['mode']!='stage_resume' or run['parent_job_id']!=parent['job_id']
+            or parent['mode'] not in {'example','local','github'} or parent['parent_job_id'] is not None
+            or parent['status'] not in {'failed','interrupted','cancelled'}
+            or parent['request_sha256']!=source['source_request_sha256']
+            or witness.get('schema')!='product_stage_handoff_v1' or witness['source']!=source
+            or checksum(witness['source_request'])!=source['source_request_sha256']
+            or checksum(witness['source_attempts'])!=source['attempts_sha256']
+            or checksum(witness['source_usage'])!=source['usage_sha256']):
+        raise ValueError('Changed portable stage recovery owner/source witness')
+    request=witness['source_request']
+    if (any(request[k]!=parent[k] or request[k]!=source[k] for k in ('provider','depth'))
+            or request['mode']!=parent['mode'] or request.get('controller','rules')!='rules'
+            or source['provider'] not in {'none','groq'} or source['depth'] not in {'quick','deep','planned'}):
+        raise ValueError('Changed portable recovery product profile')
+    child_request={'mode':'stage_resume','provider':source['provider'],'depth':source['depth'],
+        'source_job_id':parent['job_id'],'binding_sha256':source['sha256'],'requires_api':witness['requires_api']}
+    if checksum(child_request)!=run['request_sha256'] or type(witness['requires_api']) is not bool:
+        raise ValueError('Changed portable recovery execution intent binding')
+    names={'execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval',
+        'refined_generation','verification_input','verification','planned_input','planned_complete',
+        *('planned_retrieval_'+str(n) for n in range(1,4)),*('planned_generation_'+str(n) for n in range(1,4))}
+    inventory=source['stages'];records=[]
+    if type(inventory) is not list or not 1<=len(inventory)<=18:raise ValueError('Invalid portable recovery prefix')
+    for ref in inventory:
+        if set(ref)!={'stage','sha256'} or ref['stage'] not in names:raise ValueError('Invalid portable source stage')
+        raw=contents.get('runs/'+parent['job_id']+'/stages/'+ref['stage']+'.json',b'')
+        if sha(raw)!=ref['sha256']:raise ValueError('Missing or changed source recovery stage bytes')
+        records.append(parsed(raw))
+    context=records[0]['payload']['context'];options=context['options'];case=context['case']
+    if (records[0]['stage']!='execution_input' or checksum(context)!=source['context_sha256']
+            or context['schema']!='product_pipeline_recovery_v1' or context['policy_sha256']!=source['core_policy_sha256']
+            or pack['case']!=case or pack['snapshot']!=context['snapshot']
+            or pack['snapshot']['protocol']!='benchmark_base' or pack['snapshot']['cutoff'] is not None
+            or any(k in case for k in ('instance_id','split')) or case['case_id'].startswith(('verified:','live:','main_dev:','main_test:'))
+            or pack['leakage_audit']['strict_issue_time_verified'] is not False
+            or any(pack.get(k) is not None for k in ('resumed_from','finalized_from','continued_from','followup','context_selection','controller_decisions'))
+            or options['provider']!=source['provider'] or options['model']!=('none' if source['provider']=='none' else 'openai/gpt-oss-120b')):
+        raise ValueError('Changed portable recovery case, snapshot or truth scope')
+    if request['mode']=='local' and (case['case_id']!='local:'+checksum(request)[:16]
+            or case['problem_statement']!=request['issue_text'] or case['repository']!=request['repository'].strip()
+            or case['revision']!=request['revision'].strip()):raise ValueError('Changed portable local recovery query')
+    if request['mode']=='example' and (case['case_id']!='synthetic:parse-list' or case['repository']!='synthetic/example'
+            or case['problem_statement']!='parser.parse_list fails on None input. Inspect how missing values are handled.'):
+        raise ValueError('Changed portable example recovery query')
+    limit=0 if source['provider']=='none' else 9 if source['depth']=='planned' else 6 if source['depth']=='deep' else 4
+    old_attempts=witness['source_attempts'];new_attempts=witness['new_attempts'];prior=source['prior_provider_calls']
+    if type(old_attempts) is not list or type(new_attempts) is not list or type(prior) is not int or len(old_attempts)!=prior:
+        raise ValueError('Changed portable recovery attempt inventory')
+    for n,attempt in enumerate(old_attempts+new_attempts,1):
+        if (attempt['provider_calls']!=n or attempt['context_sha256']!=source['context_sha256']
+                or attempt['max_provider_calls']!=limit):raise ValueError('Changed portable recovery attempt sequence')
+    telemetry=pack['stage_recovery']
+    if (telemetry['schema']!='product_pipeline_recovery_v1' or telemetry['context_sha256']!=source['context_sha256']
+            or telemetry['policy_sha256']!=source['core_policy_sha256'] or telemetry['inherited_provider_calls']!=prior
+            or telemetry['new_provider_calls']!=len(new_attempts) or telemetry['max_provider_calls']!=limit
+            or prior+len(new_attempts)>limit or telemetry['automatic_retry'] is not False or telemetry['billing_verified'] is not False
+            or telemetry['call_count_kind']!='attempt_upper_bound' or telemetry['reused_stages']!=[
+                {'stage':r['stage'],'record_canonical_sha256':checksum(r),'recorded_provider_calls':r['recovery']['provider_calls']} for r in records]):
+        raise ValueError('Changed portable recovery reused stages/call bounds')
+    tail=[]
+    for stage,ref in pack.get('stage_checkpoints',{}).items():
+        if stage not in names:raise ValueError('Unknown portable recovered stage')
+        raw=contents.get('runs/'+identifier+'/stages/'+stage+'.json',b'')
+        if sha(raw)!=ref['sha256']:raise ValueError('Missing or changed recovered stage bytes')
+        tail.append(parsed(raw))
+    tail.sort(key=lambda r:r['recovery']['index']);full=records+tail;previous=None;last_calls=0;seen=set()
+    if len(full)>18:raise ValueError('Portable recovery journal exceeds the stage bound')
+    for index,record in enumerate(full):
+        proof=record['recovery']
+        if (record['stage'] not in names or record['stage'] in seen or proof['index']!=index
+                or proof['context_sha256']!=source['context_sha256'] or proof['previous_record_canonical_sha256']!=previous
+                or record['case_id']!=case['case_id'] or record['query_sha256']!=sha(case['problem_statement'].encode())
+                or record['snapshot_sha256']!=source['snapshot_sha256'] or record['commit_sha']!=source['commit_sha']
+                or record['automatic_retry'] is not False or record['evaluation_performed'] is not False
+                or not last_calls<=proof['provider_calls']<=(prior if index<len(records) else prior+len(new_attempts))):
+            raise ValueError('Changed portable recovery journal sequence/source')
+        previous=checksum(record);last_calls=proof['provider_calls'];seen.add(record['stage'])
+    generated=[r for r in full if r['stage'] in {'seed_generation','refined_generation','planned_generation_1','planned_generation_2','planned_generation_3'}]
+    if generated and (pack['annotation']!=generated[-1]['payload']['annotation'] or generated[-1]['recovery']['input_sha256']!=
+            checksum({'case_sha256':checksum(case),'evidence_sha256':checksum(pack['evidence'])})):
+        raise ValueError('Changed portable recovered generation inputs/output')
+    verified=[r for r in full if r['stage']=='verification']
+    if verified and pack['verification']!=verified[-1]['payload']['verification']:
+        raise ValueError('Changed portable recovered verifier output')
+
+
 # Versioned, declarative intake contract copied here deliberately: this file is
 # also run outside an IssueIntel installation, against inert archive bytes.
 _FIELDS = {
@@ -591,7 +685,7 @@ def verify(path, *, expected_sha256=None):
         pack=packs[identifier];plan=pack.get('workflow_plan') or {}
         if plan.get('schema')=='planned_investigation_v3' or pack.get('continued_from'):
             link=pack.get('continued_from');parent=None
-            if not link and runs[identifier]['parent_job_id'] is not None:
+            if not link and runs[identifier]['parent_job_id'] is not None and runs[identifier]['mode']!='stage_resume':
                 raise ValueError('Changed original Planned handoff ancestry')
             if link:
                 parent_id=link['parent_job_id']
@@ -605,6 +699,13 @@ def verify(path, *, expected_sha256=None):
                 raise ValueError('Invalid portable Planned structure') from None
         checked.add(identifier)
     for identifier in packs:planned(identifier)
+    for identifier,pack in packs.items():
+        if runs[identifier]['mode']=='stage_resume' or pack.get('recovered_from'):
+            if runs[identifier]['mode']!='stage_resume' or not pack.get('recovered_from'):
+                raise ValueError('Missing portable stage recovery authority')
+            try:_verify_stage_recovery(identifier,pack,runs,contents)
+            except (KeyError,TypeError,AttributeError,IndexError):
+                raise ValueError('Invalid portable stage recovery structure') from None
     for identifier,pack in packs.items():
         link=pack.get('followup') or {};memory=link.get('memory_selection')
         if runs[identifier]['mode']=='memory_followup' and not memory:

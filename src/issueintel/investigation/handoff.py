@@ -113,6 +113,23 @@ class Handoffs:
                 if child['parent_job_id']!=job_id or child['report'] is None:continue
                 pack=json.loads(files['runs/'+child['job_id']+'/pack.json']) if 'runs/'+child['job_id']+'/pack.json' in files else json.loads(self.host._load_pack(child['job_id'])[1])
                 recovery=pack.get('resumed_from') or pack.get('finalized_from')
+                if pack.get('recovered_from'):
+                    stage_source=pack['recovered_from']['source']
+                    original,_,_,binding=self.host.stage_recoveries.source(job_id)
+                    if stage_source!=binding:raise ValueError('Stage recovery handoff source changed')
+                    child_row=json.loads(self.host._job_path(child['job_id']).read_bytes())
+                    witness={'schema':'product_stage_handoff_v1','source':binding,'source_request':original['request'],
+                        'source_attempts':original['pipeline_attempts'],'new_attempts':child_row['pipeline_attempts'],
+                        'source_usage':{'tracking':original.get('usage_tracking'),'receipts':original.get('usage_receipts',{})},
+                        'requires_api':child_row['request']['requires_api']}
+                    add('runs/'+child['job_id']+'/stage-recovery.json',_json(witness),'stage_recovery_source')
+                    for stage in binding['stages']:
+                        name=prefix+'stages/'+stage['stage']+'.json'
+                        if name not in files:add(name,self.host.stage_bytes(job_id,stage['stage']),'recovery_checkpoint')
+                    for stage in child_row.get('stage_checkpoints',{}):
+                        name='runs/'+child['job_id']+'/stages/'+stage+'.json'
+                        if name not in files:add(name,self.host.stage_bytes(child['job_id'],stage),'recovery_checkpoint')
+                    continue
                 if not recovery:continue
                 stages=('verification_input','verification') if pack.get('finalized_from') else ('verification_input',)
                 for stage in stages:

@@ -631,13 +631,40 @@ trước/sau call, kể cả sau attempt sink, nên policy đổi không đi ti�
 hoặc critic. `stage_recovery` giữ inherited/new attempt bounds và danh sách record
 đã dùng; đây không phải hóa đơn hay khẳng định mọi attempt đã tới provider.
 
-Đây là **lõi thư viện của mục 8**, chưa phải cổng cấp quyền phục hồi job. Caller
-phải xác thực owned source, raw receipts, trạng thái lỗi, attempt ledger và explicit
-confirmation trước khi dùng nó. Workbench/CLI hiện chưa bật capture/replay mới;
-không tự chuyển checkpoint cũ sang journal mới. Durable job admission, UI,
-recovery lineage/handoff và nghiệm thu toàn mục còn triển khai. Luồng verifier/
-export đang có vẫn hoạt động theo contract cũ; không có quyền chi tiêu provider
-mới hoặc evaluation phát sinh từ việc thêm thư viện này.
+Workbench bật capture cho original product example/local/GitHub Quick/Deep và
+rules Planned dùng model đã cho phép hoặc offline. `stage_jobs.StageRecoveryJobs`
+kiểm owned raw-byte receipts, canonical request/case/recipe, context, source
+policy, attempt ledger và trạng thái failed/cancelled/interrupted. Lease SQLite
+giữ trong suốt worker; process khác không được coi worker đang sở hữu là đã
+ngắt để chạy trùng. Attempt sink ghi trước HTTP, cả lượt lỗi vẫn trừ vào cận.
+Canonical JSON digests cho phép replay tuple/array sau khi serialize, trong khi
+byte SHA vẫn kiểm đúng file gốc; không rewrite receipt để làm khớp.
+
+GET preview replay Git/graph/prefix, dừng trước call cần thiết đầu tiên và không
+construct provider. POST yêu cầu đúng binding SHA cùng xác nhận có/không chi
+phí. Durable intent khóa một child cho mỗi nguồn; duplicate trả cùng child qua
+restart/cancel/failure, không cấp retry mới. Worker kiểm nguồn/policy trước và
+sau call, trước publication; provider/output config phải khớp recipe. Zero-API
+completion không load key/config/provider. Stage cũ không ghi lại, child chỉ lưu
+tail mới; saved read kiểm owned sources/intent/pack mà không cần Git hoặc policy
+hiện hành. Verifier/export cũ giữ quyền xử lý late Quick/Deep riêng, tránh mở
+hai đường retry tính phí cho cùng bước. Metadata recovery mới vẫn tương thích
+với hai checkpoint của finalization cũ.
+
+`recovered_from` và telemetry giữ source binding, inherited/new attempt bounds;
+không cộng lại receipt cũ vào usage child. Dossier giữ failed root và recovered
+child. Handoff thêm stage bytes của hai phiên cùng `stage-recovery.json` witness
+cho request/attempts/usage. Portable verifier kiểm recorded source, sequence,
+canonical/raw hashes, budget và output binding trên included bytes; không tái
+chứng minh AST, hóa đơn, tác giả hoặc semantic truth. Browser có preview/consent
+Việt/Anh và chặn stale selection/ack; chuyển xem phiên khác không để background
+completion ghi đè report hoặc chi phí đang xem.
+
+Mục 8 còn mở: CLI chưa bật journal mới; không tự chuyển checkpoint legacy. Jev,
+follow-up, answer continuation và recovery descendants chưa được nhận. Planned
+phục hồi có thể giữ waiting state, nhưng tiếp tục bằng câu trả lời cần integration
+giữ cả failed attempt budget; không đặt lại budget để vượt cổng này. Không có
+quyền chi tiêu provider mới hoặc evaluation phát sinh từ cơ chế recovery.
 
 ## Ngân sách và bảo mật
 

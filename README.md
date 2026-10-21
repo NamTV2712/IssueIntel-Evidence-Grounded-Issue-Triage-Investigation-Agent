@@ -60,7 +60,8 @@ call Groq kể cả sửa schema, vẫn chịu giới hạn và receipt từng c
 Chọn Planned không tự bật Groq; có thể chạy offline với zero call. Tab **Trace**
 hiển thị các vòng, nguồn mới, lý do dừng và cận sử dụng; routing này chưa phải
 điểm độ khó hay chất lượng đã đánh giá. CLI dùng `investigate --planned`.
-Planned chưa hỗ trợ Main Dev, follow-up hoặc tiếp tục paid stage sau lỗi.
+Planned chưa hỗ trợ Main Dev hoặc follow-up; phục hồi stage lỗi của phiên gốc
+được mô tả bên dưới.
 Planned mới trên Web với rules lưu policy `bounded_planner_v3`; CLI và Jev giữ
 `bounded_planner_v2`. Các policy này dùng truy xuất theo khoảng trống: mỗi hành động chỉ rõ
 giả thuyết, khoảng trống và mục tiêu support/counter/caller/documentation/history.
@@ -83,7 +84,7 @@ cận gốc: tối đa ba vòng truy xuất, bốn lượt generation, một cri
 Groq kể cả schema repair; continuation không đặt lại budget hoặc mở rộng nguồn.
 Các form follow-up/context riêng bị chặn khi Planned đang chờ. Báo cáo, hồ sơ
 issue và gói bàn giao giữ lineage/câu trả lời; gói cần cả tổ tiên để kiểm offline.
-Phần waiting/continuation đã triển khai và đang chờ nghiệm thu D05; chưa phải
+Phần waiting/continuation đã nghiệm thu ở mục 5; chưa phải
 resume stage lỗi hoặc bằng chứng cải thiện chất lượng điều tra.
 Planned có tùy chọn **Jev / Typesafe** để chọn retrieve/verify/stop từ các bước
 được code cho phép. Mặc định vẫn dùng rules. API key là `TYPESAFE_API_KEY` trong
@@ -116,6 +117,21 @@ API key hay repository Git còn trên máy. Hệ thống kiểm bytes/hash, sche
 nguồn request; đây không phải đọc lại toàn bộ Git. Một intent cho mỗi phiên
 nguồn chặn xuất trùng qua restart. Chi phí cũ vẫn thuộc phiên nguồn. Luồng này
 chỉ hỗ trợ product Quick/Deep, giữ nguyên generation/verifier và không tự retry.
+Với **phiên product gốc mới** bị lỗi, hủy hoặc ngắt trước các bước đó, mở lịch sử
+rồi chọn **Tiếp tục các stage còn thiếu**. Workbench ghi journal cho Quick/Deep
+và Planned dùng rules. Preview kiểm nguồn tại commit gốc, liệt kê stage đã lưu,
+bước còn thiếu và số lượt thử đã ghi, tính cả lượt lỗi/chưa rõ đã tới provider.
+Sau xác nhận, một phiên con dùng lại prefix đã hoàn tất và chỉ chạy phần còn
+thiếu; receipt cũ thuộc phiên nguồn, receipt mới thuộc phiên con. Cận toàn lượt
+vẫn là 4/6/9 call Quick/Deep/Planned, hoặc 0 khi offline. Nếu phần còn lại không
+cần API thì không cần key; vẫn cần Git để kiểm nguồn. Mỗi nguồn có một intent,
+gửi lặp trả cùng phiên con; lỗi/hủy/restart không tự retry. Worker còn giữ quyền
+thực thi thì nguồn chưa được nhận phục hồi. Policy/source đổi có thể từ chối
+phục hồi nhưng không sửa hồ sơ đã lưu. Hồ sơ issue và gói bàn giao giữ journal,
+attempt accounting và lineage để kiểm các bytes đã gửi mà không gọi model.
+Luồng mới chưa nhận checkpoint legacy, CLI, Jev, follow-up, answer continuation
+hoặc phục hồi tiếp một phiên con đã phục hồi. Với Planned được phục hồi rồi
+dừng chờ, phần trả lời để tiếp tục còn cần tích hợp ngân sách; mục 8 vẫn đang làm.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

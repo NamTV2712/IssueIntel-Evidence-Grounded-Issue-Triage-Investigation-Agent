@@ -63,7 +63,7 @@ def test_planned_job_accounts_numbered_calls_and_reads_without_repeating(planned
     assert usage['all_usage_settled'] and usage['tokens_charged_or_reserved']==60
     assert [row['stage'] for row in usage['receipts']]==[
         'seed_generation','planned_generation_1','planned_generation_2','verification']
-    assert set(job['stage_checkpoints'])=={'planned_input','seed_generation','planned_retrieval_1',
+    assert set(job['stage_checkpoints'])=={'execution_input','initial_retrieval','planned_input','seed_generation','planned_retrieval_1',
         'planned_generation_1','planned_retrieval_2','planned_generation_2','planned_retrieval_3',
         'verification','planned_complete'}
     assert b'planned_investigation_v2' in wb.stage_bytes(job['id'],'planned_complete')
@@ -85,7 +85,7 @@ def test_numbered_generation_failure_keeps_receipt_and_does_not_resume(planned_r
     wb,_,calls,fail_at=planned_workbench;fail_at[0]=3
     job=completed(wb,wb.submit(request_for(planned_repository))['id'])
     assert job['status']=='failed' and len(calls)==3
-    assert set(job['stage_checkpoints'])=={'planned_input','seed_generation','planned_retrieval_1',
+    assert set(job['stage_checkpoints'])=={'execution_input','initial_retrieval','planned_input','seed_generation','planned_retrieval_1',
         'planned_generation_1','planned_retrieval_2'}
     assert wb.stage_bytes(job['id'],'planned_retrieval_2')
     usage=wb.usage(job['id'])

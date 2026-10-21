@@ -212,6 +212,8 @@ def _provenance(pack):
     if pack.get('finalized_from'):
         # Keep the report v1 provenance enum; distinguish recovery in details.
         rows.append({'kind': 'resume', 'details': json.dumps(pack['finalized_from'], ensure_ascii=False, sort_keys=True)})
+    if pack.get('recovered_from'):
+        rows.append({'kind':'resume','details':json.dumps(pack['recovered_from'],ensure_ascii=False,sort_keys=True)})
     if pack.get('repository_context'):
         context = pack['repository_context']
         rows.append({'kind': 'repository_context', 'details': json.dumps({

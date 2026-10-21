@@ -153,6 +153,8 @@ class Workbench:
         self.memory=ProductMemory(self)
         from .memory_followups import MemoryFollowups
         self.memory_followups=MemoryFollowups(self)
+        from .stage_jobs import StageRecoveryJobs
+        self.stage_recoveries=StageRecoveryJobs(self)
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
@@ -337,6 +339,10 @@ class Workbench:
                 # The original export may never have existed. Replay its saved
                 # request and two stages rather than loading a failed pack.
                 self.finalizations.validate_child(identifier,pack,request)
+                validate_product_case(pack['case'],pack['snapshot']['protocol'])
+                return
+            elif mode=='stage_resume':
+                self.stage_recoveries.validate_child(identifier,pack,request)
                 validate_product_case(pack['case'],pack['snapshot']['protocol'])
                 return
             elif mode=='resume':
@@ -881,10 +887,15 @@ class Workbench:
         return case, path
 
     def _run(self, row):
+        recovery_lease=None;capture_policy=None
         try:
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
+            if request['mode'] in {'local','github','example'} and request.get('controller','rules')=='rules':
+                from .stage_jobs import job_policy_sha256
+                recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
+                capture_policy=job_policy_sha256()
             extra = {}
             followup = None
             context_selection = None
@@ -977,6 +988,11 @@ class Workbench:
                 if not local.is_dir():
                     local = acquire_repository(repository, case['revision'], self.root/'data/repos').path
             def check_observation_source():
+                if capture_policy is not None:
+                    from .stage_jobs import job_policy_sha256
+                    saved=json.loads(self._job_path(row['id']).read_bytes())
+                    if (saved.get('request')!=request or any(saved.get(k)!=request[k] for k in ('mode','provider','depth'))
+                            or job_policy_sha256()!=capture_policy):raise ValueError('Original stage source authority changed')
                 if request['mode']=='memory_followup':
                     _,_,_,selection,_=self.memory_followups.input(row['id'],request)
                     if selection!=followup['memory_selection']:raise ValueError('Memory execution selection changed')
@@ -1051,7 +1067,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
-                if request['mode']=='memory_followup':check_observation_source()
+                if request['mode']=='memory_followup' or capture_policy is not None:check_observation_source()
                 return answer
             def structured(messages, *, max_output_tokens, schema):
                 nonlocal call_stage
@@ -1061,7 +1077,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
-                if request['mode']=='memory_followup':check_observation_source()
+                if request['mode']=='memory_followup' or capture_policy is not None:check_observation_source()
                 return answer
             if provider and hasattr(provider, 'complete_structured'):
                 complete.complete_structured = structured
@@ -1070,11 +1086,19 @@ class Workbench:
                     return complete(messages,max_output_tokens)
                 complete.complete_json=json_fallback
             stage_store=StageCheckpoints(self.root,self.directory/'runs'/row['id']/'stages')
+            capture_recovery=capture_policy is not None and (provider is None or provider.model=='openai/gpt-oss-120b')
             def save_stage(stage,record):
                 self._check_cancelled(row['id'])
                 ref=stage_store(stage,record)
-                self._save(row,stage=stage,stage_checkpoints=dict(stage_store.receipts))
+                initial=({'pipeline_attempts':[],'pipeline_context_sha256':record['recovery']['context_sha256'],
+                    'recovery_job_policy_sha256':capture_policy} if stage=='execution_input' else {})
+                self._save(row,stage=stage,stage_checkpoints=dict(stage_store.receipts),**initial)
                 return ref
+            def recovery_attempt(value):
+                self._check_cancelled(row['id']);check_observation_source()
+                if value['context_sha256']!=row['pipeline_context_sha256'] or value['provider_calls']!=len(row['pipeline_attempts'])+1:
+                    raise ValueError('Original provider attempt accounting changed')
+                self._save(row,pipeline_attempts=row['pipeline_attempts']+[dict(value)])
             self._save(row, stage='investigate')
             pack = investigate(case, local, complete_json=complete if provider else None, provider=request['provider'],
                 model=provider.model if provider else 'none',
@@ -1082,6 +1106,7 @@ class Workbench:
                 top_k=4 if request['depth'] == 'quick' else 12,
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
+                **({'recoverable':True,'on_recovery_attempt':recovery_attempt} if capture_recovery else {}),
                 **({'planned_workflow':True,'planner_policy':'bounded_planner_v3' if planned_v3 else 'bounded_planner_v2'} if request['depth']=='planned' else {}),
                 **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
             self._check_cancelled(row['id'])
@@ -1136,6 +1161,7 @@ class Workbench:
             # Source text, response bodies, paths and credentials stay out of errors.
             self._save(row, status='failed', stage='failed', error=f'Investigation failed ({type(error).__name__}). Check input and local data integrity.')
         finally:
+            if recovery_lease is not None:recovery_lease.close()
             with self.lock:
                 self.active.discard(row['id'])
                 self.cancelled.discard(row['id'])
@@ -1268,6 +1294,12 @@ class Workbench:
             validate_planned(pack)
         saved_job=json.loads(self._job_path(identifier).read_bytes())
         saved_request=saved_job['request']
+        if saved_request.get('mode')=='stage_resume' or pack.get('recovered_from'):
+            if saved_request.get('mode')!='stage_resume' or not pack.get('recovered_from'):
+                raise ValueError('Stage recovery receipt and job authority differ')
+            self.stage_recoveries.validate_child(identifier,pack,saved_request)
+            compare_packs(pack,pack)
+            return pack,raw,0
         if saved_request.get('mode')=='planned_continuation' or 'continued_from' in pack:
             if saved_request.get('mode')!='planned_continuation' or not pack.get('continued_from'):
                 raise ValueError('Planned continuation receipt and job authority must match')

@@ -18,7 +18,7 @@ from .report import build_report
 
 
 SCHEMA = 'investigation_dossier_v1'
-MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization','planned_continuation','memory_followup'}
+MODES = {'local','github','example','followup','context','clarification','check_followup','resume','finalization','planned_continuation','memory_followup','stage_resume'}
 ORIGINAL = {'local','github','example'}
 FLAGS = {'provenance':'user_report_unverified','causal_verified':False,
          'fix_verified':False,'independent_human':False,'evaluation_performed':False}
@@ -88,8 +88,11 @@ class Dossiers:
                 if authenticate:
                     if self.host.job(identifier)['status']=='completed':
                         original,_,_=self.host._load_pack(identifier)
-                    else:
+                    elif 'verification_input' in row.get('stage_checkpoints',{}):
                         original=json.loads(self.host.stage_bytes(identifier,'verification_input'))['payload']['prepared']
+                    else:
+                        _,_,context,_=self.host.stage_recoveries.source(identifier)
+                        original={'case':context['case'],'snapshot':context['snapshot']}
                     case=original['case']
                     if mode=='local':
                         expected={'case_id':'local:'+digest(request)[:16],'repository':request['repository'].strip(),
@@ -117,7 +120,7 @@ class Dossiers:
                     identity={'kind':'synthetic','repository':'synthetic/example',
                               'issue_url':None,'query_sha256':None}
                 return identifier,dict(identity,sha256=digest(identity))
-            identifier=request.get('source_job_id') if mode in {'resume','finalization','planned_continuation'} else request.get('parent_job_id')
+            identifier=request.get('source_job_id') if mode in {'resume','finalization','planned_continuation','stage_resume'} else request.get('parent_job_id')
         raise ValueError('Dossier ancestry exceeds the product bound')
 
     def _db(self):
@@ -228,7 +231,7 @@ class Dossiers:
                 continue
             if digest(candidate)!=digest(identity):continue
             row=host.job(job_id);request=raw['request'];mode=row['mode']
-            parent=(request.get('source_job_id') if mode in {'resume','finalization','planned_continuation'} else request.get('parent_job_id'))
+            parent=(request.get('source_job_id') if mode in {'resume','finalization','planned_continuation','stage_resume'} else request.get('parent_job_id'))
             run={'job_id':job_id,'root_job_id':root,'parent_job_id':parent,'status':row['status'],
                  'mode':mode,'provider':row['provider'],'depth':row['depth'],
                  'created_at':row['created_at'],'updated_at':row.get('updated_at',row['created_at']),

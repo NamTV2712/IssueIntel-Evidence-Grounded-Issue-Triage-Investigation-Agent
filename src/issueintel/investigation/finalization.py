@@ -82,7 +82,7 @@ def replay_checkpoints(verification_input, verification_record, *, expected_poli
 
 def _replay_checkpoints(verification_input, verification_record, *, expected_policy):
     for record, stage in ((verification_input,'verification_input'), (verification_record,'verification')):
-        _exact(record, _META, 'finalization checkpoint')
+        _exact(record, _META|({'recovery'} if 'recovery' in record else set()), 'finalization checkpoint')
         if (record['schema'] != 'product_investigation_stage_v1' or record['stage'] != stage
                 or record['provider'] != 'groq' or record['model'] != MODEL
                 or record['evaluation_performed'] is not False or record['automatic_retry'] is not False
@@ -91,9 +91,16 @@ def _replay_checkpoints(verification_input, verification_record, *, expected_pol
                 or not _hex(record['snapshot_sha256'])
                 or not any(_hex(record['commit_sha'],n) for n in (40,64))):
             raise ValueError('Checkpoint is not an original supported public stage')
-    if not _canonical_equal({k:v for k,v in verification_input.items() if k not in {'stage','payload'}},
-                            {k:v for k,v in verification_record.items() if k not in {'stage','payload'}}):
+    if not _canonical_equal({k:v for k,v in verification_input.items() if k not in {'stage','payload','recovery'}},
+                            {k:v for k,v in verification_record.items() if k not in {'stage','payload','recovery'}}):
         raise ValueError('Verification checkpoint source binding changed')
+    if 'recovery' in verification_input or 'recovery' in verification_record:
+        left=verification_input.get('recovery') or {};right=verification_record.get('recovery') or {}
+        if (left.get('schema')!='product_pipeline_recovery_v1' or right.get('schema')!=left['schema']
+                or right.get('context_sha256')!=left.get('context_sha256')
+                or right.get('index')!=left.get('index',-2)+1
+                or right.get('previous_record_canonical_sha256')!=digest(verification_input)):
+            raise ValueError('Finalization recovery journal link changed')
     payload = verification_input['payload']
     _exact(payload, {'prepared','policy_sha256','max_output_tokens'}, 'verification input payload')
     if (not _hex(payload['policy_sha256']) or (expected_policy is not None and payload['policy_sha256'] != expected_policy)
