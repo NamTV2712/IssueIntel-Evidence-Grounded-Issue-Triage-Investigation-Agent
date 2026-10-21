@@ -1,4 +1,8 @@
 window.IssueIntelMessages = {
+  "Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.":{"vi":"Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.","en":"Used {used}/{max} attempts under the original bound. Recovery cannot call the model again or reset this budget."},
+  "Phục hồi điều tra":{"vi":"Phục hồi điều tra","en":"Investigation recovery"},
+  "Lượt gốc: {id}":{"vi":"Lượt gốc: {id}","en":"Original run: {id}"},
+  "Đã ghép nguồn từ {count} phiên. Mọi lượt thử trước đó vẫn nằm trong giới hạn gốc; không cấp lại ngân sách.":{"vi":"Đã ghép nguồn từ {count} phiên. Mọi lượt thử trước đó vẫn nằm trong giới hạn gốc; không cấp lại ngân sách.","en":"Combined sources from {count} runs. All previous attempts remain inside the original bound; the budget does not reset."},
   "Lượt thử API trong ngân sách":{"vi":"Lượt thử API trong ngân sách","en":"API attempts charged to the bound"},
   "Stage logic đã hoàn tất trong lượt gốc":{"vi":"Stage logic đã hoàn tất trong lượt gốc","en":"Completed logical stages in the original run"},
   "Các số stage gồm phần đã dùng lại và phần mới; receipt chi phí của từng phiên vẫn giữ riêng.":{"vi":"Các số stage gồm phần đã dùng lại và phần mới; receipt chi phí của từng phiên vẫn giữ riêng.","en":"Stage counts include reused and new work; each run retains its own cost receipts."},

@@ -19,21 +19,36 @@
       &&Array.isArray(p.completed_stages)&&p.completed_stages.length>0&&p.completed_stages.length<=18
       &&p.completed_stages[0]==='execution_input'&&new Set(p.completed_stages).size===p.completed_stages.length
       &&p.completed_stages.every(s=>stages.includes(s))&&[...stages,'export'].includes(p.next_stage)
-      &&Number.isInteger(p.prior_provider_calls)&&p.prior_provider_calls>=0&&p.prior_provider_calls<=max
-      &&p.max_provider_calls===max&&typeof p.requires_api==='boolean'&&(!p.requires_api||bound.provider==='groq'&&p.prior_provider_calls<max)
+      &&Number.isInteger(p.prior_provider_calls)&&p.prior_provider_calls>=0&&p.prior_provider_calls<=p.max_provider_calls
+      &&(bound.provider==='groq'&&bound.depth==='planned'?[5,7,9].includes(p.max_provider_calls):p.max_provider_calls===max)
+      &&typeof p.requires_api==='boolean'&&(!p.requires_api||bound.provider==='groq'&&p.prior_provider_calls<p.max_provider_calls)
       &&p.automatic_retry===false&&p.model_calls===0;
   }
+  function validChain(p){
+    if(p.source_job_ids===undefined&&p.root_job_id===undefined)return true;
+    return job(p.root_job_id)&&Array.isArray(p.source_job_ids)&&p.source_job_ids.length>=1&&p.source_job_ids.length<=8
+      &&p.source_job_ids.every(job)&&new Set(p.source_job_ids).size===p.source_job_ids.length
+      &&p.source_job_ids[0]===p.root_job_id&&p.source_job_ids.at(-1)===p.source_job_id;
+  }
   const current=(e,version)=>selected===e&&epoch===version;
+  function deniedBudget(p,e){
+    const max=e.source.provider==='none'?0:e.source.depth==='planned'?9:e.source.depth==='deep'?6:4;
+    return p?.available===false&&p.reason==='original_call_budget_exhausted'&&p.source_job_id===e.source.id
+      &&p.automatic_retry===false&&p.model_calls===0&&Number.isInteger(p.prior_provider_calls)
+      &&p.prior_provider_calls>=p.max_provider_calls&&p.prior_provider_calls<=max
+      &&(e.source.provider==='groq'&&e.source.depth==='planned'?[5,7,9].includes(p.max_provider_calls):p.max_provider_calls===max);
+  }
   function open(e,id){
     if(get('run-button')?.disabled){e.notice='Đang theo dõi tác vụ khác; mở lại phiên đã tạo sau khi tác vụ đó kết thúc.';paint();return;}
     document.dispatchEvent(new CustomEvent('issueintel:stagerecoverycreated',{detail:{job_id:id,source_job_id:e.source.id}}));
   }
   async function check(e){
-    if(e.busy)return;const version=epoch;e.busy=true;e.preview=null;e.notice=null;paint();
+    if(e.busy)return;const version=epoch;e.busy=true;e.preview=null;e.notice=null;e.denied=null;paint();
     try{
       const value=await api('/api/jobs/'+e.source.id+'/stage-recovery');
       if(current(e,version)){
-        if(valid(value,e)){e.preview=value;e.consent=false;}
+        if(valid(value,e)&&validChain(value)){e.preview=value;e.consent=false;}
+        else if(deniedBudget(value,e))e.denied=value;
         else e.notice='Chưa có journal hợp lệ, nguồn còn đang chạy hoặc policy đã thay đổi.';
       }
     }catch(_){if(current(e,version))e.notice='Chưa kiểm tra được các stage đã lưu; kiểm tra server local rồi thử lại.';}
@@ -69,12 +84,16 @@
       node('p',t('Dùng lại stage đã lưu, kiểm nguồn và tiếp tục phần còn thiếu tại commit gốc.'),'notice'));
     const message=node('p',e.notice?t(e.notice):e.busy?t('Đang kiểm journal và nguồn…'):'','notice');message.setAttribute('role','status');area.append(message);
     area.append(button('Kiểm tra các stage để tiếp tục',()=>check(e)));
+    if(e.denied)area.append(node('p',t('Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.',
+      {used:e.denied.prior_provider_calls,max:e.denied.max_provider_calls}),'notice'));
     const p=e.preview;if(!p)return;const attempt=e.attempts.get(p.binding_sha256);
     area.append(node('p','Commit '+p.commit_sha,'hash-note'),node('p',t('Stage đã lưu: {stages}',{stages:p.completed_stages.map(stageName).join(' → ')}),'hash-note'),
       node('p',t('Bước còn thiếu: {stage}',{stage:stageName(p.next_stage)})),
       node('p',t('Lượt thử đã ghi: {used}/{max}; gồm cả lượt lỗi hoặc chưa rõ đã tới provider.',{used:p.prior_provider_calls,max:p.max_provider_calls}),'notice'),
       node('p',t(p.requires_api?'Phần còn lại cần API. Chi phí trước đó không được hoàn lại hoặc đặt lại.':'Phần còn lại không cần API; vẫn đọc lại Git để kiểm nguồn.'),'notice'),
       node('p','Source SHA256 '+p.binding_sha256,'hash-note'));
+    if(p.source_job_ids?.length>1)area.append(node('p',t('Lượt gốc: {id}',{id:p.root_job_id}),'hash-note'),
+      node('p',t('Đã ghép nguồn từ {count} phiên. Mọi lượt thử trước đó vẫn nằm trong giới hạn gốc; không cấp lại ngân sách.',{count:p.source_job_ids.length}),'notice'));
     if(attempt?.created)area.append(node('p',t('Phiên phục hồi đã tạo: {id}',{id:attempt.created}),'hash-note'),button('Mở phiên phục hồi đã tạo',()=>open(e,attempt.created)));
     if(attempt)area.append(node('p',t('Yêu cầu đã khóa; lỗi, hủy hoặc restart không tự tạo lượt chạy mới.'),'notice'));
     else{
@@ -85,12 +104,13 @@
     const start=button(attempt?'Kiểm trạng thái yêu cầu phục hồi':'Tiếp tục phần còn thiếu',()=>submit(e));start.disabled=e.busy||!attempt&&!e.consent;area.append(start);
   }
   function show(row){
-    const allowed=row&&job(row.id)&&['failed','cancelled','interrupted'].includes(row.status)&&['example','local','github'].includes(row.mode)
-      &&['none','groq'].includes(row.provider)&&['quick','deep','planned'].includes(row.depth)&&hash(row.stage_checkpoints?.execution_input?.sha256)
-      &&!(row.provider==='groq'&&row.depth!=='planned'&&row.stage_checkpoints?.verification_input);
+    const original=['example','local','github'].includes(row?.mode),sourceHash=original?row?.stage_checkpoints?.execution_input?.sha256:row?.pipeline_context_sha256;
+    const allowed=row&&job(row.id)&&['failed','cancelled','interrupted'].includes(row.status)&&(original||row.mode==='stage_resume')
+      &&['none','groq'].includes(row.provider)&&['quick','deep','planned'].includes(row.depth)&&hash(sourceHash)
+      &&!(original&&row.provider==='groq'&&row.depth!=='planned'&&row.stage_checkpoints?.verification_input);
     get('stage-recovery-panel').hidden=!allowed;
     if(!allowed){selected=null;epoch++;return;}
-    const key=row.id+':'+row.stage_checkpoints.execution_input.sha256;let e=states.get(key);
+    const key=row.id+':'+sourceHash;let e=states.get(key);
     if(!e){e={source:{id:row.id,provider:row.provider,depth:row.depth},preview:null,attempts:new Map(),busy:false,notice:null,consent:false};states.set(key,e);}
     if(selected!==e){selected=e;epoch++;}paint();
   }

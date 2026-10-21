@@ -678,18 +678,57 @@ không nhầm lock của chính reader là worker sống sau crash. Không có l
 raw queued/running có thể được trình bày interrupted; chỉ journal đủ proof mới
 được nhận. Legacy jobs chưa có lease vẫn dùng recovery contract hiện có.
 
+`product_stage_recovery_source_v2` nhận failed/cancelled/interrupted stage-resume
+descendants của cùng original product. Binding ghép tối đa tám phiên nguồn,
+gắn `owner_job_id` với mỗi raw stage hash và giữ request/attempt/usage/input-binding
+của từng đoạn. `_source_state()` đi ancestry có giới hạn, replay durable intent
+của mỗi cạnh, nối đúng completed prefix và global attempt sequence; không copy
+stage/receipt hoặc đặt lại 4/6/9 call bounds. Unknown ledger, mixed owner, receipt
+ID trùng, source/query/policy đổi hoặc hết bound đều từ chối. Original late
+Quick/Deep vẫn thuộc verifier/export channels cũ; failed recovered child dùng
+stage recovery để tiếp tục critic mà không sinh lại generation đã hoàn tất.
+Đọc ancestor intents dùng SQLite read-only, tránh lấy write lock lồng trong
+dispatch transaction; worker vẫn đợi own intent commit trước khi thực thi.
+
+Root source v1 giữ nguyên projection/digest, không migrate receipt. Handoff v2
+giữ request/attempt/usage/owned stage refs cùng input binding của mọi ancestor;
+toàn bộ ancestor bắt buộc đi cùng selection. Standalone verifier tái dựng từng
+binding v1/v2, owner/hash/order/call counters và output từ included bytes. Nó
+không chứng minh authorship, Git/AST hoặc hóa đơn. Giao diện nhận failed recovered
+jobs, giữ root ID/source count và yêu cầu consent mới cho mỗi nguồn lỗi mới;
+duplicate cùng nguồn vẫn trả một child. Saved read/duplicate không cần policy
+hiện hành, Git, config/key hoặc provider; admission mới vẫn kiểm policy hiện tại.
+
+Planned contexts mới ghi `call_budget_policy: profile_and_seed_route_v1` và số
+parse errors của graph đã khóa. Sau seed, `recorded_call_limit()` dùng seed
+evidence/annotation, skipped files và count đó qua cùng routing rules để giữ
+cận 5/7/9 đã chốt. Mọi failed/in-flight attempt đều dùng cận này, kể cả tại critic
+sau nhiều lần phục hồi. Trước seed chưa đủ routing inputs thì giữ profile 9;
+khi biết cận thấp hơn mà attempts đã vượt, dừng và giữ checkpoint, không publish
+completed pack hoặc gọi thêm. Context digest được replay với actual Git/graph
+trước call mới. Telemetry thêm `effective_max_provider_calls` khi thấp hơn profile;
+child/portable validators bắt buộc giá trị đúng theo recorded policy. Context cũ
+không có marker vẫn được đọc theo policy đã ghi, không sửa bytes/hash để nâng
+thành policy mới; current admission policy vẫn có thể từ chối gọi tiếp.
+
 Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev,
-follow-up, answer continuation và recovery descendants chưa được nhận vào
-**stage recovery**. Planned phục hồi ở waiting state có thể dùng luồng trả lời
+follow-up và answer continuation bị lỗi chưa được nhận vào **stage recovery**.
+Planned phục hồi ở waiting state có thể dùng luồng trả lời
 riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts
 vượt logical completed-stage calls từ recorded recovery binding. Source service
-kiểm intent/prefix/tail và hợp nhất receipt ownership của failed root cùng
+kiểm intent/prefix/tail và hợp nhất receipt ownership của mọi failed ancestor cùng
 recovered parent, đối chiếu đúng attempt stages; thiếu/unknown/duplicate thì từ
 chối. Không chuyển receipt cũ sang phiên mới hoặc sửa parent plan/waiting SHA.
 
 `continuation_remaining()` trừ debit trong preview/admission; phải còn đủ ba
 call cho generation, repair và critic. `_inherit()` chuyển debit vào cumulative
 provider count đúng một lần; các hậu duệ kế tiếp dùng inherited counts thường.
+Khi attempts vượt cận hai call cho mỗi completed generation, inherited metadata
+thêm `recovery_attempt_debit` dương và carry sang các đoạn sau. Parent replay
+bind đúng debit từ recovery witness; logical calls sau khi trừ debit vẫn chịu
+cận generation/repair cũ và tổng calls vẫn giữ nguyên. Old v3 đã lưu trong cận
+cũ giữ exact shape, không sửa plan SHA để thêm field. Xóa/giảm debit rồi reseal
+không qua được parent-bound replay hoặc portable verification.
 Portable verifier replay recovery witness và tính lại inherited attempt count;
 giảm debit rồi rehash child không đủ để qua cổng. UI giữ saved logical counts
 riêng với attempt budget toàn chuỗi; đổi ngôn ngữ giữ draft và thu hồi consent.

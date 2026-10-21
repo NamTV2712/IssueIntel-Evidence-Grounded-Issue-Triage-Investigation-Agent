@@ -129,8 +129,15 @@ gửi lặp trả cùng phiên con; lỗi/hủy/restart không tự retry. Worke
 thực thi thì nguồn chưa được nhận phục hồi. Policy/source đổi có thể từ chối
 phục hồi nhưng không sửa hồ sơ đã lưu. Hồ sơ issue và gói bàn giao giữ journal,
 attempt accounting và lineage để kiểm các bytes đã gửi mà không gọi model.
-Luồng mới chưa nhận checkpoint legacy, Jev, follow-up, answer continuation
-hoặc phục hồi tiếp một phiên con đã phục hồi. Với Planned được phục hồi rồi
+Nếu phiên phục hồi lại lỗi, mở chính phiên đó để xem preview và xác nhận tiếp.
+Hệ thống ghép tối đa tám phiên nguồn, giữ chủ sở hữu và bytes của từng stage;
+mọi lượt lỗi trước đó vẫn trừ trong cận của lượt gốc, không cấp ngân sách mới.
+Planned mới giữ thêm cận 5/7/9 của routing sau seed; preview dùng cận đã biết,
+cả khi cận này nhỏ hơn profile chung 9. Đã hết cận thì không gọi thêm model.
+Nguồn thiếu attempt ledger/intent hoặc đã hết cận không được nhận. Hồ sơ và gói
+bàn giao giữ cả các tổ tiên lỗi, không chép lại stage/receipt cũ sang phiên mới.
+Luồng mới chưa nhận checkpoint legacy, Jev, follow-up hoặc answer continuation
+bị lỗi. Với Planned được phục hồi rồi
 dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
 thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không
 sửa plan/waiting receipt cũ. Unknown accounting hoặc thiếu ngân sách cho

@@ -165,15 +165,16 @@ class PlannedContinuations:
         receipts = row.get('usage_receipts')
         recovered=request.get('mode')=='stage_resume'
         if recovered:
-            source,_,_,_=self.host.stage_recoveries.source(request['source_job_id'])
-            prior_receipts=source.get('usage_receipts')
-            attempts=source.get('pipeline_attempts',[])+row.get('pipeline_attempts',[])
-            if (source.get('usage_tracking') is not True or not isinstance(prior_receipts,dict)
-                    or row.get('usage_tracking') is not True or not isinstance(receipts,dict)
-                    or set(prior_receipts)&set(receipts)
-                    or any(not isinstance(r,dict) for r in [*prior_receipts.values(),*receipts.values()])):
-                raise ValueError('Unknown or duplicated recovered Planned receipts')
-            receipts={**prior_receipts,**receipts}
+            segments=self.host.stage_recoveries.accounting_segments(request['source_job_id'])
+            attempts=[a for segment in segments for a in segment['attempts']]+row.get('pipeline_attempts',[])
+            usages=[segment['usage'] for segment in segments]+[{'tracking':row.get('usage_tracking'),'receipts':receipts}]
+            receipts={}
+            for usage in usages:
+                if (usage['tracking'] is not True or not isinstance(usage['receipts'],dict)
+                        or set(receipts)&set(usage['receipts'])
+                        or any(not isinstance(r,dict) for r in usage['receipts'].values())):
+                    raise ValueError('Unknown or duplicated recovered Planned receipts')
+                receipts.update(usage['receipts'])
             attempt_counts=Counter(attempt['stage'] for attempt in attempts)
             if (len(receipts)!=plan['provider_calls']+recovery_call_debit(parent)
                     or len(receipts)!=len(attempts)

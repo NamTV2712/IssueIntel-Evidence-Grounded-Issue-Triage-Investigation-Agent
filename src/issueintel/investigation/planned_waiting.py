@@ -160,12 +160,19 @@ def _prior_answered(pack):
 def _inherit(parent):
     plan=parent['workflow_plan']
     counts=totals(plan)
-    counts['provider_calls']+=recovery_call_debit(parent)
-    return {'parent_plan_sha256':plan['sha256'],
+    extra=recovery_call_debit(parent);counts['provider_calls']+=extra
+    inherited={'parent_plan_sha256':plan['sha256'],
             'root_source':deepcopy((plan.get('inherited') or {}).get('root_source',plan['source'])),
             'routing':deepcopy(plan['routing']), 'limits':deepcopy(plan['limits']),
             'counts':counts, 'used_query_sha256s':sorted(used_queries(plan)),
             'answered_fields':_prior_answered(parent)}
+    prior=plan.get('inherited') or {}
+    # Old v3 continuations retain their exact shape. Above the historical
+    # completed-pass call bound, carry an explicit debit bound to the supplied
+    # parent; descendants preserve it even once their ratio falls below 2/pass.
+    if 'recovery_attempt_debit' in prior or counts['provider_calls']>2*counts['generation_passes']:
+        inherited['recovery_attempt_debit']=prior.get('recovery_attempt_debit',0)+extra
+    return inherited
 
 
 def start_plan(case, snapshot, graph, evidence, annotation, *, provider, model, parent=None):
@@ -329,7 +336,7 @@ def _validate_plan(pack,parent):
             raise ValueError('Original Planned result cannot claim a continuation')
         used={source['query_sha256']}; prior=dict.fromkeys(COUNT_KEYS,0)
     else:
-        if (not isinstance(inherited,dict) or set(inherited)!=_INHERITED_FIELDS
+        if (not isinstance(inherited,dict) or set(inherited)!=_INHERITED_FIELDS|({'recovery_attempt_debit'} if 'recovery_attempt_debit' in inherited else set())
                 or not _is_hash(inherited['parent_plan_sha256'])
                 or set(inherited['root_source'])!=set(source)
                 or not _is_hash(inherited['root_source']['query_sha256'])
@@ -343,8 +350,10 @@ def _validate_plan(pack,parent):
                 or inherited['root_source']['query_sha256'] not in inherited['used_query_sha256s']):
             raise ValueError('Planned inherited routing or query history differs')
         prior=_counts(inherited['counts'])
+        debit=inherited.get('recovery_attempt_debit',0)
         if (prior['generation_passes']<1 or prior['verifier_passes']!=0 or prior['retrieval_rounds']<1
-                or not prior['generation_passes']<=prior['provider_calls']<=2*prior['generation_passes']
+                or type(debit) is not int or debit<0 or 'recovery_attempt_debit' in inherited and debit==0
+                or not prior['generation_passes']<=prior['provider_calls']-debit<=2*prior['generation_passes']
                 or prior['added_evidence']>6*prior['retrieval_rounds']):
             raise ValueError('Planned inherited counts cannot precede a waiting result')
         link=_validate_link(pack,parent)

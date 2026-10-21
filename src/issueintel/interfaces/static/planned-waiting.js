@@ -48,6 +48,9 @@
         ||round.input_annotation_sha256!==waiting.input_annotation_sha256)return false;
       const inherited=plan.inherited?.counts||Object.fromEntries(keys.map(key=>[key,0])),limits=plan.limits;
       if(!inherited||!limits||!exactKeys(inherited,keys)||!exactKeys(waiting.remaining,keys)||!keys.every(key=>count(inherited[key])))return false;
+      const debit=plan.inherited?.recovery_attempt_debit??0;
+      if(!count(debit)||plan.inherited&&Object.hasOwn(plan.inherited,'recovery_attempt_debit')&&debit===0
+        ||inherited.provider_calls-debit<inherited.generation_passes||inherited.provider_calls-debit>2*inherited.generation_passes)return false;
       const local={retrieval_rounds:plan.rounds.length,generation_passes:plan.generation_passes,
         verifier_passes:plan.verifier_passes,provider_calls:plan.provider_calls,
         added_evidence:plan.rounds.reduce((sum,row)=>sum+row.added_ids.length,0)};

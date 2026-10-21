@@ -9,7 +9,7 @@ import uuid
 
 from issueintel.runtime.io import digest,canonical_json
 from .pipeline import investigate,export_pack
-from .stage_recovery import SCHEMA,StageTape,policy_sha256 as core_policy
+from .stage_recovery import SCHEMA,StageTape,RecoveryBudgetExhausted,recorded_call_limit,policy_sha256 as core_policy
 
 
 MODES={'example','local','github'}
@@ -64,6 +64,26 @@ class NeedCall(Exception):pass
 class ExecutionOwned(ValueError):pass
 
 
+def source_binding(segments,inventory,context,policy):
+    """Versioned immutable ownership projection; never copy prior stage files."""
+    last=segments[-1];request=last['request'];root=segments[0]['request']
+    attempts=[a for s in segments for a in s['attempts']]
+    many=len(segments)>1
+    binding={'schema':'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+        'source_job_id':last['job_id'],'source_request_sha256':digest(request),'context_sha256':digest(context),
+        'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
+        'attempts_sha256':digest(attempts),'prior_provider_calls':len(attempts),
+        'usage_sha256':digest([dict(job_id=s['job_id'],**s['usage']) for s in segments] if many else last['usage']),
+        'job_policy_sha256':policy,'core_policy_sha256':context['policy_sha256'],
+        'provider':root['provider'],'depth':root['depth'],'commit_sha':context['snapshot']['commit_sha'],
+        'snapshot_sha256':context['snapshot']['snapshot_sha256']}
+    if many:
+        binding.update(root_job_id=segments[0]['job_id'],source_chain=[{
+            'job_id':s['job_id'],'request_sha256':digest(s['request']),'attempts_sha256':digest(s['attempts']),
+            'usage_sha256':digest(s['usage']),'source_binding_sha256':(s['input_binding'] or {}).get('sha256')} for s in segments])
+    return dict(binding,sha256=digest(binding))
+
+
 class StageRecoveryJobs:
     def __init__(self,host):self.host=host
 
@@ -101,66 +121,86 @@ class StageRecoveryJobs:
             'source_job_id':request['source_job_id'],'binding_sha256':request['binding_sha256']})
 
     def source(self,identifier,*,admission=False,owns_execution_lease=False):
-        host=self.host;row=json.loads(host._job_path(identifier).read_bytes());request=row.get('request')
-        # Admission already holds the lease. Do not probe that same lock and
-        # mistake our own reader for a live source worker after a crash.
-        if owns_execution_lease:
-            stopped=row.get('status') in TERMINAL or row.get('status') in {'queued','running'} and identifier not in host.active
-        else:stopped=host.job(identifier)['status'] in TERMINAL
-        if (row.get('id')!=identifier or not isinstance(request,dict) or request.get('mode') not in MODES
-                or any(row.get(k)!=request.get(k) for k in ('mode','provider','depth'))
-                or not stopped or request.get('controller','rules')!='rules'
-                or not re.fullmatch('[a-f0-9]{64}',row.get('recovery_job_policy_sha256',''))):
-            raise ValueError('No owned stopped product journal is available')
-        refs=row.get('stage_checkpoints') or {}
-        if 'execution_input' not in refs:raise ValueError('Legacy audit checkpoints are not recovery journals')
-        # Existing paid verifier/export recovery owns the late Quick/Deep path.
-        if request['provider']=='groq' and request['depth']!='planned' and 'verification_input' in refs:
+        return self._source_state(identifier,admission=admission,owns_execution_lease=owns_execution_lease)[:4]
+
+    def accounting_segments(self,identifier):
+        return self._source_state(identifier)[4]
+
+    def _source_state(self,identifier,*,admission=False,owns_execution_lease=False):
+        host=self.host;chain=[];seen=set();current=identifier
+        for _ in range(8):
+            if current in seen:raise ValueError('Cyclic stage recovery ancestry')
+            seen.add(current);row=json.loads(host._job_path(current).read_bytes());request=row.get('request')
+            if owns_execution_lease and current==identifier:
+                stopped=row.get('status') in TERMINAL or row.get('status') in {'queued','running'} and current not in host.active
+            else:stopped=host.job(current)['status'] in TERMINAL
+            if (row.get('id')!=current or not isinstance(request,dict) or request.get('mode') not in MODES|{'stage_resume'}
+                    or any(row.get(k)!=request.get(k) for k in ('mode','provider','depth'))
+                    or not stopped or request.get('controller','rules')!='rules'):
+                raise ValueError('No owned stopped product journal is available')
+            input_binding=self._saved_intent(current,request) if request['mode']=='stage_resume' else None
+            chain.append((row,input_binding))
+            if input_binding is None:break
+            current=request['source_job_id']
+        else:raise ValueError('Stage recovery ancestry exceeds eight jobs')
+        chain.reverse();original=chain[0][0];root_request=original['request']
+        policy=original.get('recovery_job_policy_sha256','')
+        if not re.fullmatch('[a-f0-9]{64}',policy):raise ValueError('Missing original recovery admission policy')
+        if 'execution_input' not in (original.get('stage_checkpoints') or {}):
+            raise ValueError('Legacy audit checkpoints are not recovery journals')
+        # Existing verifier/export channels own late original Quick/Deep jobs;
+        # a failed recovered child has no competing legacy recovery channel.
+        if (len(chain)==1 and root_request['provider']=='groq' and root_request['depth']!='planned'
+                and 'verification_input' in original['stage_checkpoints']):
             raise ValueError('Use the existing verifier or export continuation')
-        records=[];inventory=[]
-        for stage in refs:
-            raw=host.stage_bytes(identifier,stage);record=json.loads(raw)
-            if not isinstance(record.get('recovery'),dict) or record.get('stage')!=stage:
-                raise ValueError('Mixed legacy or changed recovery checkpoint')
-            records.append(record);inventory.append({'stage':stage,'sha256':sha256(raw).hexdigest()})
-        records.sort(key=lambda r:r['recovery']['index']);inventory.sort(key=lambda r:next(
-            v['recovery']['index'] for v in records if v['stage']==r['stage']))
-        context=records[0]['payload']['context'];bind_original(request,context)
-        context_sha=digest(context);attempts=row.get('pipeline_attempts')
-        limit=0 if request['provider']=='none' else 9 if request['depth']=='planned' else 6 if request['depth']=='deep' else 4
-        if (not isinstance(attempts,list) or len(attempts)>limit or row.get('pipeline_context_sha256')!=context_sha):
-            raise ValueError('Missing or changed durable provider-attempt accounting')
-        for index,attempt in enumerate(attempts,1):
-            if (set(attempt)!={'schema','context_sha256','stage','provider_calls','max_provider_calls'}
-                    or attempt['schema']!='product_pipeline_call_attempt_v1' or attempt['context_sha256']!=context_sha
-                    or type(attempt['provider_calls']) is not int or attempt['provider_calls']!=index
-                    or attempt['max_provider_calls']!=limit
-                    or attempt['stage'] not in {'seed_generation','refined_generation','verification',
-                        'planned_generation_1','planned_generation_2','planned_generation_3'}):
-                raise ValueError('Changed durable provider attempt')
-        if row.get('usage_tracking') is True and len(row.get('usage_receipts',{}))>len(attempts):
-            raise ValueError('Captured receipts exceed the recorded provider attempts')
+        records=[];inventory=[];segments=[];attempts=[];receipt_ids=set();context=None;binding=None
         previous=None;last_calls=0
-        for index,record in enumerate(records):
-            proof=record['recovery']
-            if (record['case_id']!=context['case']['case_id'] or record['query_sha256']!=sha256(context['case']['problem_statement'].encode()).hexdigest()
-                    or record['commit_sha']!=context['snapshot']['commit_sha'] or record['snapshot_sha256']!=context['snapshot']['snapshot_sha256']
-                    or proof['schema']!=SCHEMA or proof['context_sha256']!=context_sha or proof['index']!=index
-                    or proof['previous_record_canonical_sha256']!=previous or type(proof['provider_calls']) is not int
-                    or not last_calls<=proof['provider_calls']<=len(attempts)):
-                raise ValueError('Recovery stage sequence/source/accounting changed')
-            previous=digest(record);last_calls=proof['provider_calls']
-        binding={'schema':'product_stage_recovery_source_v1','source_job_id':identifier,
-            'source_request_sha256':digest(request),'context_sha256':context_sha,
-            'stages':inventory,'attempts_sha256':digest(attempts),'prior_provider_calls':len(attempts),
-            'usage_sha256':digest({'tracking':row.get('usage_tracking'),'receipts':row.get('usage_receipts',{})}),
-            'job_policy_sha256':row['recovery_job_policy_sha256'],'core_policy_sha256':context['policy_sha256'],
-            'provider':request['provider'],'depth':request['depth'],'commit_sha':context['snapshot']['commit_sha'],
-            'snapshot_sha256':context['snapshot']['snapshot_sha256']}
-        binding=dict(binding,sha256=digest(binding))
+        limit=0 if root_request['provider']=='none' else 9 if root_request['depth']=='planned' else 6 if root_request['depth']=='deep' else 4
+        for row,input_binding in chain:
+            if input_binding is not None and input_binding!=binding:raise ValueError('Ancestor recovery intent/source changed')
+            identifier_here=row['id'];request=row['request'];local=[]
+            for stage in row.get('stage_checkpoints') or {}:
+                raw=host.stage_bytes(identifier_here,stage);record=json.loads(raw)
+                if not isinstance(record.get('recovery'),dict) or record.get('stage')!=stage:
+                    raise ValueError('Mixed legacy or changed recovery checkpoint')
+                local.append((record,{'stage':stage,'sha256':sha256(raw).hexdigest(),'owner_job_id':identifier_here}))
+            local.sort(key=lambda item:item[0]['recovery']['index'])
+            if context is None:
+                if not local or local[0][0]['stage']!='execution_input':raise ValueError('Missing recovery header')
+                context=local[0][0]['payload']['context'];bind_original(root_request,context)
+            context_sha=digest(context);local_attempts=row.get('pipeline_attempts')
+            if (not isinstance(local_attempts,list) or len(attempts)+len(local_attempts)>limit
+                    or row.get('pipeline_context_sha256')!=context_sha
+                    or input_binding is not None and request['requires_api'] is False and local_attempts):
+                raise ValueError('Missing or changed durable provider-attempt accounting')
+            for index,attempt in enumerate(local_attempts,len(attempts)+1):
+                if (set(attempt)!={'schema','context_sha256','stage','provider_calls','max_provider_calls'}
+                        or attempt['schema']!='product_pipeline_call_attempt_v1' or attempt['context_sha256']!=context_sha
+                        or type(attempt['provider_calls']) is not int or attempt['provider_calls']!=index
+                        or attempt['max_provider_calls']!=limit or attempt['stage'] not in {
+                            'seed_generation','refined_generation','verification','planned_generation_1','planned_generation_2','planned_generation_3'}):
+                    raise ValueError('Changed durable provider attempt')
+            attempts.extend(local_attempts)
+            usage={'tracking':row.get('usage_tracking'),'receipts':row.get('usage_receipts',{})}
+            if (not isinstance(usage['receipts'],dict) or receipt_ids&set(usage['receipts'])
+                    or usage['tracking'] is True and len(usage['receipts'])>len(local_attempts)):
+                raise ValueError('Recovery receipt ownership or attempt count changed')
+            receipt_ids.update(usage['receipts'])
+            for record,ref in local:
+                proof=record['recovery']
+                if (record['case_id']!=context['case']['case_id'] or record['query_sha256']!=sha256(context['case']['problem_statement'].encode()).hexdigest()
+                        or record['commit_sha']!=context['snapshot']['commit_sha'] or record['snapshot_sha256']!=context['snapshot']['snapshot_sha256']
+                        or len(records)>=18 or proof['schema']!=SCHEMA or proof['context_sha256']!=context_sha or proof['index']!=len(records)
+                        or proof['previous_record_canonical_sha256']!=previous or type(proof['provider_calls']) is not int
+                        or not last_calls<=proof['provider_calls']<=len(attempts)):
+                    raise ValueError('Recovery stage sequence/source/accounting changed')
+                records.append(record);inventory.append(ref);previous=digest(record);last_calls=proof['provider_calls']
+            segments.append({'job_id':identifier_here,'request':request,'attempts':local_attempts,'usage':usage,
+                'input_binding':input_binding,'stages':[{'stage':ref['stage'],'sha256':ref['sha256']} for _,ref in local]})
+            binding=source_binding(segments,inventory,context,policy)
         if admission and (binding['job_policy_sha256']!=job_policy_sha256() or context['policy_sha256']!=core_policy()):
             raise ValueError('Recovery admission policy changed')
-        return row,records,context,binding
+        return chain[-1][0],records,context,binding,deepcopy(segments)
 
     def _invoke(self,context,records,prior,*,complete,on_stage,on_attempt):
         options=deepcopy(context['options'])
@@ -185,21 +225,26 @@ class StageRecoveryJobs:
         if not self.host.capacity.acquire(blocking=False):raise RuntimeError('Queue is full; wait for current work')
         try:
             try:row,records,context,binding,paid,next_stage=self.admit(identifier)
+            except RecoveryBudgetExhausted as error:
+                return {'available':False,'source_job_id':identifier,'reason':'original_call_budget_exhausted',
+                    'prior_provider_calls':error.used,'max_provider_calls':error.limit,'automatic_retry':False,'model_calls':0}
             except (ValueError,KeyError,TypeError,AttributeError,OSError,sqlite3.Error):
                 return {'available':False,'source_job_id':identifier,'reason':'no_valid_owned_recovery_journal','model_calls':0}
             return {'schema':'product_stage_recovery_preview_v1','available':True,'source_job_id':identifier,
                 'binding_sha256':binding['sha256'],'context_sha256':binding['context_sha256'],
                 'commit_sha':binding['commit_sha'],'provider':binding['provider'],'depth':binding['depth'],
+                'root_job_id':binding.get('root_job_id',identifier),
+                'source_job_ids':[s['job_id'] for s in binding.get('source_chain',[])] or [identifier],
                 'completed_stages':[r['stage'] for r in records],'next_stage':next_stage,
-                'prior_provider_calls':binding['prior_provider_calls'],'max_provider_calls':
-                    0 if binding['provider']=='none' else 9 if binding['depth']=='planned' else 6 if binding['depth']=='deep' else 4,
+                'prior_provider_calls':binding['prior_provider_calls'],'max_provider_calls':recorded_call_limit(context,records),
                 'requires_api':paid,'automatic_retry':False,'model_calls':0}
         finally:self.host.capacity.release()
 
-    def _intent(self,identifier,request):
-        db=self._db()
+    def _saved_intent(self,identifier,request,*,wait_for_dispatch=False):
+        db=(self._db() if wait_for_dispatch else sqlite3.connect(
+            (self.host.directory/'stage_recovery.sqlite').as_uri()+'?mode=ro',uri=True,timeout=30))
         try:
-            db.execute('BEGIN IMMEDIATE')
+            if wait_for_dispatch:db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT binding_sha,target_job,binding,requires_api FROM intents WHERE source_job=?',(request['source_job_id'],)).fetchone()
             db.commit()
         finally:db.close()
@@ -210,8 +255,14 @@ class StageRecoveryJobs:
                 or any(saved.get(k)!=request.get(k) for k in ('mode','provider','depth'))
                 or request!={'mode':'stage_resume','provider':binding['provider'],'depth':binding['depth'],
                     'source_job_id':binding['source_job_id'],'binding_sha256':binding['sha256'],'requires_api':bool(row[3])}
-                or self.source(request['source_job_id'])[3]!=binding):
+                or type(request['requires_api']) is not bool
+                or binding.get('sha256')!=digest({k:v for k,v in binding.items() if k!='sha256'})):
             raise ValueError('Saved recovery execution authority changed')
+        return binding
+
+    def _intent(self,identifier,request):
+        binding=self._saved_intent(identifier,request,wait_for_dispatch=True)
+        if self.source(request['source_job_id'])[3]!=binding:raise ValueError('Saved recovery source changed')
         return binding
 
     def submit(self,identifier,request):
@@ -316,7 +367,8 @@ class StageRecoveryJobs:
                 or digest(pack['case'])!=digest(context['case']) or digest(pack['snapshot'])!=digest(context['snapshot'])
                 or value.get('context_sha256')!=binding['context_sha256'] or value.get('policy_sha256')!=binding['core_policy_sha256']
                 or set(value)!={'schema','context_sha256','policy_sha256','reused_stages','inherited_provider_calls',
-                    'new_provider_calls','max_provider_calls','call_count_kind','automatic_retry','billing_verified'}
+                    'new_provider_calls','max_provider_calls','call_count_kind','automatic_retry','billing_verified'}|
+                    ({'effective_max_provider_calls'} if 'effective_max_provider_calls' in value else set())
                 or value.get('schema')!=SCHEMA or value.get('max_provider_calls')!=limit
                 or value.get('call_count_kind')!='attempt_upper_bound' or value.get('automatic_retry') is not False
                 or value.get('billing_verified') is not False or type(value.get('new_provider_calls')) is not int
@@ -347,6 +399,11 @@ class StageRecoveryJobs:
                 raise ValueError('Recovered stage tail differs from its source prefix')
             previous=digest(record);last_calls=proof['provider_calls']
         full=records+new
+        effective=recorded_call_limit(context,full)
+        if (value.get('effective_max_provider_calls',limit)!=effective
+                or ('effective_max_provider_calls' in value)!=(effective<limit)
+                or binding['prior_provider_calls']+len(attempts)>effective):
+            raise ValueError('Recovered calls differ from the original effective route bound')
         case=context['case'];text=case['problem_statement']
         issue={'id':'issue_'+digest(text)[:20],'kind':'issue','locator':case.get('issue_url') or case['case_id'],
             'text':text,'sha256':sha256(text.encode()).hexdigest(),'revision':None,'available_at':case.get('issue_created_at'),

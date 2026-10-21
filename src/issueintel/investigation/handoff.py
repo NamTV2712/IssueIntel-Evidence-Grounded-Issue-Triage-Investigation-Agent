@@ -115,17 +115,23 @@ class Handoffs:
                 recovery=pack.get('resumed_from') or pack.get('finalized_from')
                 if pack.get('recovered_from'):
                     stage_source=pack['recovered_from']['source']
-                    original,_,_,binding=self.host.stage_recoveries.source(job_id)
+                    original,_,_,binding,segments=self.host.stage_recoveries._source_state(job_id)
                     if stage_source!=binding:raise ValueError('Stage recovery handoff source changed')
                     child_row=json.loads(self.host._job_path(child['job_id']).read_bytes())
                     witness={'schema':'product_stage_handoff_v1','source':binding,'source_request':original['request'],
                         'source_attempts':original['pipeline_attempts'],'new_attempts':child_row['pipeline_attempts'],
                         'source_usage':{'tracking':original.get('usage_tracking'),'receipts':original.get('usage_receipts',{})},
                         'requires_api':child_row['request']['requires_api']}
+                    if binding['schema']=='product_stage_recovery_source_v2':
+                        witness={'schema':'product_stage_handoff_v2','source':binding,'source_chain':segments,
+                            'new_attempts':child_row['pipeline_attempts'],'requires_api':child_row['request']['requires_api']}
                     add('runs/'+child['job_id']+'/stage-recovery.json',_json(witness),'stage_recovery_source')
                     for stage in binding['stages']:
-                        name=prefix+'stages/'+stage['stage']+'.json'
-                        if name not in files:add(name,self.host.stage_bytes(job_id,stage['stage']),'recovery_checkpoint')
+                        owner=stage.get('owner_job_id',job_id);name='runs/'+owner+'/stages/'+stage['stage']+'.json'
+                        if owner not in included:raise ValueError('Missing included recovery stage owner')
+                        raw_stage=self.host.stage_bytes(owner,stage['stage'])
+                        if portable_verify.sha(raw_stage)!=stage['sha256']:raise ValueError('Recovery checkpoint changed during handoff')
+                        if name not in files:add(name,raw_stage,'recovery_checkpoint')
                     for stage in child_row.get('stage_checkpoints',{}):
                         name='runs/'+child['job_id']+'/stages/'+stage+'.json'
                         if name not in files:add(name,self.host.stage_bytes(child['job_id'],stage),'recovery_checkpoint')

@@ -46,7 +46,7 @@ Danh sách dưới đây đối chiếu F01–F20 của proposal; không coi roa
 | F07 | Generation 3–5 hypotheses, support/counter IDs; đồ thị và bảng đối chiếu từng cặp từ báo cáo lưu sẵn. Product có kế hoạch bổ sung 0–3 kiểm tra phân biệt, điều kiện kiểm soát, kết quả A/B và dự đoán A/B/unknown cho từng giả thuyết. Gợi ý theo số cặp A/B do model nêu và công sức ước tính; chưa đo chất lượng phân biệt hoặc suy ra nguyên nhân. |
 | F08 | Kiểm citation/hash, tìm thêm code ở Deep/Planned, critique riêng và abstention. Bảng đối chiếu lộ các mục thiếu từ metadata và nhận xét model cần xem lại; chưa coi đây là đánh giá sufficiency/nguyên nhân. Planned dừng rõ khi query/evidence không đổi; counter có thể `not_found`. |
 | F09 | Câu hỏi intake theo mẫu và câu hỏi riêng từ issue/code/giả thuyết đã lưu; Việt/Anh, có lý do hỏi/cách dùng câu trả lời/refs. Nhận trả lời một phần/“chưa biết”, khóa và replay nguồn/Q&A. Planned Web rules v3 có câu hỏi trong trạng thái chờ, continuation cùng commit không reset budget; generic follow-up bị chặn khi đang chờ. Tạo câu hỏi thích nghi qua một paid attempt được duyệt riêng; chất lượng phân biệt và dữ kiện mới vẫn unverified. |
-| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có verifier/export recovery riêng. Original Workbench Quick/Deep/rules Planned mới có preview/consent phục hồi retrieval/generation/rounds từ journal, owned source/lease, inherited attempt bounds, lineage và portable handoff. Mỗi nguồn giữ một intent; mục 8 còn thiếu CLI/descendants/continuations và nghiệm thu toàn phạm vi, không retry API ngầm. |
+| F10 | Durable job/artifact receipts, plan ledger và repository page checkpoints; product có verifier/export recovery riêng. Original Workbench/durable CLI Quick/Deep/rules Planned và chuỗi stage-resume có preview/consent, owned prefix/lease, inherited attempt bounds, lineage và portable handoff. Mỗi nguồn giữ một intent; mục 8 còn thiếu phục hồi lỗi của Jev/follow-up/answer continuations và nghiệm thu toàn phạm vi, không retry API ngầm. |
 | F11 | Cache Git/snapshot/graph, follow-up lineage, saved-run retrieval; kết nối tự backfill/tiếp tục, webhook cập nhật canonical và tracked branch. Memory có as-of proof còn roadmap. |
 | F12 | Quick lấy evidence gọn; Deep thêm tối đa một lượt. Planned chọn một đến ba vòng theo dấu hiệu file/gap/counter còn thiếu từ seed; tối đa chín Groq calls kể cả repair. Web rules v3 kế thừa root route/limits và counts qua continuation; CLI/Jev giữ v2, library mặc định v1. Đây là heuristic quan sát, chưa phải đánh giá độ khó/chất lượng. Routing benchmark giữ policy/pilot riêng. |
 | F13 | Trạng thái/hủy, token và USD theo phiên từ receipt riêng; đang chạy/lỗi/interrupted vẫn xem được cận giữ chỗ. |
@@ -149,7 +149,7 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `GET /api/jobs/<id>/stages/<stage>`: tải nguyên bytes checkpoint đã ghi, kể cả job thất bại; kiểm path/hash và session.
 - `GET /api/jobs/<id>/finalization`: preview khả năng kết xuất từ generation/verifier đã hoàn tất; không gọi model, đọc Git hoặc cấu hình API.
 - `POST /api/jobs/<id>/finalization`: `verification_input_sha256`, `verification_sha256`, `confirmation: finalize_saved_checkpoints_without_api`; một intent bền vững cho nguồn, tạo job `provider: none` và `depth: export`.
-- `GET /api/jobs/<id>/stage-recovery`: explicit preview của stopped original product journal; replay source/prefix với zero provider calls, trả completed/next stage, inherited attempt bound, binding SHA và `requires_api`.
+- `GET /api/jobs/<id>/stage-recovery`: explicit preview của stopped original product journal hoặc stage-resume descendant; replay source/prefix với zero provider calls, trả completed/next stage, inherited attempt bound, binding SHA, `requires_api`, root job ID và source job IDs.
 - `POST /api/jobs/<id>/stage-recovery`: exact `{binding_sha256, confirmation}` với `resume_product_stages_with_api_cost` hoặc `resume_product_stages_without_api` theo preview. Một durable intent/source, trả cùng job `stage_resume` nếu gửi lặp; giữ queue/session/Origin guards, không cấp retry mới.
 - `POST /api/jobs/<id>/github-preview`: bản nháp comment từ job GitHub đã hoàn tất.
 - `POST /api/jobs/<id>/github-publish`: body SHA256 và xác nhận cụ thể từ người dùng.
@@ -594,10 +594,46 @@ auto-sync xác nhận observer CLI không đổi connection hoặc gọi GitHub 
 Smoke bằng tiến trình CLI thật trên repo tổng hợp phục hồi một lỗi export với
 preview 0 model calls, 0 reservation mới và gửi lặp trả cùng child. Không có
 provider thật, Holdout/Live hoặc evaluation.
+CI toàn bộ của commit CLI `93743d0` đã
+[thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39524327760).
+
+Mốc tiếp theo nhận **phiên stage-resume bị lỗi tiếp**. Source binding v2 ghép
+prefix và global attempt sequence từ tối đa tám phiên nguồn; từng stage giữ
+owner job/raw SHA riêng. Mỗi cạnh phải có durable intent đúng request và input
+binding; missing/unknown attempts, trùng receipt owner, changed source/policy
+hoặc exhausted bound thì không có call mới. Mỗi nguồn lỗi cần xác nhận riêng;
+gửi lặp cùng nguồn vẫn trả cùng child. Generation/rounds đã hoàn tất không chạy
+lại, kể cả khi chỉ còn critic; old receipts và source files giữ nguyên chủ sở hữu.
+Root v1 không bị migrate; saved read/duplicate/handoff vẫn dùng recorded policy.
+Planned mới giữ cận riêng 5/7/9 sau routing, ngoài profile chung tối đa 9;
+mọi attempt cũ vẫn trừ vào cận này. Context ghi policy marker và pinned parse-error
+count; seed/evidence/skipped files tái dựng routing trước call. Telemetry có
+`effective_max_provider_calls` khi cần, không được xóa/tăng rồi reseal để qua
+validator hoặc offline verification. Trước seed chưa biết routing dùng profile
+9; sau khi biết cận thấp hơn thì không gọi tiếp hoặc công bố pack vượt cận.
+
+Handoff v2 bao gồm cả các tổ tiên lỗi, raw stages tại owner path và witness cho
+mọi request/attempt/usage/input binding. Verifier độc lập tính lại prefix, các
+binding và cumulative debit, giữ giới hạn included-byte consistency. Planned
+waiting sau nhiều lần lỗi mang mọi debit vào answer continuation đúng một lần;
+`recovery_attempt_debit` chỉ tách failed attempts có nguồn khỏi completed-stage
+generation/repair counts, không tăng call limit. Legacy v3 trong cận cũ giữ shape
+và plan SHA. UI Việt/Anh hiển thị root, số nguồn và tổng lượt thử, không tự retry.
+Khi hết cận, preview trả `original_call_budget_exhausted` cùng used/max; UI
+giải thích giới hạn và không cung cấp nút xác nhận gọi tiếp. Bộ frontend đạt
+**259 test** và được đưa vào CI, gồm các cận Planned và chuỗi nguồn. QA trình
+duyệt tổng hợp đã kiểm explicit consent, reuse generation khi critic lỗi,
+dossier ba phiên, preview handoff gồm hai tổ tiên lỗi, Việt/Anh, light mode,
+bàn phím và màn hình 390px không tràn ngang. Ba bộ fixture đã lưu từ các mốc
+trước được mở/xuất lại khi cấm config/Git/provider; source bytes giữ nguyên.
+Bộ hồi quy cuối đạt **491 test backend**: fault injection ở generation/critic,
+từng vòng Planned, zero-API export, concurrent intent, giới hạn ancestry,
+source/receipt tampering, route cap và debit sau nhiều lần lỗi. Mọi provider
+trong bộ kiểm là giả lập; không có gọi API thật hoặc mở benchmark/evaluation.
 
 Mục 8 vẫn chưa nghiệm thu toàn bộ: custom/Jev,
-follow-up, phục hồi lỗi của chính answer continuation và recovery descendants
-còn thiếu. Luồng trả lời đã có thể nhận recovered waiting parent; điều này không
+follow-up và phục hồi lỗi của chính answer continuation còn thiếu.
+Luồng trả lời đã có thể nhận recovered waiting parent; điều này không
 cấp quyền resume tùy ý những phiên con đó hoặc bỏ cổng chi tiêu/evaluation.
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
@@ -609,28 +645,32 @@ D01 đã đóng với commit `c3f764e`; D02 đã đóng với commit `30fb2f0`; 
 với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả bốn commit
 đều thành công. Mục chưa nghiệm thu vẫn mở.
 
-| Mã | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
+Danh sách sản phẩm dưới đây dùng số mục 1–13 và mức ưu tiên P0/P1/P2,
+đúng với backlog tác giả đã duyệt. Các mã D01–D13 trong ghi chép lịch sử và
+GitHub issue tương ứng lần lượt với mục 1–13; chúng không phải nhóm ưu tiên khác.
+
+| Mục | Ưu tiên | Công việc và nghiệm thu | Trạng thái |
 |---|---|---|---|
-| D01 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
-| D02 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
-| D03 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
-| D04 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
-| D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
-| D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
-| D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
-| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core, original Workbench và opt-in durable CLI có journal/attempts/queued-worker lease, explicit consent, source/policy guards và lineage/handoff; tương thích verifier/export cũ. Trả lời sau recovered waiting giữ failed attempt debit qua nhiều phiên. Còn phục hồi lỗi của descendants/Jev/follow-up/answer continuations và nghiệm thu toàn mục |
-| D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
-| D10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
-| D11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
-| D12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
-| D13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
+| 1 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
+| 2 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
+| 3 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
+| 4 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chờ cấu hình App/HTTPS và nghiệm thu thật |
+| 5 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
+| 6 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
+| 7 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
+| 8 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core, original Workbench/durable CLI và chuỗi stage-resume có journal/attempts/lease, explicit consent, source/policy guards và lineage/handoff; tương thích verifier/export cũ. Trả lời sau recovered waiting giữ failed attempt debit qua nhiều phiên. Còn phục hồi lỗi của Jev/follow-up/answer continuations và nghiệm thu toàn mục |
+| 9 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
+| 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
+| 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
+| 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
+| 13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
 | V01 | Validation | Diagnostic accepted Main Dev: pinned comparative retrieval/graph/history/verifier/counter-search, localization/grounding/cost/latency. Giữ pilot và gold boundaries. | Chưa nghiệm thu; tái dùng diagnostic hợp lệ khi phù hợp |
 | V02 | Validation | Đo usefulness của câu hỏi/checks theo rubric; phân biệt model/user reports/human review và giới hạn nhãn. | Chưa nghiệm thu |
 | V03 | Validation | So Jev/rules cùng công cụ/model/budget, decision/output quality, fallback/latency/USD. | Cần cấu hình và quyền chi tiêu Typesafe riêng; 4 smoke calls không cấp quyền tiếp |
 | V04 | Validation | Pin phiên bản/protocol; explicit recorded authorization + open_test_split trước Holdout; Live đủ temporal proof mới được nhận. | Chưa mở; không tuning test/live hoặc chờ đủ 400 để phát triển product |
 
-Thứ tự ưu tiên: D01 → D02 → D03 → D05 → D06 → D08. D04 chạy khi có cấu hình
-thật; D09–D13 và các diagnostic được triển khai/nghiệm thu theo dependencies.
+Thứ tự ưu tiên: 1 → 2 → 3 → 5 → 6 → 8. Mục 4 chạy khi có cấu hình
+thật; các mục còn lại và diagnostic được triển khai/nghiệm thu theo dependencies.
 
 ## Kiểm nhận định (D03 — F08)
 

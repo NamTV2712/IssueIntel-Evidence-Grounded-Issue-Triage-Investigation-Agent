@@ -76,6 +76,16 @@ test('server preview cannot restore the logical budget that recovery already con
   a.answer('unknown');a.consent();await a.submit();assert.equal(a.calls.filter(([,body])=>body).length,0);
 });
 
+test('waiting descendants keep an explicit inherited debit inside the same cumulative budget',async()=>{
+  const data=fixture({inherited:true});data.plan.inherited.counts.provider_calls=3;
+  data.plan.inherited.recovery_attempt_debit=2;data.plan.waiting.remaining.provider_calls-=2;
+  const a=boot(()=>previewValue(data));a.render(data);assert.equal(a.inputs().length,2);
+  assert.match(a.text(a.target),/Lượt thử API trong ngân sách\s+4 \/ 9/);assert.match(a.text(a.target),/Call API còn lại\s+5/);
+  await a.preview();a.answer('unknown');a.consent();assert.equal(a.button('Tiếp tục Planned với dữ kiện này').disabled,false);
+  for(const bad of [-1,0,3,true]){const altered=clone(data),b=boot();altered.plan.inherited.recovery_attempt_debit=bad;
+    b.render(altered);assert.equal(b.inputs().length,0);assert.equal(b.calls.length,0);}
+});
+
 test('unknown recovery accounting hides continuation controls while leaving the saved report usable',()=>{
   const mutations=[d=>delete d.pack.stage_recovery,d=>d.pack.stage_recovery.new_provider_calls=-1,
     d=>d.pack.stage_recovery.inherited_provider_calls=0,d=>d.pack.stage_recovery.new_provider_calls=10,

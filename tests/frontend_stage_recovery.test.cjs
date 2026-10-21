@@ -77,6 +77,57 @@ test('legacy verifier/export, benchmark and running sources do not expose the ne
   }assert.equal(a.calls.length,0);
 });
 
+test('failed recovered source can resume a critic with its original global attempt bound',async()=>{
+  const r={...row(),mode:'stage_resume',pipeline_context_sha256:hash('d'),
+    stage_checkpoints:{seed_generation:{sha256:hash('b')},verification_input:{sha256:hash('e')}}};
+  const a=boot(async(route,body,normal)=>{
+    const value=await normal(route,body);if(!body)Object.assign(value,{root_job_id:id('b'),source_job_ids:[id('b'),r.id],
+      prior_provider_calls:3,next_stage:'verification',completed_stages:[...value.completed_stages,'seed_generation','verification_input']});
+    return value;
+  });
+  a.show(r);assert.equal(a.nodes.get('stage-recovery-panel').hidden,false);assert.equal(a.calls.length,0);
+  await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/3\/4/);
+  assert.match(a.text(a.area),new RegExp('Lượt gốc: '+id('b')));assert.match(a.text(a.area),/Đã ghép nguồn từ 2 phiên/);
+  assert.equal(a.button('Tiếp tục phần còn thiếu').disabled,true);
+  a.language('en');assert.match(a.text(a.area),/Combined sources from 2 runs/);
+  a.consent().checked=true;a.consent().onchange();await a.click('Continue missing work');
+  assert.equal(a.events[0].detail.source_job_id,r.id);assert.equal(a.calls[1][1].confirmation,'resume_product_stages_with_api_cost');
+});
+
+test('unknown recovered context does not expose any continuation action',()=>{
+  const a=boot();a.show({...row(),mode:'stage_resume',stage_checkpoints:{}});
+  assert.equal(a.nodes.get('stage-recovery-panel').hidden,true);assert.equal(a.calls.length,0);
+});
+
+test('Planned preview respects a narrower 5/7/9 route bound and rejects attempts past it',async()=>{
+  for(const cap of [5,7,9]){const r={...row(),depth:'planned'},a=boot(async(route,body,normal)=>{
+      const p=await normal(route,body);if(!body)Object.assign(p,{max_provider_calls:cap,prior_provider_calls:cap-1,next_stage:'verification'});return p;});
+    a.show(r);await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),new RegExp((cap-1)+'/'+cap));
+    assert.ok(a.consent());
+  }
+  const a=boot(async(route,body,normal)=>{const p=await normal(route,body);Object.assign(p,{max_provider_calls:7,prior_provider_calls:8});return p;});
+  a.show({...row(),depth:'planned'});await a.click('Kiểm tra các stage để tiếp tục');assert.equal(a.consent(),undefined);
+});
+
+test('exhausted inherited route budget is explicit and never offers another paid call',async()=>{
+  const a=boot(()=>({available:false,source_job_id:id('a'),reason:'original_call_budget_exhausted',
+    prior_provider_calls:7,max_provider_calls:7,automatic_retry:false,model_calls:0}));
+  a.show({...row(),depth:'planned',mode:'stage_resume',pipeline_context_sha256:hash('d'),stage_checkpoints:{}});
+  await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/Đã dùng 7\/7 lượt thử/);
+  assert.equal(a.consent(),undefined);a.language('en');assert.match(a.text(a.area),/Used 7\/7 attempts/);assert.equal(a.calls.length,1);
+});
+
+test('altered recovery ancestry cannot enable consent or another paid request',async()=>{
+  const mutations=[p=>p.root_job_id=id('c'),p=>p.source_job_ids.reverse(),p=>p.source_job_ids=[id('a'),id('a')],
+    p=>p.source_job_ids=[],p=>p.source_job_ids=[id('b'),'bad',id('a')],p=>p.source_job_ids=Array.from({length:9},(_,i)=>String(i).repeat(24))];
+  for(const mutate of mutations){const a=boot(async(route,body,normal)=>{const p=await normal(route,body);
+      Object.assign(p,{root_job_id:id('b'),source_job_ids:[id('b'),id('a')]});mutate(p);return p;});
+    a.show({...row(),mode:'stage_resume',pipeline_context_sha256:hash('d'),stage_checkpoints:{}});
+    await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/Chưa có journal hợp lệ/);
+    assert.equal(a.consent(),undefined);assert.equal(a.calls.length,1);
+  }
+});
+
 test('component is bilingual, inert and wired to the Workbench',()=>{
   for(const m of code.matchAll(/\bt\(['"]([^'"]+)['"]/g)){assert.ok(messages[m[1]]?.vi,m[1]);assert.ok(messages[m[1]]?.en,m[1]);}
   const html=fs.readFileSync(path.join(dir,'index.html'),'utf8');assert.match(html,/id="stage-recovery-panel"/);assert.match(html,/src="\/stage-recovery.js"/);

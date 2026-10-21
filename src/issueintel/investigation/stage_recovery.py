@@ -13,6 +13,32 @@ from issueintel.runtime.io import digest
 
 
 SCHEMA='product_pipeline_recovery_v1'
+BUDGET_POLICY='profile_and_seed_route_v1'
+
+
+class RecoveryBudgetExhausted(ValueError):
+    def __init__(self,used,limit):
+        super().__init__('Original product provider-call budget exhausted')
+        self.used=used;self.limit=limit
+
+
+def recorded_call_limit(context,records):
+    """Recorded policy controls new attempts; old saved contexts stay readable."""
+    options=context['options']
+    profile=0 if options['provider']=='none' else 9 if options['planned_workflow'] else 6 if options['refinement_rounds'] else 4
+    policy=context.get('call_budget_policy')
+    if policy is None:return profile
+    if policy!=BUDGET_POLICY or not options['planned_workflow']:raise ValueError('Unknown recovery call budget policy')
+    seed=next((r for r in records if r['stage']=='seed_generation'),None)
+    if seed is None or profile==0:return profile
+    entry=next((r for r in records if r['stage']=='planned_input'),None)
+    if entry is None:raise ValueError('Missing original Planned budget input')
+    count=context['call_budget_inputs']['parse_error_count']
+    if type(count) is not int or not 0<=count<=len(context['snapshot']['files']):
+        raise ValueError('Invalid recorded Planned routing input')
+    from .planner import routing,limits
+    route=routing(entry['payload']['evidence'],context['snapshot'],{'parse_errors':range(count)},seed['payload']['annotation'])
+    return min(profile,limits(route['max_retrieval_rounds'])['max_provider_calls'])
 
 
 def policy_sha256():
@@ -57,6 +83,8 @@ class StageTape:
         descriptor['files']=[{k:v for k,v in file.to_dict().items() if k!='text'} for file in snapshot.files]
         self.context={'schema':SCHEMA,'case':deepcopy(case),'snapshot':descriptor,
             'graph_sha256':digest(graph.to_dict()),'options':deepcopy(options),'policy_sha256':policy_sha256()}
+        if options['planned_workflow']:
+            self.context.update(call_budget_policy=BUDGET_POLICY,call_budget_inputs={'parse_error_count':len(graph.parse_errors)})
         self.context_sha=digest(self.context)
         self.base={'schema':'product_investigation_stage_v1','case_id':case['case_id'],
             'query_sha256':sha256(case['problem_statement'].encode()).hexdigest(),
@@ -125,19 +153,27 @@ class StageTape:
 
     def run(self,stage,inputs,produce):
         cached=self._cached(stage,inputs)
-        if cached is not None:return cached
+        if cached is not None:
+            self.check_call_limit();return cached
         self.running_stage=stage
         try:payload=produce()
         finally:self.running_stage=None
         self.commit(stage,payload,inputs=inputs)
+        self.check_call_limit()
         return deepcopy(payload)
+
+    def check_call_limit(self):
+        limit=recorded_call_limit(self.context,self.completed)
+        if self.calls>limit:raise RecoveryBudgetExhausted(self.calls,limit)
+        return limit
 
     def wrap(self,complete):
         if hasattr(complete,'model') and complete.model!=self.base['model']:
             raise ValueError('Recovery transport model differs from its saved recipe')
         def call(fn,*args,**kwargs):
             self.guard()
-            if self.calls>=self.limit:raise ValueError('Original product provider-call budget exhausted')
+            limit=self.check_call_limit()
+            if self.calls>=limit:raise RecoveryBudgetExhausted(self.calls,limit)
             self.calls+=1  # Count attempted calls, including transport/schema failures.
             if self.on_attempt is not None:
                 self.on_attempt({'schema':'product_pipeline_call_attempt_v1','context_sha256':self.context_sha,
@@ -157,9 +193,11 @@ class StageTape:
 
     def finish(self,pack):
         self.guard()
+        effective=self.check_call_limit()
         if len(self.completed)<len(self.records):raise ValueError('Recovery left completed source stages unused')
         pack['stage_recovery']={'schema':SCHEMA,'context_sha256':self.context_sha,
             'policy_sha256':self.context['policy_sha256'],'reused_stages':deepcopy(self.reused),
             'inherited_provider_calls':self.inherited,'new_provider_calls':self.calls-self.inherited,
             'max_provider_calls':self.limit,'call_count_kind':'attempt_upper_bound','automatic_retry':False,'billing_verified':False}
+        if effective<self.limit:pack['stage_recovery']['effective_max_provider_calls']=effective
         return pack

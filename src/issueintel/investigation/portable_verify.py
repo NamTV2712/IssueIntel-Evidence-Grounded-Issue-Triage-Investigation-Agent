@@ -120,42 +120,120 @@ def _verify_memory(pack,parent,parent_raw,identifier):
         raise ValueError('Changed portable memory query or child binding')
 
 
+def _stage_chain_binding(segments,inventory,context,policy):
+    """Standalone declarative projection; no runtime service or SQLite import."""
+    checksum=lambda v:sha(encoded(v));last=segments[-1];root=segments[0]['request'];many=len(segments)>1
+    binding={'schema':'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+        'source_job_id':last['job_id'],'source_request_sha256':checksum(last['request']),'context_sha256':checksum(context),
+        'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
+        'attempts_sha256':checksum([a for s in segments for a in s['attempts']]),
+        'prior_provider_calls':sum(len(s['attempts']) for s in segments),
+        'usage_sha256':checksum([dict(job_id=s['job_id'],**s['usage']) for s in segments] if many else last['usage']),
+        'job_policy_sha256':policy,'core_policy_sha256':context['policy_sha256'],
+        'provider':root['provider'],'depth':root['depth'],'commit_sha':context['snapshot']['commit_sha'],
+        'snapshot_sha256':context['snapshot']['snapshot_sha256']}
+    if many:binding.update(root_job_id=segments[0]['job_id'],source_chain=[{
+        'job_id':s['job_id'],'request_sha256':checksum(s['request']),'attempts_sha256':checksum(s['attempts']),
+        'usage_sha256':checksum(s['usage']),'source_binding_sha256':(s['input_binding'] or {}).get('sha256')} for s in segments])
+    return dict(binding,sha256=checksum(binding))
+
+
+def _verify_stage_chain(witness,source,runs,contents,names):
+    checksum=lambda v:sha(encoded(v));segments=witness['source_chain']
+    if (set(witness)!={'schema','source','source_chain','new_attempts','requires_api'}
+            or witness['schema']!='product_stage_handoff_v2' or type(segments) is not list or not 2<=len(segments)<=8
+            or source.get('root_job_id')!=segments[0]['job_id'] or source['source_job_id']!=segments[-1]['job_id']
+            or not _hash_string(source['job_policy_sha256'])):
+        raise ValueError('Changed portable recovery chain witness')
+    seen=set();records=[];inventory=[];built=None;receipt_ids=set();context=None;attempts=[]
+    for index,segment in enumerate(segments):
+        if set(segment)!={'job_id','request','attempts','usage','input_binding','stages'}:
+            raise ValueError('Changed portable recovery segment structure')
+        identifier=segment['job_id'];request=segment['request'];run=runs[identifier]
+        if (identifier in seen or run['status'] not in {'failed','interrupted','cancelled'}
+                or run['request_sha256']!=checksum(request)
+                or request.get('mode')!=run['mode'] or any(request[k]!=run[k] or request[k]!=source[k] for k in ('provider','depth'))
+                or request.get('controller','rules')!='rules' or segment['input_binding']!=built
+                or type(segment['attempts']) is not list or type(segment['stages']) is not list
+                or type(segment['usage']) is not dict or set(segment['usage'])!={'tracking','receipts'}
+                or type(segment['usage']['receipts']) is not dict or receipt_ids&set(segment['usage']['receipts'])
+                or segment['usage']['tracking'] is True and len(segment['usage']['receipts'])>len(segment['attempts'])):
+            raise ValueError('Changed portable recovery segment owner/accounting')
+        seen.add(identifier);receipt_ids.update(segment['usage']['receipts'])
+        if index==0:
+            if run['mode'] not in {'example','local','github'} or run['parent_job_id'] is not None:
+                raise ValueError('Changed portable recovery root authority')
+        elif (run['mode']!='stage_resume' or run['parent_job_id']!=segments[index-1]['job_id']
+                or request!={'mode':'stage_resume','provider':source['provider'],'depth':source['depth'],
+                    'source_job_id':segments[index-1]['job_id'],'binding_sha256':built['sha256'],
+                    'requires_api':request.get('requires_api')}
+                or type(request['requires_api']) is not bool
+                or request['requires_api'] is False and segment['attempts']):
+            raise ValueError('Changed portable ancestor recovery intent')
+        attempts.extend(segment['attempts']);local=[]
+        for ref in segment['stages']:
+            if set(ref)!={'stage','sha256'} or ref['stage'] not in names:
+                raise ValueError('Changed portable ancestor stage reference')
+            raw=contents.get('runs/'+identifier+'/stages/'+ref['stage']+'.json',b'')
+            if sha(raw)!=ref['sha256']:raise ValueError('Missing or changed ancestor recovery stage bytes')
+            local.append((parsed(raw),dict(ref,owner_job_id=identifier)))
+        local.sort(key=lambda item:item[0]['recovery']['index'])
+        for record,ref in local:
+            if (record['stage']!=ref['stage'] or record['recovery']['index']!=len(records)
+                    or type(record['recovery']['provider_calls']) is not int or record['recovery']['provider_calls']>len(attempts)):
+                raise ValueError('Changed portable stage ownership/order/attempt bound')
+            records.append(record);inventory.append(ref)
+        if context is None:
+            if not records or records[0]['stage']!='execution_input':raise ValueError('Missing portable root journal')
+            context=records[0]['payload']['context']
+        built=_stage_chain_binding(segments[:index+1],inventory,context,source['job_policy_sha256'])
+    if built!=source:raise ValueError('Changed portable aggregate recovery binding')
+    return segments[0]['request'],records,attempts
+
+
 def _verify_stage_recovery(identifier,pack,runs,contents):
     """Recorded journal/attempt consistency only; no Git, AST or provider replay."""
     link=pack['recovered_from'];source=link['source'];run=runs[identifier]
     witness=parsed(contents.get('runs/'+identifier+'/stage-recovery.json',b'{}'))
     parent=runs[source['source_job_id']]
     checksum=lambda value:sha(encoded(value))
+    names={'execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval',
+        'refined_generation','verification_input','verification','planned_input','planned_complete',
+        *('planned_retrieval_'+str(n) for n in range(1,4)),*('planned_generation_'+str(n) for n in range(1,4))}
     if (link!={'schema':'product_stage_resume_v1','source':source,'automatic_retry':False}
-            or not sealed(source) or source['schema']!='product_stage_recovery_source_v1'
+            or not sealed(source) or source['schema'] not in {'product_stage_recovery_source_v1','product_stage_recovery_source_v2'}
             or run['mode']!='stage_resume' or run['parent_job_id']!=parent['job_id']
-            or parent['mode'] not in {'example','local','github'} or parent['parent_job_id'] is not None
             or parent['status'] not in {'failed','interrupted','cancelled'}
             or parent['request_sha256']!=source['source_request_sha256']
-            or witness.get('schema')!='product_stage_handoff_v1' or witness['source']!=source
-            or checksum(witness['source_request'])!=source['source_request_sha256']
-            or checksum(witness['source_attempts'])!=source['attempts_sha256']
-            or checksum(witness['source_usage'])!=source['usage_sha256']):
+            or witness['source']!=source):
         raise ValueError('Changed portable stage recovery owner/source witness')
-    request=witness['source_request']
-    if (any(request[k]!=parent[k] or request[k]!=source[k] for k in ('provider','depth'))
-            or request['mode']!=parent['mode'] or request.get('controller','rules')!='rules'
+    records=[]
+    if source['schema']=='product_stage_recovery_source_v2':
+        request,records,old_attempts=_verify_stage_chain(witness,source,runs,contents,names)
+        owner=runs[source['root_job_id']]
+    else:
+        if (parent['mode'] not in {'example','local','github'} or parent['parent_job_id'] is not None
+                or witness.get('schema')!='product_stage_handoff_v1'
+                or checksum(witness['source_request'])!=source['source_request_sha256']
+                or checksum(witness['source_attempts'])!=source['attempts_sha256']
+                or checksum(witness['source_usage'])!=source['usage_sha256']):
+            raise ValueError('Changed portable original recovery witness')
+        request=witness['source_request'];owner=parent;old_attempts=witness['source_attempts']
+        inventory=source['stages']
+        if type(inventory) is not list or not 1<=len(inventory)<=18:raise ValueError('Invalid portable recovery prefix')
+        for ref in inventory:
+            if set(ref)!={'stage','sha256'} or ref['stage'] not in names:raise ValueError('Invalid portable source stage')
+            raw=contents.get('runs/'+parent['job_id']+'/stages/'+ref['stage']+'.json',b'')
+            if sha(raw)!=ref['sha256']:raise ValueError('Missing or changed source recovery stage bytes')
+            records.append(parsed(raw))
+    if (any(request[k]!=owner[k] or request[k]!=source[k] for k in ('provider','depth'))
+            or request['mode']!=owner['mode'] or request.get('controller','rules')!='rules'
             or source['provider'] not in {'none','groq'} or source['depth'] not in {'quick','deep','planned'}):
         raise ValueError('Changed portable recovery product profile')
     child_request={'mode':'stage_resume','provider':source['provider'],'depth':source['depth'],
         'source_job_id':parent['job_id'],'binding_sha256':source['sha256'],'requires_api':witness['requires_api']}
     if checksum(child_request)!=run['request_sha256'] or type(witness['requires_api']) is not bool:
         raise ValueError('Changed portable recovery execution intent binding')
-    names={'execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval',
-        'refined_generation','verification_input','verification','planned_input','planned_complete',
-        *('planned_retrieval_'+str(n) for n in range(1,4)),*('planned_generation_'+str(n) for n in range(1,4))}
-    inventory=source['stages'];records=[]
-    if type(inventory) is not list or not 1<=len(inventory)<=18:raise ValueError('Invalid portable recovery prefix')
-    for ref in inventory:
-        if set(ref)!={'stage','sha256'} or ref['stage'] not in names:raise ValueError('Invalid portable source stage')
-        raw=contents.get('runs/'+parent['job_id']+'/stages/'+ref['stage']+'.json',b'')
-        if sha(raw)!=ref['sha256']:raise ValueError('Missing or changed source recovery stage bytes')
-        records.append(parsed(raw))
     context=records[0]['payload']['context'];options=context['options'];case=context['case']
     if (records[0]['stage']!='execution_input' or checksum(context)!=source['context_sha256']
             or context['schema']!='product_pipeline_recovery_v1' or context['policy_sha256']!=source['core_policy_sha256']
@@ -173,8 +251,9 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
             or case['problem_statement']!='parser.parse_list fails on None input. Inspect how missing values are handled.'):
         raise ValueError('Changed portable example recovery query')
     limit=0 if source['provider']=='none' else 9 if source['depth']=='planned' else 6 if source['depth']=='deep' else 4
-    old_attempts=witness['source_attempts'];new_attempts=witness['new_attempts'];prior=source['prior_provider_calls']
-    if type(old_attempts) is not list or type(new_attempts) is not list or type(prior) is not int or len(old_attempts)!=prior:
+    new_attempts=witness['new_attempts'];prior=source['prior_provider_calls']
+    if (type(old_attempts) is not list or type(new_attempts) is not list or type(prior) is not int or len(old_attempts)!=prior
+            or witness['requires_api'] is False and new_attempts):
         raise ValueError('Changed portable recovery attempt inventory')
     for n,attempt in enumerate(old_attempts+new_attempts,1):
         if (attempt['provider_calls']!=n or attempt['context_sha256']!=source['context_sha256']
@@ -205,6 +284,22 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
                 or not last_calls<=proof['provider_calls']<=(prior if index<len(records) else prior+len(new_attempts))):
             raise ValueError('Changed portable recovery journal sequence/source')
         previous=checksum(record);last_calls=proof['provider_calls'];seen.add(record['stage'])
+    effective=limit;budget_policy=context.get('call_budget_policy')
+    if budget_policy is not None:
+        if budget_policy!='profile_and_seed_route_v1' or not options['planned_workflow']:
+            raise ValueError('Unknown portable recovery call budget policy')
+        seed=next((r for r in full if r['stage']=='seed_generation'),None)
+        if seed is not None and limit:
+            entry=next((r for r in full if r['stage']=='planned_input'),None)
+            if entry is None:raise ValueError('Missing portable Planned budget input')
+            count=context['call_budget_inputs']['parse_error_count']
+            if type(count) is not int or not 0<=count<=len(context['snapshot']['files']):
+                raise ValueError('Invalid portable Planned routing input')
+            route=_plan_route(entry['payload']['evidence'],context['snapshot'],{'parse_errors':range(count)},seed['payload']['annotation'])
+            effective=min(limit,2*(route['max_retrieval_rounds']+1)+1)
+    if (telemetry.get('effective_max_provider_calls',limit)!=effective
+            or ('effective_max_provider_calls' in telemetry)!=(effective<limit) or prior+len(new_attempts)>effective):
+        raise ValueError('Changed portable effective recovery route budget')
     generated=[r for r in full if r['stage'] in {'seed_generation','refined_generation','planned_generation_1','planned_generation_2','planned_generation_3'}]
     if generated and (pack['annotation']!=generated[-1]['payload']['annotation'] or generated[-1]['recovery']['input_sha256']!=
             checksum({'case_sha256':checksum(case),'evidence_sha256':checksum(pack['evidence'])})):
@@ -456,6 +551,7 @@ def _verify_planned(pack,parent=None):
         parent_plan=parent['workflow_plan'];prior_local=_local_counts(parent_plan)
         prior_inherited=parent_plan['inherited']
         prior={key:prior_local[key]+(prior_inherited['counts'][key] if prior_inherited else 0) for key in _COUNTS}
+        extra=0
         if parent.get('recovered_from'):
             # The recovery witness is independently replayed for this included
             # parent below. Its failed/in-flight attempts remain spent budget;
@@ -464,12 +560,15 @@ def _verify_planned(pack,parent=None):
             attempts=telemetry['inherited_provider_calls']+telemetry['new_provider_calls']
             if prior_inherited is not None or not prior['provider_calls']<=attempts<=parent_plan['limits']['max_provider_calls']:
                 raise ValueError('Changed recovered Planned continuation attempt budget')
+            extra=attempts-prior['provider_calls']
             prior['provider_calls']=attempts
         expected={'parent_plan_sha256':parent_plan['sha256'],
                   'root_source':prior_inherited['root_source'] if prior_inherited else parent_plan['source'],
                   'routing':parent_plan['routing'],'limits':parent_plan['limits'],'counts':prior,
                   'used_query_sha256s':sorted(_plan_used(parent_plan)),
                   'answered_fields':parent.get('continued_from',{}).get('answered_fields',[])}
+        if 'recovery_attempt_debit' in (prior_inherited or {}) or prior['provider_calls']>2*prior['generation_passes']:
+            expected['recovery_attempt_debit']=(prior_inherited or {}).get('recovery_attempt_debit',0)+extra
         if inherited!=expected or plan['routing']!=parent_plan['routing'] or plan['limits']!=parent_plan['limits']:
             raise ValueError('Changed Planned inherited root budget, counts or query history')
         _plan_counts(inherited['counts'])
