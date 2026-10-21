@@ -1067,7 +1067,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider(messages, max_output_tokens)
                 self._check_cancelled(row['id'])
-                if request['mode']=='memory_followup' or capture_policy is not None:check_observation_source()
+                if request['mode'] in {'memory_followup','planned_continuation'} or capture_policy is not None:check_observation_source()
                 return answer
             def structured(messages, *, max_output_tokens, schema):
                 nonlocal call_stage
@@ -1077,7 +1077,7 @@ class Workbench:
                 check_observation_source()
                 answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
                 self._check_cancelled(row['id'])
-                if request['mode']=='memory_followup' or capture_policy is not None:check_observation_source()
+                if request['mode'] in {'memory_followup','planned_continuation'} or capture_policy is not None:check_observation_source()
                 return answer
             if provider and hasattr(provider, 'complete_structured'):
                 complete.complete_structured = structured

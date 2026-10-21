@@ -456,6 +456,15 @@ def _verify_planned(pack,parent=None):
         parent_plan=parent['workflow_plan'];prior_local=_local_counts(parent_plan)
         prior_inherited=parent_plan['inherited']
         prior={key:prior_local[key]+(prior_inherited['counts'][key] if prior_inherited else 0) for key in _COUNTS}
+        if parent.get('recovered_from'):
+            # The recovery witness is independently replayed for this included
+            # parent below. Its failed/in-flight attempts remain spent budget;
+            # logical completed-generation calls alone would reset that debit.
+            telemetry=parent['stage_recovery']
+            attempts=telemetry['inherited_provider_calls']+telemetry['new_provider_calls']
+            if prior_inherited is not None or not prior['provider_calls']<=attempts<=parent_plan['limits']['max_provider_calls']:
+                raise ValueError('Changed recovered Planned continuation attempt budget')
+            prior['provider_calls']=attempts
         expected={'parent_plan_sha256':parent_plan['sha256'],
                   'root_source':prior_inherited['root_source'] if prior_inherited else parent_plan['source'],
                   'routing':parent_plan['routing'],'limits':parent_plan['limits'],'counts':prior,

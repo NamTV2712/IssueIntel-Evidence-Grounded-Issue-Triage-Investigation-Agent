@@ -51,9 +51,44 @@ function boot(handler){
 function previewValue({plan},extra={}){return {source_job_id:sourceJob,source_pack_sha256:packSha,workflow_plan_sha256:plan.sha256,waiting_sha256:plan.waiting.sha256,
   policy_sha256:plan.policy_sha256,available:true,waiting:clone(plan.waiting),remaining:clone(plan.waiting.remaining),continuation_job:null,...extra};}
 
+function recoveredFixture(){
+  const data=fixture();data.pack.recovered_from={schema:'product_stage_resume_v1',automatic_retry:false,
+    source:{provider:'groq',depth:'planned',sha256:sha('c'),context_sha256:sha('d'),core_policy_sha256:sha('e'),prior_provider_calls:1}};
+  data.pack.stage_recovery={schema:'product_pipeline_recovery_v1',context_sha256:sha('d'),policy_sha256:sha('e'),
+    inherited_provider_calls:1,new_provider_calls:1,max_provider_calls:9,call_count_kind:'attempt_upper_bound',automatic_retry:false,billing_verified:false};
+  return data;
+}
+
+test('recovered pause deducts failed original attempts without editing the saved waiting plan',async()=>{
+  const data=recoveredFixture(),before=JSON.stringify(data.plan),remaining={...data.plan.waiting.remaining,provider_calls:7};
+  const a=boot(()=>previewValue(data,{remaining}));a.render(data);
+  assert.match(a.text(a.target),/Lượt thử API trong ngân sách\s+2 \/ 9/);
+  assert.match(a.text(a.target),/Stage logic đã hoàn tất trong lượt gốc/);
+  assert.match(a.text(a.target),/Call API còn lại\s+7/);assert.match(a.text(a.target),/Đã trừ thêm 1 lượt thử/);
+  await a.preview();a.answer('Chưa biết');a.consent();assert.equal(a.button('Tiếp tục Planned với dữ kiện này').disabled,false);
+  a.changeLanguage('en');assert.match(a.text(a.target),/Deducted 1 additional/);assert.equal(a.check().checked,false);
+  assert.equal(JSON.stringify(data.plan),before);
+});
+
+test('server preview cannot restore the logical budget that recovery already consumed',async()=>{
+  const data=recoveredFixture(),a=boot(()=>previewValue(data));a.render(data);await a.preview();
+  assert.match(a.text(a.target),/Chưa kiểm được nguồn tiếp tục/);assert.equal(a.check().disabled,true);
+  a.answer('unknown');a.consent();await a.submit();assert.equal(a.calls.filter(([,body])=>body).length,0);
+});
+
+test('unknown recovery accounting hides continuation controls while leaving the saved report usable',()=>{
+  const mutations=[d=>delete d.pack.stage_recovery,d=>d.pack.stage_recovery.new_provider_calls=-1,
+    d=>d.pack.stage_recovery.inherited_provider_calls=0,d=>d.pack.stage_recovery.new_provider_calls=10,
+    d=>d.pack.recovered_from.source.depth='quick',d=>d.pack.stage_recovery.billing_verified=true];
+  for(const mutate of mutations){const data=recoveredFixture(),a=boot();mutate(data);a.render(data);
+    assert.match(a.text(a.target),/Không xác định được ngân sách attempt/);assert.equal(a.inputs().length,0);
+    assert.equal(a.button('Kiểm tra khả năng tiếp tục'),undefined);assert.equal(a.calls.length,0);}
+});
+
 test('v3 waiting is a distinct state with current and chain budgets, no automatic reads or paid calls',()=>{
   const a=boot();a.render(fixture({inherited:true}));const output=a.text(a.target);
   assert.match(output,/Đang chờ dữ kiện từ người dùng/);assert.match(output,/Ngân sách toàn chuỗi điều tra/);assert.match(output,/Vòng tìm thêm\s+2 \/ 3/);
+  assert.match(output,/Lượt thử API trong ngân sách\s+2 \/ 9/);
   assert.match(output,/Sử dụng trong phiên đang xem\s+Vòng tìm thêm\s+1 \/ 3/);assert.match(output,/Lượt sinh còn lại\s+2/);
   assert.match(output,/thiếu cue không chứng minh thiếu thông tin/);assert.match(output,/chưa xác minh/);assert.equal(a.inputs().length,2);
   assert.equal(a.calls.length,0);assert.equal(a.button('Tiếp tục Planned với dữ kiện này').disabled,true);

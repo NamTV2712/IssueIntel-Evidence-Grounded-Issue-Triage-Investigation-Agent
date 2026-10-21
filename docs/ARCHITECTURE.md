@@ -661,10 +661,24 @@ Việt/Anh và chặn stale selection/ack; chuyển xem phiên khác không đ�
 completion ghi đè report hoặc chi phí đang xem.
 
 Mục 8 còn mở: CLI chưa bật journal mới; không tự chuyển checkpoint legacy. Jev,
-follow-up, answer continuation và recovery descendants chưa được nhận. Planned
-phục hồi có thể giữ waiting state, nhưng tiếp tục bằng câu trả lời cần integration
-giữ cả failed attempt budget; không đặt lại budget để vượt cổng này. Không có
-quyền chi tiêu provider mới hoặc evaluation phát sinh từ cơ chế recovery.
+follow-up, answer continuation và recovery descendants chưa được nhận vào
+**stage recovery**. Planned phục hồi ở waiting state có thể dùng luồng trả lời
+riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts
+vượt logical completed-stage calls từ recorded recovery binding. Source service
+kiểm intent/prefix/tail và hợp nhất receipt ownership của failed root cùng
+recovered parent, đối chiếu đúng attempt stages; thiếu/unknown/duplicate thì từ
+chối. Không chuyển receipt cũ sang phiên mới hoặc sửa parent plan/waiting SHA.
+
+`continuation_remaining()` trừ debit trong preview/admission; phải còn đủ ba
+call cho generation, repair và critic. `_inherit()` chuyển debit vào cumulative
+provider count đúng một lần; các hậu duệ kế tiếp dùng inherited counts thường.
+Portable verifier replay recovery witness và tính lại inherited attempt count;
+giảm debit rồi rehash child không đủ để qua cổng. UI giữ saved logical counts
+riêng với attempt budget toàn chuỗi; đổi ngôn ngữ giữ draft và thu hồi consent.
+Nguồn/policy của answer continuation được kiểm cả trước/sau mỗi call và trước
+publication; một response đã có receipt không tự trở thành completed checkpoint
+khi authority thay đổi. Không có quyền chi tiêu provider mới hoặc evaluation
+phát sinh từ cơ chế recovery.
 
 ## Ngân sách và bảo mật
 

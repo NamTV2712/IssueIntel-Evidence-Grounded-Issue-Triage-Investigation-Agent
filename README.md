@@ -131,7 +131,10 @@ phục hồi nhưng không sửa hồ sơ đã lưu. Hồ sơ issue và gói bà
 attempt accounting và lineage để kiểm các bytes đã gửi mà không gọi model.
 Luồng mới chưa nhận checkpoint legacy, CLI, Jev, follow-up, answer continuation
 hoặc phục hồi tiếp một phiên con đã phục hồi. Với Planned được phục hồi rồi
-dừng chờ, phần trả lời để tiếp tục còn cần tích hợp ngân sách; mục 8 vẫn đang làm.
+dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
+thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không
+sửa plan/waiting receipt cũ. Unknown accounting hoặc thiếu ngân sách cho
+generation, schema repair và critic thì từ chối gọi. Mục 8 vẫn đang làm.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

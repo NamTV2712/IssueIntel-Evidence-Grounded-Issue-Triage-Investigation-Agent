@@ -60,6 +60,7 @@ def policy_sha256():
              'annotations/models.py','annotations/public_inputs.py',
              'annotations/structured.py','repository/snapshot.py',
              'investigation/planned_continuations.py','investigation/workbench.py',
+             'investigation/stage_jobs.py','investigation/stage_recovery.py',
              'investigation/providers.py','runtime/budget.py','runtime/config.py')
     return digest({'version':POLICY, 'files':{
         name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names}})
@@ -101,6 +102,39 @@ def remaining(plan):
     return {key:maxima[key]-used[key] for key in COUNT_KEYS}
 
 
+def recovery_call_debit(pack):
+    """Extra root attempts absent from logical completed-stage plan counts.
+
+    The owning service authenticates the journal/attempts and receipts. This
+    pure projection never promotes declared attempts to verified billing or
+    rewrites the saved plan (including its original waiting preview).
+    """
+    link=pack.get('recovered_from')
+    if link is None:return 0
+    plan=pack['workflow_plan'];value=pack.get('stage_recovery') or {};source=link.get('source') or {}
+    prior=value.get('inherited_provider_calls');new=value.get('new_provider_calls')
+    if (link.get('schema')!='product_stage_resume_v1' or link.get('automatic_retry') is not False
+            or value.get('schema')!='product_pipeline_recovery_v1'
+            or plan.get('inherited') is not None or pack.get('continued_from')
+            or source.get('provider')!='groq' or source.get('depth')!='planned'
+            or source.get('context_sha256')!=value.get('context_sha256')
+            or source.get('core_policy_sha256')!=value.get('policy_sha256')
+            or source.get('prior_provider_calls')!=prior
+            or source.get('sha256')!=digest({k:v for k,v in source.items() if k!='sha256'})
+            or type(prior) is not int or type(new) is not int or min(prior,new)<0
+            or value.get('max_provider_calls')!=9 or value.get('call_count_kind')!='attempt_upper_bound'
+            or value.get('automatic_retry') is not False or value.get('billing_verified') is not False
+            or not plan['provider_calls']<=prior+new<=plan['limits']['max_provider_calls']):
+        raise ValueError('Unknown or inconsistent recovered Planned attempt budget')
+    return prior+new-plan['provider_calls']
+
+
+def continuation_remaining(pack):
+    left=remaining(pack['workflow_plan'])
+    left['provider_calls']-=recovery_call_debit(pack)
+    return left
+
+
 def can_generate(plan):
     """Reserve a fresh pass, its one repair, and the sole final critic."""
     left=remaining(plan)
@@ -125,10 +159,12 @@ def _prior_answered(pack):
 
 def _inherit(parent):
     plan=parent['workflow_plan']
+    counts=totals(plan)
+    counts['provider_calls']+=recovery_call_debit(parent)
     return {'parent_plan_sha256':plan['sha256'],
             'root_source':deepcopy((plan.get('inherited') or {}).get('root_source',plan['source'])),
             'routing':deepcopy(plan['routing']), 'limits':deepcopy(plan['limits']),
-            'counts':totals(plan), 'used_query_sha256s':sorted(used_queries(plan)),
+            'counts':counts, 'used_query_sha256s':sorted(used_queries(plan)),
             'answered_fields':_prior_answered(parent)}
 
 
@@ -172,7 +208,8 @@ def build_continuation(parent, answers, language):
     """Construct the new query and immutable unverified answer receipt."""
     validate_plan(parent)
     plan=parent['workflow_plan'];waiting=plan['waiting']
-    if waiting is None or plan['stop_reason'] != 'waiting_for_user' or not can_generate(plan):
+    if (waiting is None or plan['stop_reason'] != 'waiting_for_user' or not can_generate(plan)
+            or continuation_remaining(parent)['provider_calls']<3):
         raise ValueError('Planned source is not waiting with a remaining generation budget')
     receipt=prepare_answers(waiting['questions'],answers,language)
     case=deepcopy(parent['case'])

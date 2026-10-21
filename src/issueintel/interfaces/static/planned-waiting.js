@@ -62,11 +62,28 @@
     return value&&value.source_job_id===b.job&&value.source_pack_sha256===b.sourcePackSha256
       &&value.workflow_plan_sha256===b.plan.sha256&&value.waiting_sha256===b.plan.waiting.sha256
       &&value.policy_sha256===b.plan.policy_sha256&&typeof value.available==='boolean'
-      &&sameCounts(value.remaining,b.plan.waiting.remaining)&&value.waiting?.sha256===b.plan.waiting.sha256
+      &&sameCounts(value.remaining,b.remaining)&&value.waiting?.sha256===b.plan.waiting.sha256
       &&canonical(value.waiting)===canonical(b.plan.waiting)
       &&(value.continuation_job===null||validJob(value.continuation_job));
   }
   const validJob=value=>value&&job(value.id)&&value.mode==='planned_continuation'&&statuses.includes(value.status);
+  function recoveryDebit(plan,pack){
+    if(!pack.recovered_from)return 0;
+    const link=pack.recovered_from,source=link.source,value=pack.stage_recovery;
+    if(link.schema!=='product_stage_resume_v1'||link.automatic_retry!==false||plan.inherited!==null
+      ||value?.schema!=='product_pipeline_recovery_v1'||source?.provider!=='groq'||source.depth!=='planned'
+      ||source.context_sha256!==value.context_sha256||source.core_policy_sha256!==value.policy_sha256
+      ||source.prior_provider_calls!==value.inherited_provider_calls||!sha(source.sha256)
+      ||!count(value.inherited_provider_calls)||!count(value.new_provider_calls)||value.max_provider_calls!==9
+      ||value.call_count_kind!=='attempt_upper_bound'||value.automatic_retry!==false||value.billing_verified!==false)return null;
+    const total=value.inherited_provider_calls+value.new_provider_calls;
+    if(total<plan.provider_calls||total>plan.limits.max_provider_calls)return null;
+    return total-plan.provider_calls;
+  }
+  function remainingFor(plan,pack){
+    const debit=recoveryDebit(plan,pack);if(debit===null)return null;
+    return {...plan.waiting.remaining,provider_calls:plan.waiting.remaining.provider_calls-debit};
+  }
   const language=()=>document.documentElement.lang==='en'?'en':'vi';
   function cancel(){active=null;}
   function button(label,action,b){const el=node('button',t(label));el.type='button';el.onclick=()=>{if(current(b)&&!el.disabled)return action();};return el;}
@@ -83,9 +100,12 @@
     const remaining=node('dl',undefined,'workflow-budgets');
     for(const [key,label] of [['retrieval_rounds','Vòng tìm thêm còn lại'],['generation_passes','Lượt sinh còn lại'],
       ['verifier_passes','Lượt verifier còn lại'],['provider_calls','Call API còn lại'],['added_evidence','Trích đoạn mới còn lại']]){
-      const row=node('div');row.append(node('dt',t(label)),node('dd',String(waiting.remaining[key])));remaining.append(row);
+      const row=node('div');row.append(node('dt',t(label)),node('dd',String(b.remaining[key])));remaining.append(row);
     }
     target.append(remaining,node('p',t('Đây là phần ngân sách chưa dùng của cùng chuỗi. Tiếp tục giữ commit và bằng chứng đã có; không đặt lại giới hạn.'),'notice'));
+    if(b.remaining.provider_calls!==waiting.remaining.provider_calls)target.append(node('p',
+      t('Đã trừ thêm {calls} lượt thử trước khi phục hồi, gồm lượt lỗi hoặc chưa rõ đã tới provider; đây không phải hóa đơn.',
+        {calls:waiting.remaining.provider_calls-b.remaining.provider_calls}),'notice'));
     const form=node('form',undefined,'planned-waiting-form');form.onsubmit=event=>{event.preventDefault();return submit(b);};
     for(const question of waiting.questions.questions){
       const label=node('label',undefined,'planned-waiting-question'),caption=node('span',question.prompts[language()]);
@@ -143,13 +163,15 @@
   }
   function render(target,plan,id,pack,options={}){
     cancel();if(!job(id)||!sha(options.sourcePackSha256)||!validPlan(plan)||pack?.workflow_plan!==plan)return;
+    const remaining=remainingFor(plan,pack);
+    if(!remaining){target.append(node('p',t('Không xác định được ngân sách attempt của phiên phục hồi; chưa thể tiếp tục Planned.'),'notice'));return;}
     const key=id+':'+options.sourcePackSha256+':'+plan.sha256+':'+plan.waiting.sha256;
     if(!cache.has(key))cache.set(key,{answers:{},consent:false,preview:null,busy:null,error:null,uncertain:false});
     const entry=cache.get(key);entry.consent=false;
     const area=node('section',undefined,'planned-waiting');target.append(area);
-    active={target:area,plan,job:id,sourcePackSha256:options.sourcePackSha256,entry};paint(active);
+    active={target:area,plan,job:id,sourcePackSha256:options.sourcePackSha256,entry,remaining};paint(active);
   }
   document.addEventListener('issueintel:packchange',cancel);
   document.addEventListener('issueintel:languagechange',()=>{if(active){active.entry.consent=false;paint(active);}});
-  window.IssueIntelPlannedWaiting=Object.freeze({render,cancel,validPlan});
+  window.IssueIntelPlannedWaiting=Object.freeze({render,cancel,validPlan,recoveryDebit});
 })();

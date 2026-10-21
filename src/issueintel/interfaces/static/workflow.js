@@ -208,16 +208,19 @@
     const counts=plan.schema==='planned_investigation_v3'?(plan.inherited?.counts||{retrieval_rounds:0,generation_passes:0,verifier_passes:0,provider_calls:0,added_evidence:0}):null;
     const local={retrieval_rounds:plan.rounds.length,generation_passes:plan.generation_passes,
       verifier_passes:plan.verifier_passes,provider_calls:plan.provider_calls,added_evidence:pack.evidence.length-plan.seed_evidence_ids.length};
+    const debit=pack.recovered_from?window.IssueIntelPlannedWaiting?.recoveryDebit?.(plan,pack):0;
     if(counts){
       area.append(node('h4',t('Ngân sách toàn chuỗi điều tra')),
         node('p',t('Giới hạn giữ nguyên từ phiên gốc; tiếp tục không cấp lại vòng tìm kiếm hoặc call API.'),'notice'));
       const cumulative=node('dl',undefined,'workflow-budgets');
       for(const [key,label,maximum] of [['retrieval_rounds','Vòng tìm thêm',plan.limits.max_retrieval_rounds],
         ['generation_passes','Lượt sinh giả thuyết',plan.limits.max_generation_passes],['verifier_passes','Lượt verifier riêng',plan.limits.max_verifier_passes],
-        ['provider_calls','Call sinh và verifier đã ghi nhận',plan.limits.max_provider_calls],['added_evidence','Trích đoạn mới',plan.limits.max_added_total]]){
-        const entry=node('div');entry.append(node('dt',t(label)),node('dd',(counts[key]+local[key])+' / '+maximum));cumulative.append(entry);
+        ['provider_calls','Lượt thử API trong ngân sách',plan.limits.max_provider_calls],['added_evidence','Trích đoạn mới',plan.limits.max_added_total]]){
+        const entry=node('div');entry.append(node('dt',t(label)),node('dd',
+          (key==='provider_calls'&&pack.recovered_from&&debit==null?t('unknown'):counts[key]+local[key]+(key==='provider_calls'?debit:0))+' / '+maximum));cumulative.append(entry);
       }
-      area.append(cumulative,node('h4',t('Sử dụng trong phiên đang xem')));
+      area.append(cumulative,node('h4',t(pack.recovered_from?'Stage logic đã hoàn tất trong lượt gốc':'Sử dụng trong phiên đang xem')));
+      if(pack.recovered_from)area.append(node('p',t('Các số stage gồm phần đã dùng lại và phần mới; receipt chi phí của từng phiên vẫn giữ riêng.'),'notice'));
     }
     const budgets=node('dl',undefined,'workflow-budgets');
     for(const [label,value] of [[t('Vòng tìm thêm'),plan.rounds.filter(row=>row.action==='retrieve').length+' / '+plan.limits.max_retrieval_rounds],

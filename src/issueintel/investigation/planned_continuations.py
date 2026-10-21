@@ -117,7 +117,7 @@ class PlannedContinuations:
             raise ValueError('Example Planned source differs from its fixed product input')
 
     def _source(self, identifier, *, admission=False):
-        from .planned_waiting import SCHEMA, POLICY, policy_sha256, validate_plan, remaining
+        from .planned_waiting import SCHEMA, POLICY, policy_sha256, validate_plan, continuation_remaining, recovery_call_debit
         parent, raw, depth = self.host._load_pack(identifier)
         row = json.loads(self.host._job_path(identifier).read_bytes())
         request = row['request']
@@ -143,6 +143,13 @@ class PlannedContinuations:
         if request.get('mode') == 'planned_continuation':
             validate_request(request, saved=True)
             self.validate_child(identifier, parent, request)
+        elif request.get('mode')=='stage_resume':
+            # _load_pack authenticated intent, source prefix, new tail and the
+            # recovered pack. Account all attempts, including failed originals;
+            # successful logical stages alone cannot authorize further calls.
+            self.host.stage_recoveries.validate_child(identifier,parent,request)
+            if 'continued_from' in parent:raise ValueError('Unexpected recovered continuation lineage')
+            validate_plan(parent)
         else:
             if 'continued_from' in parent:
                 raise ValueError('Unexpected Planned continuation lineage')
@@ -156,10 +163,28 @@ class PlannedContinuations:
                 expected_calls['planned_generation_' + str(step['round'])] += (
                     1 + step['output_annotation']['provenance']['repair_count'])
         receipts = row.get('usage_receipts')
+        recovered=request.get('mode')=='stage_resume'
+        if recovered:
+            source,_,_,_=self.host.stage_recoveries.source(request['source_job_id'])
+            prior_receipts=source.get('usage_receipts')
+            attempts=source.get('pipeline_attempts',[])+row.get('pipeline_attempts',[])
+            if (source.get('usage_tracking') is not True or not isinstance(prior_receipts,dict)
+                    or row.get('usage_tracking') is not True or not isinstance(receipts,dict)
+                    or set(prior_receipts)&set(receipts)
+                    or any(not isinstance(r,dict) for r in [*prior_receipts.values(),*receipts.values()])):
+                raise ValueError('Unknown or duplicated recovered Planned receipts')
+            receipts={**prior_receipts,**receipts}
+            attempt_counts=Counter(attempt['stage'] for attempt in attempts)
+            if (len(receipts)!=plan['provider_calls']+recovery_call_debit(parent)
+                    or len(receipts)!=len(attempts)
+                    or Counter(r.get('stage') for r in receipts.values())!=attempt_counts
+                    or any(attempt_counts[stage]<count for stage,count in expected_calls.items())
+                    or any(stage not in expected_calls for stage in attempt_counts)):
+                raise ValueError('Recovered Planned receipts differ from owned attempts')
         if (row.get('usage_tracking') is not True or not isinstance(receipts, dict)
-                or len(receipts) != plan['provider_calls']
+                or (not recovered and len(receipts) != plan['provider_calls'])
                 or any(not isinstance(receipt, dict) for receipt in receipts.values())
-                or Counter(receipt.get('stage') for receipt in receipts.values()) != expected_calls
+                or (not recovered and Counter(receipt.get('stage') for receipt in receipts.values()) != expected_calls)
                 or any(not isinstance(receipt, dict) or receipt.get('reservation_id') != key
                        or receipt.get('model') != plan['model']
                        or receipt.get('status') not in {'settled', 'missing_usage_bound', 'failed_bound'}
@@ -167,8 +192,8 @@ class PlannedContinuations:
             raise ValueError('Planned source call receipts differ from its recorded local calls')
         for stage, expected in expected_calls.items():
             states = [receipt['status'] for receipt in receipts.values() if receipt['stage'] == stage]
-            if 'failed_bound' in states and (expected != 2 or
-                    not any(state in {'settled', 'missing_usage_bound'} for state in states)):
+            success=any(state in {'settled','missing_usage_bound'} for state in states)
+            if recovered and not success or not recovered and 'failed_bound' in states and (expected!=2 or not success):
                 raise ValueError('Failed Planned calls require their completed, recorded schema repair')
         binding = {'source_job_id': identifier, 'source_pack_sha256': hashlib.sha256(raw).hexdigest(),
                    'workflow_plan_sha256': plan['sha256'], 'waiting_sha256': plan['waiting']['sha256'],
@@ -178,7 +203,9 @@ class PlannedContinuations:
                 raise ValueError('Planned policy changed; saved pause cannot authorize new calls')
             from .question_jobs import replay_snapshot
             replay_snapshot(parent)
-        return parent, raw, binding, remaining(plan)
+            if continuation_remaining(parent)['provider_calls']<3:
+                raise ValueError('Recovered Planned attempts exhausted the continuation budget')
+        return parent, raw, binding, continuation_remaining(parent)
 
     def preview(self, identifier):
         from .planned_waiting import policy_sha256
@@ -196,7 +223,9 @@ class PlannedContinuations:
                     raise ValueError('Planned continuation intent changed')
                 child = self.host.job(intent[1])
             current = binding['policy_sha256'] == policy_sha256()
-            return dict(binding, available=current, reason=None if current else 'planned_policy_changed',
+            enough=remaining['provider_calls']>=3
+            return dict(binding, available=current and enough, reason=(None if current and enough else
+                        'planned_policy_changed' if not current else 'planned_attempt_budget_exhausted'),
                         waiting=deepcopy(parent['workflow_plan']['waiting']), remaining=remaining,
                         continuation_job=child)
         except (ValueError, KeyError, TypeError, AttributeError, OSError):

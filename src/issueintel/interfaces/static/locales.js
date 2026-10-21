@@ -1,4 +1,9 @@
 window.IssueIntelMessages = {
+  "Lượt thử API trong ngân sách":{"vi":"Lượt thử API trong ngân sách","en":"API attempts charged to the bound"},
+  "Stage logic đã hoàn tất trong lượt gốc":{"vi":"Stage logic đã hoàn tất trong lượt gốc","en":"Completed logical stages in the original run"},
+  "Các số stage gồm phần đã dùng lại và phần mới; receipt chi phí của từng phiên vẫn giữ riêng.":{"vi":"Các số stage gồm phần đã dùng lại và phần mới; receipt chi phí của từng phiên vẫn giữ riêng.","en":"Stage counts include reused and new work; each run retains its own cost receipts."},
+  "Đã trừ thêm {calls} lượt thử trước khi phục hồi, gồm lượt lỗi hoặc chưa rõ đã tới provider; đây không phải hóa đơn.":{"vi":"Đã trừ thêm {calls} lượt thử trước khi phục hồi, gồm lượt lỗi hoặc chưa rõ đã tới provider; đây không phải hóa đơn.","en":"Deducted {calls} additional pre-recovery attempts, including failed or possibly unsent calls; this is not a bill."},
+  "Không xác định được ngân sách attempt của phiên phục hồi; chưa thể tiếp tục Planned.":{"vi":"Không xác định được ngân sách attempt của phiên phục hồi; chưa thể tiếp tục Planned.","en":"The recovered attempt budget is unknown; Planned continuation is unavailable."},
   "verification":{"vi":"Kiểm chứng giả thuyết","en":"Hypothesis verification"},
   "export":{"vi":"Kết xuất báo cáo","en":"Export report"},
   "Truy xuất vòng {round}":{"vi":"Truy xuất vòng {round}","en":"Retrieval round {round}"},

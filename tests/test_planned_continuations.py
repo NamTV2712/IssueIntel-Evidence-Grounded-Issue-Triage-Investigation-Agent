@@ -457,7 +457,9 @@ def test_change_during_final_verifier_response_blocks_publication(waiting_workbe
     usage = wb.usage(child['id'])
     assert usage['receipts'][-1]['stage'] == 'verification'
     assert usage['receipts'][-1]['status'] == 'settled'
-    assert 'planned_complete' in child['stage_checkpoints']
+    # Recheck immediately after the returned/charged call, before recording a
+    # completed verifier/plan from an execution whose authority has changed.
+    assert 'planned_complete' not in child['stage_checkpoints']
     with pytest.raises(ValueError, match='not complete'):
         wb.result_bytes(child['id'])
     wb._job_path(source['id']).write_bytes(original_source)

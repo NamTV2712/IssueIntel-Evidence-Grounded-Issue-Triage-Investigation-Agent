@@ -555,10 +555,31 @@ transport giả, giữ attempt lỗi 1/4, mở lại sau restart, giữ lineage 
 ZIP thêm failed parent. Đã kiểm bàn phím, Việt/Anh, sáng/tối và viewport 390 px.
 Không có provider thật, Holdout/Live hoặc evaluation.
 
-Đây chưa phải nghiệm thu toàn mục 8: CLI chưa bật journal mới; custom/Jev,
-follow-up, answer continuation và recovery descendants còn thiếu. Planned được
-phục hồi có thể giữ waiting state, nhưng nhận câu trả lời để tiếp tục cần tích
-hợp cả failed attempt budget; không được reset cận để làm luồng chạy được.
+[CI toàn bộ của mốc Workbench `4d043d4` đã thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39521323747).
+
+Mốc tiếp theo cho phép **trả lời sau một Planned recovery đã dừng chờ**.
+Plan/waiting receipt gốc giữ nguyên logical completed-stage calls. Preview và
+admission trừ thêm failed/in-flight attempts qua recorded recovery binding;
+source service kiểm cả root/child intent, journal và receipt ownership. Thiếu
+receipt, unknown tracking, trùng ID hoặc khác attempt stage thì từ chối gọi.
+Phải còn đủ ba call cho generation, một repair và critic. Continuation kế thừa
+attempt debit đúng một lần; trả lời từng phần qua nhiều phiên không cộng lặp
+debit hoặc reset limits. Portable handoff có mọi tổ tiên và replay cumulative
+attempt counts từ recovery witness. UI Việt/Anh hiển thị logical stage counts
+riêng với whole-chain attempt budget, giữ draft khi đổi ngôn ngữ và vẫn yêu cầu
+consent. Authority đổi trong call thì giữ receipt, dừng trước checkpoint/critic
+tiếp theo; không công bố pack thành công.
+Hồi quy rộng đạt **432 test backend**, gồm 9 test mới cho recovered waiting,
+receipt/accounting denial, partial-answer descendants và in-flight source drift;
+toàn bộ **253 test frontend** đạt. Standalone handoff kiểm riêng việc giảm
+inherited attempt debit rồi reseal mọi wrapper vẫn bị từ chối. Browser tổng hợp
+đã giữ nháp khi đổi Việt/Anh, yêu cầu consent và chạy từ 2/7 attempts (còn 5)
+đến continuation hoàn tất với 4/7 toàn chuỗi, không có provider thật.
+
+Mục 8 vẫn chưa nghiệm thu toàn bộ: CLI chưa bật journal mới; custom/Jev,
+follow-up, phục hồi lỗi của chính answer continuation và recovery descendants
+còn thiếu. Luồng trả lời đã có thể nhận recovered waiting parent; điều này không
+cấp quyền resume tùy ý những phiên con đó hoặc bỏ cổng chi tiêu/evaluation.
 
 Phạm vi này giữ nguyên proposal và các cổng dữ liệu/chi tiêu. Mỗi mã là một
 công việc riêng; trạng thái chỉ chuyển hoàn tất sau code, synthetic checks và
@@ -578,7 +599,7 @@ với commit `7e9c5b0`. D05 đã đóng với commit `2773a8c`; CI của cả b�
 | D05 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
 | D06 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | D07 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Chưa triển khai |
-| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core và original Workbench có owned journal/attempts/lease, explicit API/UI, source/policy guards, lineage/handoff; tương thích verifier/export cũ. 423 backend/250 frontend và GUI tổng hợp đã kiểm. Còn CLI, descendants, Jev/follow-up/answer continuations và nghiệm thu toàn mục |
+| D08 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đang triển khai: core và original Workbench có owned journal/attempts/lease, explicit API/UI, source/policy guards, lineage/handoff; tương thích verifier/export cũ. Trả lời sau recovered waiting giữ failed attempt debit qua nhiều phiên; 432 backend/253 frontend và GUI tổng hợp đã kiểm. Còn CLI, phục hồi lỗi của descendants/Jev/follow-up/answer continuations và nghiệm thu toàn mục |
 | D09 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Chưa triển khai |
 | D10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
 | D11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
