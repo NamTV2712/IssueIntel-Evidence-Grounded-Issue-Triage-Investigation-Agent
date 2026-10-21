@@ -45,7 +45,7 @@ def test_opt_in_planned_job_has_separate_controller_receipts_and_saved_replay(pl
     assert job['status']=='completed',job
     pack=json.loads(wb.result_bytes(job['id']))
     sidecar=pack['controller_decisions']
-    assert sidecar['schema']=='typesafe_controller_v1'
+    assert sidecar['schema']=='typesafe_controller_v2'
     assert pack['workflow_plan']['policy']=='bounded_planner_v2'
     assert len(typesafe_calls)==4 and len(groq_calls)==4
     assert pack['workflow_plan']['provider_calls']==4
@@ -66,6 +66,8 @@ def test_opt_in_planned_job_has_separate_controller_receipts_and_saved_replay(pl
     original=json.loads(json.dumps(pack))
     from issueintel.runtime.io import digest
     sidecar=pack['controller_decisions'];sidecar['job_id']='f'*24
+    sidecar['decision_owners']=['f'*24]*len(sidecar['records'])
+    sidecar['recovery'].update(owner_job_id='f'*24,origin_job_id='f'*24)
     for record in sidecar['records']:
         record['binding']['job_id']='f'*24
         if record['receipt'] is not None:

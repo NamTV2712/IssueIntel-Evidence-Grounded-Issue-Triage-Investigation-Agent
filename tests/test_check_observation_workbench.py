@@ -465,6 +465,66 @@ def test_repeated_check_followups_replay_with_bounded_reads_and_keep_generation_
         wb.submit_check_followup(followup_request(plan_job, plan, journal, provider='groq'))
 
 
+def test_fork_preparation_replays_each_source_once_and_discards_its_operation_memo(checking, monkeypatch):
+    from issueintel.investigation.fork_origins import prepare
+    wb,_,source=checking
+    plan_job,plan=generate_plan(wb,source)
+    journal=append(wb,plan_job)
+    parent=completed(wb,wb.submit_check_followup(followup_request(plan_job,plan,journal,provider='groq'))['id'])
+    assert parent['status']=='completed',parent
+    _,_,_,_,child=child_for(wb,parent)
+    row=json.loads(wb._job_path(child['id']).read_bytes())
+    verified=[];original=wb._load_pack_verified
+    def counted(identifier,seen=None):
+        verified.append(identifier)
+        return original(identifier,seen)
+    monkeypatch.setattr(wb,'_load_pack_verified',counted)
+    for _ in range(2):
+        verified.clear()
+        value=prepare(wb,row,admission=False)
+        assert value['projection']['followup']['parent_job_id']==parent['id']
+        assert len(verified)==len(set(verified))==2
+        assert set(verified)=={source['id'],parent['id']}
+        assert not hasattr(wb.pack_reads,'cache') and not hasattr(wb.pack_reads,'active')
+
+
+@pytest.mark.parametrize('mutation',['export_bytes','rehashed_source','job_authority'])
+def test_fork_preparation_rejects_changes_between_operations_and_cleans_failed_memo(checking,monkeypatch,mutation):
+    from issueintel.investigation.fork_origins import prepare
+    wb,_,source=checking
+    _,_,_,_,child=child_for(wb,source)
+    row=json.loads(wb._job_path(child['id']).read_bytes())
+    expected=prepare(wb,row,admission=False)
+    path=wb.root/source['result']['pack.json']['path'];job_path=wb._job_path(source['id'])
+    original_pack=path.read_bytes();original_job=job_path.read_bytes()
+    if mutation=='export_bytes':path.write_bytes(original_pack+b' ')
+    elif mutation=='rehashed_source':repair_export(wb,source,lambda pack:pack['trace'].append({'stage':'changed_between_preparations'}))
+    else:
+        changed=json.loads(original_job);changed['request']={'mode':'main_dev','case_id':'verified:synthetic'}
+        write_json(job_path,changed)
+    with pytest.raises(ValueError):prepare(wb,row,admission=False)
+    assert not hasattr(wb.pack_reads,'cache') and not hasattr(wb.pack_reads,'active')
+    path.write_bytes(original_pack);job_path.write_bytes(original_job)
+    assert prepare(wb,row,admission=False)==expected
+
+
+def test_fork_preparation_retains_active_cycle_rejection_and_cleans_failed_memo(checking,monkeypatch):
+    from issueintel.investigation.fork_origins import prepare
+    wb,_,source=checking
+    _,_,_,_,child=child_for(wb,source)
+    row=json.loads(wb._job_path(child['id']).read_bytes())
+    expected=prepare(wb,row,admission=False)
+    original=wb._load_pack_verified
+    def reentrant(identifier,seen=None):
+        wb._load_pack(identifier)
+        return original(identifier,seen)
+    with monkeypatch.context() as cycle:
+        cycle.setattr(wb,'_load_pack_verified',reentrant)
+        with pytest.raises(ValueError,match='cycle'):prepare(wb,row,admission=False)
+    assert not hasattr(wb.pack_reads,'cache') and not hasattr(wb.pack_reads,'active')
+    assert prepare(wb,row,admission=False)==expected
+
+
 @pytest.mark.parametrize('mutation', ['export_bytes', 'rehashed_source', 'job_authority'])
 def test_replay_cache_does_not_hide_between_operation_source_changes(checking, mutation):
     wb, _, source = checking

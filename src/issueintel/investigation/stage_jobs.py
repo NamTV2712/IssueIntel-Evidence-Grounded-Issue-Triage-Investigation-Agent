@@ -22,7 +22,8 @@ def job_policy_sha256():
     names=('investigation/stage_jobs.py','investigation/workbench.py','investigation/finalization.py',
            'investigation/dossier.py','investigation/planned_continuations.py','investigation/fork_origins.py',
            'investigation/memory_followups.py','investigation/check_followups.py','investigation/memory_selection.py',
-           'investigation/product_memory.py','investigation/adaptive_clarifications.py','investigation/question_jobs.py')
+           'investigation/product_memory.py','investigation/adaptive_clarifications.py','investigation/question_jobs.py',
+           'investigation/controller_accounting.py')
     return digest({'core':core_policy(),**{name:sha256((package/name).read_bytes()).hexdigest() for name in names}})
 
 
@@ -41,7 +42,7 @@ def bind_original(request,context):
         canonical=canonical_request(request)
     else:canonical=validate_request(request)
     if (digest(canonical)!=digest(request) or request['mode'] not in MODES
-            or request.get('controller','rules')!='rules'):
+            or request.get('controller','rules') not in {'rules','jev'}):
         raise ValueError('Stage recovery requires canonical original product authority')
     case=context['case'];snapshot=context['snapshot'];options=context['options']
     if fork:
@@ -54,11 +55,19 @@ def bind_original(request,context):
     expected={'provider':request['provider'],'model':'none' if request['provider']=='none' else 'openai/gpt-oss-120b',
         'top_k':4 if request['depth']=='quick' else 12,'refinement_rounds':int(request['depth']=='deep'),
         'resumable':not planned and not fork,'planned_workflow':planned,'independent_critic':True,
-        'planner_policy':'bounded_planner_v3' if planned else 'bounded_planner_v1'}
+        'planner_policy':('bounded_planner_v2' if request.get('controller')=='jev' else 'bounded_planner_v3') if planned else 'bounded_planner_v1'}
     if (context['schema']!=SCHEMA or any(digest(options[k])!=digest(v) for k,v in expected.items())
             or set(options)!=set(expected)|{'repository_context','max_output_tokens'}
             or type(options['max_output_tokens']) is not int or not 0<options['max_output_tokens']<=65536):
         raise ValueError('Saved stage recipe differs from its original request')
+    if bool(context.get('controller'))!=(request.get('controller')=='jev'):
+        raise ValueError('Saved controller authority changed')
+    if context.get('controller'):
+        authority=context['controller']
+        if (authority!={'name':'jev','model':'jev-1.13.0','origin_job_id':authority.get('origin_job_id')}
+                or not re.fullmatch('[a-f0-9]{24}',authority['origin_job_id'])
+                or not planned or continuation or fork or context.get('call_budget_policy')!='profile_and_seed_route_v1'):
+            raise ValueError('Invalid Jev recovery authority')
     if fork:
         if context['fork']['origin']['request']!=request or 'continuation' in context:
             raise ValueError('Fork recovery authority changed')
@@ -93,8 +102,8 @@ def source_binding(segments,inventory,context,policy):
     """Versioned immutable ownership projection; never copy prior stage files."""
     last=segments[-1];request=last['request'];root=segments[0]['request']
     attempts=[a for s in segments for a in s['attempts']]
-    continuation=root['mode']=='planned_continuation';fork=root['mode'] in FORK_MODES;many=len(segments)>1 or continuation or fork
-    binding={'schema':'product_stage_recovery_source_v4' if fork else 'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+    jev=bool(context.get('controller'));continuation=root['mode']=='planned_continuation';fork=root['mode'] in FORK_MODES;many=len(segments)>1 or continuation or fork or jev
+    binding={'schema':'product_stage_recovery_source_v5' if jev else 'product_stage_recovery_source_v4' if fork else 'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
         'source_job_id':last['job_id'],'source_request_sha256':digest(request),'context_sha256':digest(context),
         'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
         'attempts_sha256':digest(attempts),'prior_provider_calls':len(attempts),
@@ -102,6 +111,10 @@ def source_binding(segments,inventory,context,policy):
         'job_policy_sha256':policy,'core_policy_sha256':context['policy_sha256'],
         'provider':root['provider'],'depth':root['depth'],'commit_sha':context['snapshot']['commit_sha'],
         'snapshot_sha256':context['snapshot']['snapshot_sha256']}
+    if jev:
+        controller=[dict(job_id=s['job_id'],**s['controller']) for s in segments]
+        binding.update(controller='jev',controller_segments_sha256=digest(controller),
+            prior_controller_calls=sum(len(s['attempts']) for s in controller),max_controller_calls=4)
     if many:
         binding.update(root_job_id=segments[0]['job_id'],source_chain=[{
             'job_id':s['job_id'],'request_sha256':digest(s['request']),'attempts_sha256':digest(s['attempts']),
@@ -161,7 +174,7 @@ class StageRecoveryJobs:
             else:stopped=host.job(current)['status'] in TERMINAL
             if (row.get('id')!=current or not isinstance(request,dict) or request.get('mode') not in MODES|{'stage_resume'}
                     or any(row.get(k)!=request.get(k) for k in ('mode','provider','depth'))
-                    or not stopped or request.get('controller','rules')!='rules'):
+                    or not stopped or request.get('controller','rules') not in {'rules','jev'}):
                 raise ValueError('No owned stopped product journal is available')
             input_binding=self._saved_intent(current,request) if request['mode']=='stage_resume' else None
             chain.append((row,input_binding))
@@ -229,19 +242,26 @@ class StageRecoveryJobs:
                 proof=record['recovery']
                 if (record['case_id']!=context['case']['case_id'] or record['query_sha256']!=sha256(context['case']['problem_statement'].encode()).hexdigest()
                         or record['commit_sha']!=context['snapshot']['commit_sha'] or record['snapshot_sha256']!=context['snapshot']['snapshot_sha256']
-                        or len(records)>=18 or proof['schema']!=SCHEMA or proof['context_sha256']!=context_sha or proof['index']!=len(records)
+                        or len(records)>=22 or proof['schema']!=SCHEMA or proof['context_sha256']!=context_sha or proof['index']!=len(records)
                         or proof['previous_record_canonical_sha256']!=previous or type(proof['provider_calls']) is not int
                         or not last_calls<=proof['provider_calls']<=len(attempts)):
                     raise ValueError('Recovery stage sequence/source/accounting changed')
                 records.append(record);inventory.append(ref);previous=digest(record);last_calls=proof['provider_calls']
             segments.append({'job_id':identifier_here,'request':request,'attempts':local_attempts,'usage':usage,
                 'input_binding':input_binding,'stages':[{'stage':ref['stage'],'sha256':ref['sha256']} for _,ref in local]})
+            if context.get('controller'):
+                segments[-1]['controller']={'attempts':row.get('controller_attempts'),'decisions':row.get('typesafe_decisions'),'receipts':row.get('typesafe_receipts')}
             binding=source_binding(segments,inventory,context,policy)
+        if context.get('controller'):
+            from .controller_accounting import segments as controller_segments
+            controller,_,_,_=controller_segments([r for r,_ in chain],context)
+            if receipt_ids & {identifier for s in controller for identifier in s['receipts']}:
+                raise ValueError('Providers cannot share receipt ownership')
         if admission and (binding['job_policy_sha256']!=job_policy_sha256() or context['policy_sha256']!=core_policy()):
             raise ValueError('Recovery admission policy changed')
         return chain[-1][0],records,context,binding,deepcopy(segments)
 
-    def _invoke(self,context,records,prior,*,complete,on_stage,on_attempt):
+    def _invoke(self,context,records,prior,*,complete,on_stage,on_attempt,controller=None,recovery_controller=None):
         options=deepcopy(context['options'])
         extra={}
         if context.get('continuation'):
@@ -255,6 +275,9 @@ class StageRecoveryJobs:
             origin=context['fork']['origin'];row=json.loads(self.host._job_path(origin['job_id']).read_bytes())
             prepared=prepare(self.host,row,recorded=context['fork'])
             extra={'recovery_fork':context['fork'],'snapshot':prepared['extra']['snapshot']}
+        if context.get('controller'):
+            if controller is None:raise ValueError('Missing owned Typesafe replay controller')
+            extra.update(controller=controller,recovery_controller=recovery_controller)
         pack=investigate(context['case'],context['snapshot']['repository'],**options,complete_json=complete,
             recoverable=True,recovery_records=records,prior_provider_calls=prior,on_stage=on_stage,on_recovery_attempt=on_attempt,**extra)
         if context.get('fork'):
@@ -269,25 +292,69 @@ class StageRecoveryJobs:
         return {'budget_scope':'planned_continuation_remaining','inherited_root_provider_calls':inherited['counts']['provider_calls'],
                 'root_max_provider_calls':inherited['limits']['max_provider_calls']}
 
+    def _controller_args(self,context,segments,owner,*,on_attempt,on_receipt=None,on_decision=None,guard=None):
+        if not context.get('controller'):return {}
+        from types import SimpleNamespace
+        from .typesafe_controller import TypesafePlannedController
+        host=self.host
+        class LazyClient:
+            config=SimpleNamespace(model='jev-1.13.0')
+            client=None
+            def decide(self,state,allowed,binding):
+                if guard:guard()
+                if self.client is None:
+                    from issueintel.runtime.typesafe import TypesafeConfig,TypesafeClient
+                    self.client=(host.typesafe_factory or TypesafeClient)(TypesafeConfig.load(host.root),on_receipt=on_receipt)
+                value=self.client.decide(state,allowed,binding)
+                if guard:guard()
+                return value
+            @property
+            def last_receipt(self):return getattr(self.client,'last_receipt',None)
+        saved=[r for s in segments for r in s['controller']['decisions']]
+        return {'controller':TypesafePlannedController(LazyClient(),owner,on_decision=on_decision),
+            'recovery_controller':{'origin_job_id':context['controller']['origin_job_id'],'owner_job_id':owner,
+                'prior_attempts':sum(len(s['controller']['attempts']) for s in segments),
+                'saved_records':saved,'prior_receipts':[r for s in segments for r in s['controller']['receipts'].values()],
+                'on_attempt':on_attempt}}
+
     def admit(self,identifier):
         self.host.dossiers._origin(identifier,max_hops=10)
         lease=self.lease(identifier)
         try:
-            row,records,context,binding=self.source(identifier,admission=True,owns_execution_lease=True)
+            row,records,context,binding,segments=self._source_state(identifier,admission=True,owns_execution_lease=True)
             pending=[]
             def attempt(value):pending.append(value['stage']);raise NeedCall()
             def never(*a,**k):raise AssertionError('Preview must not invoke a provider')
             def simulated(stage,record):return {'path':'preview/'+stage+'.json','sha256':digest(record)}
+            controller=self._controller_args(context,segments,'0'*24,on_attempt=attempt)
             try:self._invoke(context,records,binding['prior_provider_calls'],complete=never if binding['provider']=='groq' else None,
-                on_stage=simulated,on_attempt=attempt)
+                on_stage=simulated,on_attempt=attempt,**controller)
             except NeedCall:pass
-            return row,records,context,binding,bool(pending),pending[0] if pending else 'export'
+            if context.get('controller') and pending and not pending[0].startswith('planned_decision_') and pending[0]!='verification' and binding['prior_controller_calls']>=4:
+                from .typesafe_recovery import TypesafeRecoveryBudgetExhausted
+                raise TypesafeRecoveryBudgetExhausted(binding['prior_controller_calls'])
+            paid=bool(pending);next_stage=pending[0] if pending else 'export';controller_preview={}
+            if context.get('controller'):
+                orphan_count=sum(len(s['controller']['receipts'])-sum(r['receipt'] is not None for r in s['controller']['decisions']) for s in segments)
+                may_use_typesafe=(len([r for s in segments for r in s['controller']['decisions']])<4
+                    and binding['prior_controller_calls']<4 and next_stage!='verification')
+                controller_preview={'controller':'jev','prior_controller_calls':binding['prior_controller_calls'],'max_controller_calls':4,
+                    'orphan_terminal_receipts':orphan_count,'next_provider':('typesafe' if next_stage.startswith('planned_decision_') else 'groq') if paid else None,
+                    'api_providers':(['groq']+(['typesafe'] if may_use_typesafe else [])) if paid else []}
+            return row,records,context,binding,paid,next_stage,controller_preview
         finally:lease.close()
 
     def preview(self,identifier):
         if not self.host.capacity.acquire(blocking=False):raise RuntimeError('Queue is full; wait for current work')
         try:
-            try:row,records,context,binding,paid,next_stage=self.admit(identifier)
+            from .typesafe_recovery import TypesafeRecoveryBudgetExhausted
+            from .controller_accounting import UnsettledControllerReceipt
+            try:row,records,context,binding,paid,next_stage,controller=self.admit(identifier)
+            except TypesafeRecoveryBudgetExhausted as error:
+                return {'available':False,'source_job_id':identifier,'reason':'original_controller_budget_exhausted',
+                    'prior_controller_calls':error.used,'max_controller_calls':error.limit,'automatic_retry':False,'model_calls':0}
+            except UnsettledControllerReceipt:
+                return {'available':False,'source_job_id':identifier,'reason':'controller_receipt_unsettled','automatic_retry':False,'model_calls':0}
             except RecoveryBudgetExhausted as error:
                 context=self.source(identifier)[2]
                 return {'available':False,'source_job_id':identifier,'reason':'original_call_budget_exhausted',
@@ -301,7 +368,7 @@ class StageRecoveryJobs:
                 'source_job_ids':[s['job_id'] for s in binding.get('source_chain',[])] or [identifier],
                 'completed_stages':[r['stage'] for r in records],'next_stage':next_stage,
                 'prior_provider_calls':binding['prior_provider_calls'],'max_provider_calls':recorded_call_limit(context,records),
-                'requires_api':paid,'automatic_retry':False,'model_calls':0,**self._budget_preview(context)}
+                'requires_api':paid,'automatic_retry':False,'model_calls':0,**self._budget_preview(context),**controller}
         finally:self.host.capacity.release()
 
     def _saved_intent(self,identifier,request,*,wait_for_dispatch=False):
@@ -345,7 +412,7 @@ class StageRecoveryJobs:
                 db.commit();old=json.loads(self.host._job_path(existing[1]).read_bytes())['request']
                 self._intent(existing[1],old);return self._response(existing[1],old)
             if not self.host.capacity.acquire(blocking=False):raise RuntimeError('Queue is full; wait for current work')
-            try:_,_,_,binding,paid,_=self.admit(identifier)
+            try:_,_,_,binding,paid,_,_=self.admit(identifier)
             finally:self.host.capacity.release()
             if (binding['sha256']!=request['binding_sha256'] or request['confirmation']!=
                     ('resume_product_stages_with_api_cost' if paid else 'resume_product_stages_without_api')):
@@ -370,11 +437,15 @@ class StageRecoveryJobs:
                 if current[3]!=binding or current[4]!=request['requires_api']:raise ValueError('Recovery source changed during execution')
                 host._check_cancelled(row['id'])
                 return current
-            _,records,context,_,_,_=guard()
+            _,records,context,_,_,_,_=guard()
             host._save(row,status='running',stage='replay_stages',pipeline_attempts=[],pipeline_context_sha256=binding['context_sha256'])
+            if context.get('controller'):host._save(row,controller_attempts=[],typesafe_decisions=[],typesafe_receipts={})
             if not request['requires_api']:host._save(row,usage_tracking=True,usage_receipts={})
             provider=None
-            if request['requires_api']:
+            def get_provider():
+                nonlocal provider
+                if provider is not None:return provider
+                if not request['requires_api']:raise ValueError('Preview did not authorize an API call')
                 from issueintel.runtime.config import RuntimeConfig
                 config=RuntimeConfig.load(host.root)
                 if config.model!=context['options']['model'] or config.max_output_tokens<context['options']['max_output_tokens']:
@@ -388,17 +459,34 @@ class StageRecoveryJobs:
                         row.setdefault('usage_receipts',{})[value['reservation_id']]=dict(value,stage=row['pipeline_attempts'][-1]['stage'])
                         host._save(row,usage_tracking=True,usage_receipts=row['usage_receipts'])
                     provider.on_receipt=capture;host._save(row,usage_tracking=True,usage_receipts={})
+                return provider
             def complete(messages,max_output_tokens):
-                guard();result=provider(messages,max_output_tokens);guard();return result
-            if provider is not None and hasattr(provider,'complete_structured'):
-                def structured(messages,*,max_output_tokens,schema):
-                    guard();result=provider.complete_structured(messages,max_output_tokens=max_output_tokens,schema=schema);guard();return result
-                complete.complete_structured=structured
+                guard();result=get_provider()(messages,max_output_tokens);guard();return result
+            def structured(messages,*,max_output_tokens,schema):
+                guard();transport=get_provider()
+                result=(transport.complete_structured(messages,max_output_tokens=max_output_tokens,schema=schema)
+                    if hasattr(transport,'complete_structured') else transport(messages,max_output_tokens))
+                guard();return result
+            complete.complete_structured=structured
             def attempt(value):
                 guard()
                 if not request['requires_api'] or value['provider_calls']!=binding['prior_provider_calls']+len(row['pipeline_attempts'])+1:
                     raise ValueError('Recovery attempt authority changed')
                 host._save(row,pipeline_attempts=row['pipeline_attempts']+[deepcopy(value)])
+            def controller_attempt(value):
+                guard()
+                if (not request['requires_api'] or value['owner_job_id']!=row['id']
+                        or value['controller_calls']!=binding['prior_controller_calls']+len(row['controller_attempts'])+1):
+                    raise ValueError('Recovery controller attempt authority changed')
+                host._save(row,controller_attempts=row['controller_attempts']+[deepcopy(value)])
+            def controller_receipt(receipt):
+                row['typesafe_receipts'][receipt['reservation_id']]=deepcopy(receipt)
+                host._save(row,typesafe_receipts=row['typesafe_receipts']);guard()
+            def controller_decision(record):
+                guard();row['typesafe_decisions'].append(deepcopy(record))
+                host._save(row,typesafe_decisions=row['typesafe_decisions']);guard()
+            controller=self._controller_args(context,self.accounting_segments(request['source_job_id']),row['id'],
+                on_attempt=controller_attempt,on_receipt=controller_receipt,on_decision=controller_decision,guard=guard)
             from .stages import StageCheckpoints
             store=StageCheckpoints(host.root,host.directory/'runs'/row['id']/'stages')
             def save(stage,record):
@@ -407,8 +495,8 @@ class StageRecoveryJobs:
             # A no-API completion still uses a failing stub for a paid source;
             # an unexpected call cannot instantiate a provider or spend.
             def no_api(*a,**k):raise ValueError('Recovery preview did not authorize an API call')
-            model_call=complete if provider is not None else no_api if binding['provider']=='groq' else None
-            pack=self._invoke(context,records,binding['prior_provider_calls'],complete=model_call,on_stage=save,on_attempt=attempt)
+            model_call=complete if request['requires_api'] else no_api if binding['provider']=='groq' else None
+            pack=self._invoke(context,records,binding['prior_provider_calls'],complete=model_call,on_stage=save,on_attempt=attempt,**controller)
             guard();pack['recovered_from']={'schema':'product_stage_resume_v1','source':binding,'automatic_retry':False}
             self.validate_child(row['id'],pack,request)
             directory=host.directory/'runs'/row['id'];export_pack(pack,directory);guard()
@@ -442,7 +530,8 @@ class StageRecoveryJobs:
                     'recorded_provider_calls':r['recovery']['provider_calls']} for r in records]
                 or any(pack['leakage_audit'].get(k) is not False for k in
                     ('strict_issue_time_verified','gold_in_inference','snapshot_issue_time_verified','original_query_verified'))
-                or any(k in pack for k in ('resumed_from','finalized_from','controller_decisions'))
+                or any(k in pack for k in ('resumed_from','finalized_from'))
+                or bool(context.get('controller'))!=bool(pack.get('controller_decisions'))
                 or bool(context.get('continuation'))!=bool(pack.get('continued_from'))
                 or not context.get('fork') and any(k in pack for k in ('followup','context_selection'))):
             raise ValueError('Recovered child differs from its owned stage source')
@@ -453,6 +542,22 @@ class StageRecoveryJobs:
             from .fork_origins import validate_output
             validate_output(pack,context['fork'])
         row=json.loads(self.host._job_path(identifier).read_bytes())
+        if context.get('controller'):
+            from .controller_accounting import segments as controller_segments
+            from .typesafe_controller import validate_controller_decisions
+            rows=[json.loads(self.host._job_path(s['job_id']).read_bytes()) for s in binding['source_chain']]+[row]
+            _,decisions,controller_calls,_=controller_segments(rows,context)
+            sidecar=validate_controller_decisions(pack)
+            if (sidecar['schema']!='typesafe_controller_v2' or sidecar['job_id']!=context['controller']['origin_job_id']
+                    or sidecar['records']!=decisions or sidecar['recovery']!={
+                        'schema':'typesafe_stage_recovery_v1','owner_job_id':identifier,
+                        'origin_job_id':context['controller']['origin_job_id'],'inherited_calls':binding['prior_controller_calls'],
+                        'new_calls':len(row['controller_attempts']),'max_calls':4,'automatic_retry':False,'billing_verified':False}
+                    or controller_calls!=binding['prior_controller_calls']+len(row['controller_attempts'])):
+                raise ValueError('Recovered controller differs from durable owner accounting')
+            groq_ids={key for r in rows for key in r.get('usage_receipts',{})}
+            if groq_ids & {key for r in rows for key in r.get('typesafe_receipts',{})}:
+                raise ValueError('Providers cannot share receipt ownership')
         attempts=row.get('pipeline_attempts',[])
         if (value.get('new_provider_calls')!=len(attempts)
                 or pack.get('stage_checkpoints',{})!=row.get('stage_checkpoints',{})):

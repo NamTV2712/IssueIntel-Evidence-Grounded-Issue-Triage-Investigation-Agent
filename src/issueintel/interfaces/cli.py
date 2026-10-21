@@ -328,12 +328,16 @@ def main(argv=None) -> int:
 def _product_workbench(root):
     from issueintel.investigation.workbench import Workbench
     from issueintel.investigation.providers import GroqProvider
+    from issueintel.runtime.typesafe import TypesafeClient
     def provider(config,**options):
         # Read credentials only when a worker actually needs a new paid call.
         # Preview and duplicate-intent reads never enter this factory.
         load_local_env(root/'.env')
         return GroqProvider(config,**options)
-    return Workbench(root,provider_factory=provider,automatic_sync=False)
+    def typesafe(config,**options):
+        load_local_env(root/'.env')
+        return TypesafeClient(config,**options)
+    return Workbench(root,provider_factory=provider,typesafe_factory=typesafe,automatic_sync=False)
 
 
 def _owned_product(args):
@@ -344,16 +348,17 @@ def _owned_product(args):
         request=({'binding_sha256':args.binding_sha256,'confirmation':
             'resume_product_stages_with_api_cost' if args.with_api else 'resume_product_stages_without_api'} if execute else None)
     else:
-        if (args.case_id or args.no_critic or args.controller!='rules' or not args.revision
+        if (args.case_id or args.no_critic or args.controller=='jev' and (not args.planned or args.provider!='groq') or not args.revision
                 or args.planned and args.refinement_rounds or args.output!=Path('artifacts/investigations')):
-            raise ValueError('--durable requires original product input/revision, rules and critic; no benchmark case, custom output or combined Planned/refinement')
+            raise ValueError('--durable requires original product input/revision and critic; Jev requires Planned/Groq; no benchmark case, custom output or combined Planned/refinement')
         request={'mode':'local' if args.issue_file else 'github','provider':args.provider,
             'revision':args.revision,'depth':'planned' if args.planned else 'deep' if args.refinement_rounds else 'quick'}
+        if args.controller=='jev':request['controller']='jev'
         if args.issue_file:request.update(repository=args.repo,issue_text=args.issue_file.read_text(encoding='utf-8'))
         else:request['issue_url']=args.repo
         from issueintel.investigation.workbench import validate_request
         request=validate_request(request)
-        if request['mode']=='github' or not Path(request['repository']).is_dir():
+        if request.get('controller')=='jev' or request['mode']=='github' or not Path(request['repository']).is_dir():
             # Explicit initial remote acquisition may need the local GitHub
             # credential; a recovery preview/duplicate never enters this path.
             load_local_env(args.root/'.env')

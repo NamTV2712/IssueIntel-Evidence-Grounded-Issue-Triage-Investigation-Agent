@@ -57,6 +57,7 @@ def policy_sha256():
            'investigation/intake.py','investigation/verifier.py','repository/snapshot.py','repository/graph.py',
            'retrieval/__init__.py','retrieval/search.py','retrieval/focused.py','retrieval/gap_directed.py','retrieval/repository_context.py',
            'investigation/clarifications.py','investigation/fork_origins.py','runtime/io.py',
+           'investigation/typesafe_controller.py','investigation/typesafe_recovery.py','runtime/typesafe.py',
            'annotations/generator.py','annotations/models.py','annotations/public_inputs.py','annotations/structured.py',
            'investigation/providers.py','runtime/config.py','runtime/budget.py')
     return digest({name:sha256((package/name).read_bytes()).hexdigest() for name in names})
@@ -65,7 +66,7 @@ def policy_sha256():
 def saved_commit(records):
     """Locate a declared full commit before Git; full binding follows in Tape."""
     try:
-        if not isinstance(records,list) or not 1<=len(records)<=18:
+        if not isinstance(records,list) or not 1<=len(records)<=22:
             raise ValueError('Recovery requires a bounded completed stage prefix')
         header=records[0]
         commit=header['payload']['context']['snapshot']['commit_sha']
@@ -78,7 +79,7 @@ def saved_commit(records):
 
 
 class StageTape:
-    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None,continuation=None,fork=None):
+    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None,continuation=None,fork=None,controller=None):
         from .resume import validate_product_case
         if fork is None:validate_product_case(case,snapshot.protocol)
         else:
@@ -96,6 +97,13 @@ class StageTape:
         self.context={'schema':SCHEMA,'case':deepcopy(case),'snapshot':descriptor,
             'graph_sha256':digest(graph.to_dict()),'options':deepcopy(options),'policy_sha256':policy_sha256()}
         if fork is not None:self.context['fork']=deepcopy(fork)
+        if controller is not None:
+            if (set(controller)!={'name','model','origin_job_id'} or controller['name']!='jev'
+                    or controller['model']!='jev-1.13.0' or not re.fullmatch('[a-f0-9]{24}',controller['origin_job_id'])
+                    or not options['planned_workflow'] or options['planner_policy']!='bounded_planner_v2'
+                    or fork is not None or continuation is not None):
+                raise ValueError('Invalid original Typesafe recovery authority')
+            self.context['controller']=deepcopy(controller)
         if continuation is not None:
             self.context.update(call_budget_policy=CONTINUATION_BUDGET_POLICY,continuation=deepcopy(continuation))
         elif options['planned_workflow']:

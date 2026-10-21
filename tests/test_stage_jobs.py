@@ -47,6 +47,18 @@ def approval(preview):
         'resume_product_stages_with_api_cost' if preview['requires_api'] else 'resume_product_stages_without_api'}
 
 
+@pytest.mark.parametrize('persisted_status',['queued','running'])
+def test_crashed_persisted_worker_status_is_recoverable_without_rewriting_source(stage_workbench,persisted_status):
+    wb,_,calls,_=stage_workbench;root=source(stage_workbench)
+    saved=json.loads(wb._job_path(root['id']).read_bytes());wb._save(saved,status=persisted_status)
+    raw=wb._job_path(root['id']).read_bytes()
+    assert wb.job(root['id'])['status']=='interrupted'
+    preview=wb.stage_recoveries.preview(root['id']);assert preview['available'],preview
+    child=completed(wb,wb.stage_recoveries.submit(root['id'],approval(preview))['id'])
+    assert child['status']=='completed',child
+    assert wb._job_path(root['id']).read_bytes()==raw
+
+
 @pytest.mark.parametrize('depth',['quick','deep','planned'])
 def test_owned_recovery_resumes_at_first_missing_generation_and_keeps_source_receipts(stage_workbench,depth):
     wb,model,calls,_=stage_workbench;root=source(stage_workbench,depth=depth)

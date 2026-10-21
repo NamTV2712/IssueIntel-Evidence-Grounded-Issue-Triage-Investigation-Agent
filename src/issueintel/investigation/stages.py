@@ -7,7 +7,8 @@ from issueintel.runtime.io import write_json
 
 STAGES = {'execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval','refined_generation','verification_input','verification',
           'planned_input','planned_retrieval_1','planned_retrieval_2','planned_retrieval_3',
-          'planned_generation_1','planned_generation_2','planned_generation_3','planned_complete'}
+          'planned_generation_1','planned_generation_2','planned_generation_3','planned_complete',
+          'planned_decision_1','planned_decision_2','planned_decision_3','planned_decision_4'}
 
 
 class StageCheckpoints:

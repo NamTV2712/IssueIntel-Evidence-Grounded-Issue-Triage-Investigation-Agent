@@ -159,30 +159,52 @@
     const sameSource=source=>source&&['query_sha256','snapshot_sha256','commit_sha'].every(key=>source[key]===plan.source[key]);
     const expected=plan.seed_annotation===null?[]:plan.rounds.slice();
     if(plan.seed_annotation!==null&&(!expected.length||expected.at(-1).action==='retrieve'))expected.push(plan.final_decision);
-    let matches=sidecar.schema==='typesafe_controller_v1'&&sidecar.provider==='typesafe'&&sidecar.model==='jev-1.13.0'
-      &&sameSource(sidecar.source)&&sidecar.workflow_plan_sha256===plan.sha256&&sidecar.job_id===job&&digest(sidecar.sha256)
+    const owned=value=>text(value)&&/^[a-f0-9]{24}$/.test(value),recovery=sidecar.schema==='typesafe_controller_v2';
+    const owner=sidecar.recovery;
+    let matches=['typesafe_controller_v1','typesafe_controller_v2'].includes(sidecar.schema)&&sidecar.provider==='typesafe'&&sidecar.model==='jev-1.13.0'
+      &&sameSource(sidecar.source)&&sidecar.workflow_plan_sha256===plan.sha256&&owned(sidecar.job_id)&&digest(sidecar.sha256)
       &&sidecar.max_decisions===4&&Array.isArray(sidecar.records)&&sidecar.records.length<=4&&sidecar.records.length===expected.length;
+    if(matches&&recovery){
+      matches=owner?.schema==='typesafe_stage_recovery_v1'&&owner.owner_job_id===job&&owner.origin_job_id===sidecar.job_id
+        &&owner.max_calls===4&&owner.automatic_retry===false&&owner.billing_verified===false
+        &&bound(owner.inherited_calls,0,4)&&bound(owner.new_calls,0,4)&&owner.inherited_calls+owner.new_calls<=4
+        &&Array.isArray(sidecar.decision_owners)&&sidecar.decision_owners.length===sidecar.records.length&&sidecar.decision_owners.every(owned)
+        &&sidecar.decision_owners.every((id,index)=>sidecar.records[index]?.binding?.job_id===id);
+      if(matches){const own=sidecar.decision_owners.filter(id=>id===job).length;
+        matches=own<=owner.new_calls&&sidecar.records.length-own<=owner.inherited_calls;
+      }
+    }else if(matches)matches=sidecar.job_id===job;
     if(matches)matches=sidecar.records.every((record,index)=>{
-      const receipt=record?.receipt,chosen=expected[index];
+      const receipt=record?.receipt,chosen=expected[index],recordOwner=recovery?sidecar.decision_owners[index]:job;
       return record?.decision_index===index+1&&Array.isArray(record.allowed)&&record.allowed.length>=2&&record.allowed.length<=3
         &&new Set(record.allowed).size===record.allowed.length&&record.allowed.every(value=>Object.hasOwn(actions,value))&&record.allowed.includes(record.action)
         &&Object.hasOwn(attemptLabels,record.attempt_status)&&text(record.reason)&&record.reason.length<=80&&typeof record.fallback==='boolean'
         &&digest(record.state_sha256)&&(record.request_sha256===null||digest(record.request_sha256))&&sameSource(record.binding)
-        &&record.binding.job_id===job&&record.binding.decision_index===index+1&&chosen.controller==='jev'&&chosen.action===record.action&&chosen.fallback===record.fallback
+        &&record.binding.job_id===recordOwner&&record.binding.decision_index===index+1&&chosen.controller==='jev'&&chosen.action===record.action&&chosen.fallback===record.fallback
         &&(receipt===null?['blocked','unreceipted_error'].includes(record.attempt_status):receipt.schema==='typesafe_decision_receipt_v1'
           &&receipt.provider==='typesafe'&&receipt.model===sidecar.model&&receipt.status===record.attempt_status&&digest(receipt.sha256)
-          &&receipt.request_sha256===record.request_sha256&&sameSource(receipt.binding)&&receipt.binding.job_id===job
+          &&receipt.request_sha256===record.request_sha256&&sameSource(receipt.binding)&&receipt.binding.job_id===recordOwner
           &&receipt.binding.decision_index===index+1&&receipt.currency==='USD'&&receipt.is_provider_invoice===false
           &&Number.isSafeInteger(receipt.micro_usd_charged_or_reserved)&&receipt.micro_usd_charged_or_reserved>=0);
     });
     if(!matches){panel.append(node('p',t('Không thể gắn quyết định Typesafe với phiên và kế hoạch này. Xem JSON gốc để kiểm tra.'),'notice'));return;}
     panel.append(node('p',t('{count} / {limit} lượt quyết định đã ghi · model {model}',{count:sidecar.records.length,limit:sidecar.max_decisions,model:sidecar.model})),
       node('p',t('Các lượt này tính riêng ngoài call sinh giả thuyết/verifier. Quyết định chọn bước không xác minh chất lượng bằng chứng hoặc nguyên nhân.'),'notice'));
-    if(!sidecar.records.length)panel.append(node('p',t('Không gọi Typesafe trong phiên này.'),'notice'));
+    if(recovery){
+      panel.append(node('p',t('Phiên Jev gốc: {id}',{id:owner.origin_job_id}),'hash-note'),
+        node('p',t('Lượt thử Jev: {inherited} đã ghi trước đó + {current} mới trong phiên này / {max}; giới hạn gốc giữ nguyên.',
+          {inherited:owner.inherited_calls,current:owner.new_calls,max:owner.max_calls}),'notice'),
+        node('p',t('Quyết định dùng lại giữ receipt ở phiên đã tạo; không cộng vào chi phí phiên phục hồi.'),'notice'));
+      if(owner.new_calls===0)panel.append(node('p',t('Phiên này không tạo lượt thử Jev mới; quyết định và chi phí trước đó giữ ở phiên nguồn.'),'notice'));
+    }else if(!sidecar.records.length)panel.append(node('p',t('Không gọi Typesafe trong phiên này.'),'notice'));
     for(const record of sidecar.records){
       const row=node('details',undefined,'workflow-controller-record');row.append(node('summary',t('Quyết định {number}: {action}',{number:record.decision_index,action:t(actions[record.action])})),
         node('p',t('Fallback theo luật: {fallback}',{fallback:t(record.fallback?'Có':'Không')}),'notice'),node('p',t(attemptLabels[record.attempt_status]),'notice'));
       if(record.receipt)row.append(node('p',t('USD ghi nhận/giữ chỗ: {usd}; chưa phải hóa đơn.',{usd:(record.receipt.micro_usd_charged_or_reserved/1000000).toFixed(6)}),'notice'));
+      if(recovery){
+        row.append(node('p',t('Phiên sở hữu quyết định: {id}',{id:record.binding.job_id}),'hash-note'));
+        if(record.binding.job_id!==job)row.append(node('p',t('Quyết định đã lưu được dùng lại; không gọi Typesafe lại.'),'notice'));
+      }
       row.append(node('p',t('Lý do: {reason}',{reason:record.reason}),'workflow-source-text'));panel.append(row);
     }
     const provenance=node('details');provenance.append(node('summary',t('Nguồn quyết định')),node('p','Decision SHA256 '+sidecar.sha256,'hash-note'),

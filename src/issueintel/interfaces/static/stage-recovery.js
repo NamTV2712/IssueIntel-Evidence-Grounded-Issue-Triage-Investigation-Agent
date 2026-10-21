@@ -5,9 +5,11 @@
   const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
   const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v),job=v=>typeof v==='string'&&/^[a-f0-9]{24}$/.test(v);
   const stages=['execution_input','initial_retrieval','prepared_input','seed_generation','focused_retrieval','refined_generation',
-    'verification_input','verification','planned_input','planned_complete',...Array.from({length:3},(_,i)=>'planned_retrieval_'+(i+1)),...Array.from({length:3},(_,i)=>'planned_generation_'+(i+1))];
+    'verification_input','verification','planned_input','planned_complete',...Array.from({length:3},(_,i)=>'planned_retrieval_'+(i+1)),...Array.from({length:3},(_,i)=>'planned_generation_'+(i+1)),...Array.from({length:4},(_,i)=>'planned_decision_'+(i+1))];
   const states=new Map();let selected=null,epoch=0,frame=0;
   function stageName(stage){
+    const decision=/^planned_decision_([1-4])$/.exec(stage);
+    if(decision)return t('Quyết định Jev {round}',{round:decision[1]});
     const numbered=/^planned_(retrieval|generation)_([1-3])$/.exec(stage);
     return numbered?t(numbered[1]==='retrieval'?'Truy xuất vòng {round}':'Sinh giả thuyết vòng {round}',{round:numbered[2]}):t(stage);
   }
@@ -16,13 +18,25 @@
     return p?.schema==='product_stage_recovery_preview_v1'&&p.available===true&&p.source_job_id===bound.id
       &&p.provider===bound.provider&&p.depth===bound.depth&&hash(p.binding_sha256)&&hash(p.context_sha256)
       &&typeof p.commit_sha==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(p.commit_sha)
-      &&Array.isArray(p.completed_stages)&&p.completed_stages.length>0&&p.completed_stages.length<=18
+      &&Array.isArray(p.completed_stages)&&p.completed_stages.length>0&&p.completed_stages.length<=(p.controller==='jev'?22:18)
       &&p.completed_stages[0]==='execution_input'&&new Set(p.completed_stages).size===p.completed_stages.length
       &&p.completed_stages.every(s=>stages.includes(s))&&[...stages,'export'].includes(p.next_stage)
       &&Number.isInteger(p.prior_provider_calls)&&p.prior_provider_calls>=0&&p.prior_provider_calls<=p.max_provider_calls
       &&validBudget(p,e,max)
-      &&typeof p.requires_api==='boolean'&&(!p.requires_api||bound.provider==='groq'&&p.prior_provider_calls<p.max_provider_calls)
+      &&typeof p.requires_api==='boolean'&&(!p.requires_api||bound.provider==='groq'&&(p.prior_provider_calls<p.max_provider_calls||p.controller==='jev'&&p.next_provider==='typesafe'))
+      &&validController(p,e)
       &&p.automatic_retry===false&&p.model_calls===0;
+  }
+  function validController(p,e){
+    if(p.controller===undefined)return e.source.controller!=='jev';
+    return p.controller==='jev'&&p.depth==='planned'&&p.provider==='groq'
+      &&(e.source.mode==='stage_resume'||e.source.controller==='jev')&&p.max_controller_calls===4
+      &&Number.isInteger(p.prior_controller_calls)&&p.prior_controller_calls>=0&&p.prior_controller_calls<=4
+      &&Number.isInteger(p.orphan_terminal_receipts)&&p.orphan_terminal_receipts>=0&&p.orphan_terminal_receipts<=p.prior_controller_calls
+      &&Array.isArray(p.api_providers)&&new Set(p.api_providers).size===p.api_providers.length
+      &&p.api_providers.every(x=>['groq','typesafe'].includes(x))
+      &&(p.requires_api?p.api_providers.includes(p.next_provider)&&['groq','typesafe'].includes(p.next_provider)
+        &&(p.next_provider!=='typesafe'||p.prior_controller_calls<4):p.next_provider===null&&p.api_providers.length===0);
   }
   function validBudget(p,e,max){
     if(p.budget_scope===undefined)return e.source.provider==='groq'&&e.source.depth==='planned'?[5,7,9].includes(p.max_provider_calls):p.max_provider_calls===max;
@@ -51,12 +65,14 @@
     document.dispatchEvent(new CustomEvent('issueintel:stagerecoverycreated',{detail:{job_id:id,source_job_id:e.source.id}}));
   }
   async function check(e){
-    if(e.busy)return;const version=epoch;e.busy=true;e.preview=null;e.notice=null;e.denied=null;paint();
+    if(e.busy)return;const version=epoch;e.busy=true;e.preview=null;e.notice=null;e.denied=null;e.controllerDenied=null;paint();
     try{
       const value=await api('/api/jobs/'+e.source.id+'/stage-recovery');
       if(current(e,version)){
         if(valid(value,e)&&validChain(value)){e.preview=value;e.consent=false;}
         else if(deniedBudget(value,e))e.denied=value;
+        else if(value?.available===false&&value.source_job_id===e.source.id&&value.model_calls===0
+          &&['original_controller_budget_exhausted','controller_receipt_unsettled'].includes(value.reason))e.controllerDenied=value.reason;
         else e.notice='Chưa có journal hợp lệ, nguồn còn đang chạy hoặc policy đã thay đổi.';
       }
     }catch(_){if(current(e,version))e.notice='Chưa kiểm tra được các stage đã lưu; kiểm tra server local rồi thử lại.';}
@@ -94,10 +110,17 @@
     area.append(button('Kiểm tra các stage để tiếp tục',()=>check(e)));
     if(e.denied)area.append(node('p',t('Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.',
       {used:e.denied.prior_provider_calls,max:e.denied.max_provider_calls}),'notice'));
+    if(e.controllerDenied)area.append(node('p',t(e.controllerDenied==='controller_receipt_unsettled'?
+      'Receipt Jev còn reserved; cần đối soát trước khi gọi tiếp.':'Đã hết bốn lượt thử Jev của luồng gốc; phục hồi không cấp lại ngân sách.'),'notice'));
     const budget=e.preview||e.denied;
     if(budget?.budget_scope==='planned_continuation_remaining')area.append(node('p',t('Phiên cha đã dùng {used}/{max} lượt. Giới hạn phục hồi bên dưới là phần còn lại của cùng ngân sách.',
       {used:budget.inherited_root_provider_calls,max:budget.root_max_provider_calls}),'notice'));
     const p=e.preview;if(!p)return;const attempt=e.attempts.get(p.binding_sha256);
+    if(p.controller==='jev'){
+      area.append(node('p',t('Jev / Typesafe: {used}/{max} lượt thử đã ghi; giới hạn riêng với Groq.',{used:p.prior_controller_calls,max:p.max_controller_calls}),'notice'));
+      if(p.requires_api)area.append(node('p',t('Provider có thể dùng khi tiếp tục: {providers}. Cấu hình và quyền chi tiêu được kiểm riêng.',{providers:p.api_providers.join(', ')}),'notice'));
+      if(p.orphan_terminal_receipts)area.append(node('p',t('Có {count} receipt Jev đã kết thúc nhưng thiếu quyết định đã lưu. Chi phí cũ vẫn giữ; bước thiếu có thể cần gọi mới trong giới hạn còn lại.',{count:p.orphan_terminal_receipts}),'notice'));
+    }
     area.append(node('p','Commit '+p.commit_sha,'hash-note'),node('p',t('Stage đã lưu: {stages}',{stages:p.completed_stages.map(stageName).join(' → ')}),'hash-note'),
       node('p',t('Bước còn thiếu: {stage}',{stage:stageName(p.next_stage)})),
       node('p',t('Lượt thử đã ghi: {used}/{max}; gồm cả lượt lỗi hoặc chưa rõ đã tới provider.',{used:p.prior_provider_calls,max:p.max_provider_calls}),'notice'),
@@ -122,7 +145,7 @@
     get('stage-recovery-panel').hidden=!allowed;
     if(!allowed){selected=null;epoch++;return;}
     const key=row.id+':'+sourceHash;let e=states.get(key);
-    if(!e){e={source:{id:row.id,mode:row.mode,provider:row.provider,depth:row.depth},preview:null,attempts:new Map(),busy:false,notice:null,consent:false};states.set(key,e);}
+    if(!e){e={source:{id:row.id,mode:row.mode,provider:row.provider,depth:row.depth,controller:row.controller},preview:null,attempts:new Map(),busy:false,notice:null,consent:false};states.set(key,e);}
     if(selected!==e){selected=e;epoch++;}paint();
   }
   document.addEventListener('issueintel:languagechange',paint);

@@ -620,8 +620,8 @@ kể cả zero-call offline. Có thể tái dùng seed/refined generation, initi
 retrieval, từng planned retrieval/generation, verification và completed plan.
 Waiting của v3 vẫn giữ nguyên semantics; replay không biến câu hỏi đang chờ
 thành dữ kiện đã được người dùng trả lời. Benchmark/strict/instance/split bị
-chặn trước Git; follow-up, answer continuation và custom/Jev controllers chưa
-được nhận vào lõi recovery mới.
+chặn trước Git. Follow-up, answer continuation và Jev có các authority riêng
+mô tả bên dưới; controller tùy ý không được nhận vào recovery recipe.
 
 Recipe ghi cận attempt 0 offline, 4 Quick, 6 Deep hoặc 9 Planned. Khi replay,
 caller phải cung cấp `prior_provider_calls` đã biết, tính cả failed/in-flight
@@ -750,8 +750,38 @@ của child được kiểm bằng original memory-fork identity; mọi unverifi
 flags giữ nguyên. Included-byte consistency vẫn không xác minh causal truth,
 Git/AST, tác giả hoặc hóa đơn.
 
-Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev
-bị lỗi chưa được nhận vào **stage recovery**.
+Không tự chuyển checkpoint legacy thành recovery journal.
+
+`typesafe_recovery.RecoveringTypesafeController` dùng chung pipeline cho Planned
+Jev v2 mới. Context khóa origin job, model Jev và policy; bốn stage
+`planned_decision_1..4` giữ exact public state, allowlist, root input binding và
+record với actual execution owner. Sidecar `typesafe_controller_v2` giữ logical
+root cùng `decision_owners` riêng. Mọi quyết định đã lưu, kể cả durable row tail
+trước checkpoint kế tiếp, được `_record` replay và không gọi lại client/ledger/
+callback ghi chi phí. Typesafe v1 giữ nguyên cách đọc.
+
+`controller_accounting.segments` đối chiếu attempt ordinal toàn chuỗi (tối đa
+bốn), logical decision index, receipt và original owner. Mất response/decision
+không xóa attempt. Receipt terminal thiếu decision được báo trong preview, giữ
+nguyên cost/binding và chỉ nhận thử bước thiếu với consent và budget còn lại;
+receipt reserved thì từ chối. Trước gọi mới, mọi receipt ở logical state đó còn
+phải khớp exact annotation/evidence/request hashes. Hết cận Jev thì chặn cả
+generation chắc chắn không thể đi tới quyết định tiếp theo, thay vì trả thêm
+chi phí Groq rồi mới báo hết cận.
+
+Source/handoff v5 giữ controller inventory từng owner ngoài Groq usage. Wrapper
+đếm lượt thử mới trước client, không cấp lại bốn call khi đổi child; Groq vẫn
+giữ route-derived 5/7/9 riêng. Provider được tạo lười theo call thực tế: critic
+không load Typesafe; Jev chọn STOP không tạo Groq; export không load cả hai.
+Preview không gọi provider/config/ledger, nêu scope provider có thể cần. Saved
+read/duplicate/handoff không replay Git hoặc load cấu hình hiện tại.
+
+Standalone verifier v5 đối chiếu included raw journals, mỗi decision state/
+allowlist/request/response/receipt, logical plan và mọi owner/attempt, kể cả
+terminal orphan receipt. Nó kiểm inventory Groq/Typesafe riêng và chặn receipt
+trùng xuyên provider, không xác nhận causal truth, tác giả hay hóa đơn. Trace
+giữ quyết định cũ có owner; UI chi phí phiên con chỉ lấy receipt do con tạo.
+
 Planned phục hồi ở waiting state có thể dùng luồng trả lời
 riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts
 vượt logical completed-stage calls từ recorded recovery binding. Source service

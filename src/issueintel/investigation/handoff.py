@@ -122,9 +122,13 @@ class Handoffs:
                         'source_attempts':original['pipeline_attempts'],'new_attempts':child_row['pipeline_attempts'],
                         'source_usage':{'tracking':original.get('usage_tracking'),'receipts':original.get('usage_receipts',{})},
                         'requires_api':child_row['request']['requires_api']}
-                    if binding['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3','product_stage_recovery_source_v4'}:
+                    if binding['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3','product_stage_recovery_source_v4','product_stage_recovery_source_v5'}:
                         witness={'schema':'product_stage_handoff_v'+binding['schema'][-1],'source':binding,'source_chain':segments,
                             'new_attempts':child_row['pipeline_attempts'],'requires_api':child_row['request']['requires_api']}
+                    if binding['schema']=='product_stage_recovery_source_v5':
+                        witness['new_controller']={'attempts':child_row['controller_attempts'],
+                            'decisions':child_row['typesafe_decisions'],'receipts':child_row['typesafe_receipts']}
+                        witness['new_usage']={'tracking':child_row.get('usage_tracking'),'receipts':child_row.get('usage_receipts',{})}
                     add('runs/'+child['job_id']+'/stage-recovery.json',_json(witness),'stage_recovery_source')
                     for stage in binding['stages']:
                         owner=stage.get('owner_job_id',job_id);name='runs/'+owner+'/stages/'+stage['stage']+'.json'

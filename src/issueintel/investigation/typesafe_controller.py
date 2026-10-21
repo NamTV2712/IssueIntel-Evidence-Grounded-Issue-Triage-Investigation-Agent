@@ -20,6 +20,7 @@ from .planner import validate_planned_case
 
 
 SCHEMA = 'typesafe_controller_v1'
+RECOVERY_SCHEMA = 'typesafe_controller_v2'
 STATE_SCHEMA = 'typesafe_planned_state_v1'
 MAX_DECISIONS = 4
 _HEX64 = re.compile(r'[a-f0-9]{64}')
@@ -297,9 +298,12 @@ def validate_controller_decisions(pack):
     try:
         plan = validate_planned(pack)
         sidecar = pack['controller_decisions']
-        if (not isinstance(sidecar, dict) or set(sidecar) != {'schema', 'provider', 'model',
-                'source', 'workflow_plan_sha256', 'job_id', 'max_decisions', 'records', 'sha256'}
-                or sidecar['schema'] != SCHEMA or sidecar['provider'] != 'typesafe'
+        recovery = isinstance(sidecar,dict) and sidecar.get('schema')==RECOVERY_SCHEMA
+        fields={'schema', 'provider', 'model', 'source', 'workflow_plan_sha256',
+                'job_id', 'max_decisions', 'records', 'sha256'}
+        if recovery:fields|={'decision_owners','recovery'}
+        if (not isinstance(sidecar, dict) or set(sidecar) != fields
+                or sidecar['schema'] not in {SCHEMA,RECOVERY_SCHEMA} or sidecar['provider'] != 'typesafe'
                 or sidecar['model'] != MODEL or sidecar['source'] != plan['source']
                 or sidecar['workflow_plan_sha256'] != plan['sha256']
                 or type(sidecar['max_decisions']) is not int or sidecar['max_decisions'] != MAX_DECISIONS
@@ -308,6 +312,8 @@ def validate_controller_decisions(pack):
                 or digest({key: value for key, value in sidecar.items() if key != 'sha256'}) != sidecar['sha256']
                 or not isinstance(sidecar['records'], list) or len(sidecar['records']) > MAX_DECISIONS):
             raise ValueError('Saved Typesafe controller seal or source differs')
+        if recovery:
+            _recovery_ownership(sidecar)
         known = {row['id']: row for row in pack['evidence']}
         current = [known[identifier] for identifier in plan['seed_evidence_ids']]
         annotation = plan['seed_annotation']
@@ -333,7 +339,33 @@ def validate_controller_decisions(pack):
         if len(sidecar['records']) != len(expected):
             raise ValueError('Saved Typesafe decision count differs from the workflow')
         for index, (record, values) in enumerate(zip(sidecar['records'], expected), 1):
-            _record(record, *values, sidecar['job_id'], index)
+            owner=sidecar['decision_owners'][index-1] if recovery else sidecar['job_id']
+            _record(record, *values, owner, index)
         return sidecar
     except (TypesafeError, KeyError, TypeError, AttributeError, IndexError) as error:
         raise ValueError('Invalid saved Typesafe controller decisions') from None
+
+
+def _recovery_ownership(sidecar):
+    """Validate recorded ownership/count shape; the job service binds raw owners."""
+    recovery=sidecar['recovery'];owners=sidecar['decision_owners']
+    keys={'schema','owner_job_id','origin_job_id','inherited_calls','new_calls',
+          'max_calls','automatic_retry','billing_verified'}
+    if (not isinstance(recovery,dict) or set(recovery)!=keys
+            or recovery['schema']!='typesafe_stage_recovery_v1'
+            or recovery['origin_job_id']!=sidecar['job_id']
+            or not isinstance(recovery['owner_job_id'],str)
+            or not re.fullmatch(r'[a-f0-9]{24}',recovery['owner_job_id'])
+            or type(recovery['max_calls']) is not int or recovery['max_calls']!=MAX_DECISIONS
+            or recovery['automatic_retry'] is not False or recovery['billing_verified'] is not False
+            or any(type(recovery[k]) is not int or not 0<=recovery[k]<=MAX_DECISIONS
+                   for k in ('inherited_calls','new_calls'))
+            or recovery['inherited_calls']+recovery['new_calls']>MAX_DECISIONS
+            or not isinstance(owners,list) or len(owners)!=len(sidecar['records'])
+            or any(not isinstance(owner,str) or not re.fullmatch(r'[a-f0-9]{24}',owner) for owner in owners)
+            or owners!=[record['binding']['job_id'] for record in sidecar['records']]):
+        raise ValueError('Changed Typesafe recovery ownership or attempt bounds')
+    own=sum(owner==recovery['owner_job_id'] for owner in owners)
+    if (own>recovery['new_calls'] or len(owners)-own>recovery['inherited_calls']
+            or len(owners)>recovery['inherited_calls']+recovery['new_calls']):
+        raise ValueError('Typesafe decisions exceed their recorded owner attempts')

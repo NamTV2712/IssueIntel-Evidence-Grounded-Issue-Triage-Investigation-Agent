@@ -198,7 +198,13 @@ function showUsage(row){
 function savedTypesafeUsage(){
   const sidecar=pack?.controller_decisions;
   if(!sidecar)return {};
-  return {controller:'jev',typesafe_decisions:sidecar.records,typesafe_receipts:Object.fromEntries(sidecar.records.filter(row=>row.receipt).map(row=>[row.receipt.reservation_id,row.receipt]))};
+  if(!Array.isArray(sidecar.records))return {controller:'jev'};
+  const recovered=sidecar.schema==='typesafe_controller_v2';
+  if(recovered?(sidecar.recovery?.owner_job_id!==currentJob||sidecar.recovery?.origin_job_id!==sidecar.job_id):sidecar.job_id!==currentJob)return {controller:'jev'};
+  const records=recovered?sidecar.records.filter(row=>row?.binding?.job_id===currentJob):sidecar.records;
+  return {controller:'jev',typesafe_decisions:records,
+    typesafe_receipts:Object.fromEntries(records.filter(row=>row?.receipt).map(row=>[row.receipt.reservation_id,row.receipt])),
+    ...(recovered?{typesafe_recovery:sidecar.recovery}:{})};
 }
 function planDrafts() {
   return [...document.querySelectorAll('[data-plan-step]')].map(form=>({id:form.dataset.planStep,

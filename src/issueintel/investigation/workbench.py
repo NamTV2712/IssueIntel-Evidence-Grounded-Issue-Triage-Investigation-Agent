@@ -1,5 +1,6 @@
 """Local product jobs calling the shared read-only investigation pipeline."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,12 @@ def validate_controller_ownership(pack, job):
         receipts={record['receipt']['reservation_id']:record['receipt'] for record in sidecar['records'] if record['receipt'] is not None}
         if sidecar['job_id']!=job['id'] or not selected or receipts!=job.get('typesafe_receipts'):
             raise ValueError('Saved Typesafe controller ownership changed')
+        if sidecar['schema']=='typesafe_controller_v2':
+            recovery=sidecar['recovery']
+            if (recovery['owner_job_id']!=job['id'] or recovery['origin_job_id']!=job['id']
+                    or recovery['inherited_calls']!=0 or recovery['new_calls']!=len(job.get('controller_attempts',[]))
+                    or sidecar['records']!=job.get('typesafe_decisions')):
+                raise ValueError('Saved Typesafe recovery ownership changed')
 
 
 def validate_request(request):
@@ -513,7 +520,7 @@ class Workbench:
         lease=None
         try:
             if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github','planned_continuation','followup','clarification','check_followup','memory_followup','context'}
-                    and request.get('controller','rules')=='rules'):
+                    and request.get('controller','rules') in {'rules','jev'}):
                 # Hold ownership while queued as well as while executing. The
                 # connection is transferred to exactly one callback and released
                 # on cancellation/dispatch failure; it never leaves this process.
@@ -911,7 +918,7 @@ class Workbench:
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
-            if request['mode'] in {'local','github','example','planned_continuation','followup','clarification','check_followup','memory_followup','context'} and request.get('controller','rules')=='rules':
+            if request['mode'] in {'local','github','example','planned_continuation','followup','clarification','check_followup','memory_followup','context'} and request.get('controller','rules') in {'rules','jev'}:
                 from .stage_jobs import job_policy_sha256
                 if recovery_lease is None:recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
                 capture_policy=job_policy_sha256()
@@ -986,8 +993,10 @@ class Workbench:
                 def capture_typesafe(receipt):
                     row.setdefault('typesafe_receipts',{})[receipt['reservation_id']]=receipt
                     self._save(row,typesafe_receipts=row['typesafe_receipts'])
+                    check_observation_source()
                     if receipt['status']=='reserved':self._check_cancelled(row['id'])
                 def capture_decision(decision):
+                    check_observation_source()
                     if decision.get('receipt') is not None:
                         receipt=decision['receipt']
                         row.setdefault('typesafe_receipts',{})[receipt['reservation_id']]=receipt
@@ -1053,6 +1062,8 @@ class Workbench:
                 ref=stage_store(stage,record)
                 initial=({'pipeline_attempts':[],'pipeline_context_sha256':record['recovery']['context_sha256'],
                     'recovery_job_policy_sha256':capture_policy} if stage=='execution_input' else {})
+                if stage=='execution_input' and request.get('controller')=='jev':
+                    initial.update(controller_attempts=[],typesafe_decisions=[],typesafe_receipts={})
                 self._save(row,stage=stage,stage_checkpoints=dict(stage_store.receipts),**initial)
                 return ref
             def recovery_attempt(value):
@@ -1060,6 +1071,11 @@ class Workbench:
                 if value['context_sha256']!=row['pipeline_context_sha256'] or value['provider_calls']!=len(row['pipeline_attempts'])+1:
                     raise ValueError('Original provider attempt accounting changed')
                 self._save(row,pipeline_attempts=row['pipeline_attempts']+[dict(value)])
+            def controller_attempt(value):
+                self._check_cancelled(row['id']);check_observation_source()
+                if value['controller_calls']!=len(row.get('controller_attempts',[]))+1:
+                    raise ValueError('Original controller attempt authority changed')
+                self._save(row,controller_attempts=row.get('controller_attempts',[])+[deepcopy(value)])
             self._save(row, stage='investigate')
             pack = investigate(case, local, complete_json=complete if provider else None, provider=request['provider'],
                 model=provider.model if provider else 'none',
@@ -1068,6 +1084,8 @@ class Workbench:
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
                 **({'recoverable':True,'on_recovery_attempt':recovery_attempt} if capture_recovery else {}),
+                **({'recovery_controller':{'origin_job_id':row['id'],'owner_job_id':row['id'],'prior_attempts':0,
+                    'saved_records':[],'prior_receipts':[],'on_attempt':controller_attempt}} if capture_recovery and selected_controller is not None else {}),
                 **({'recovery_fork':fork_projection} if capture_recovery and fork_projection is not None else {}),
                 **({'planned_workflow':True,'planner_policy':'bounded_planner_v3' if planned_v3 else 'bounded_planner_v2'} if request['depth']=='planned' else {}),
                 **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
@@ -1194,6 +1212,20 @@ class Workbench:
             raise ValueError('Stage checkpoint integrity changed')
         return raw
 
+    @contextmanager
+    def _pack_read_scope(self):
+        """Share completed replay only within one synchronous source validation."""
+        outer=getattr(self.pack_reads,'cache',None) is None
+        if outer:
+            self.pack_reads.cache={}
+            self.pack_reads.active=set()
+        try:
+            yield
+        finally:
+            if outer:
+                del self.pack_reads.cache
+                del self.pack_reads.active
+
     def _load_pack(self, identifier, seen=None):
         """Replay each source once within a read, never cache across operations.
 
@@ -1203,11 +1235,7 @@ class Workbench:
         """
         if seen is not None and (identifier in seen or len(seen)>8):
             raise ValueError('Invalid follow-up lineage')
-        outer=getattr(self.pack_reads,'cache',None) is None
-        if outer:
-            self.pack_reads.cache={}
-            self.pack_reads.active=set()
-        try:
+        with self._pack_read_scope():
             if identifier in self.pack_reads.active:raise ValueError('Invalid source cycle')
             if identifier in self.pack_reads.cache:return self.pack_reads.cache[identifier]
             self.pack_reads.active.add(identifier)
@@ -1216,10 +1244,6 @@ class Workbench:
                 self.pack_reads.cache[identifier]=result
                 return result
             finally:self.pack_reads.active.discard(identifier)
-        finally:
-            if outer:
-                del self.pack_reads.cache
-                del self.pack_reads.active
 
     def _load_pack_verified(self, identifier, seen=None):
         seen = set() if seen is None else seen

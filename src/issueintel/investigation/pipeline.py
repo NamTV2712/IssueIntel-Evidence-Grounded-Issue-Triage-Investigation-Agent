@@ -54,10 +54,10 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
                 repository_context=None, resumable=False, planned_workflow=False,
                 planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None,
-                recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None,recovery_origin=None,recovery_fork=None) -> dict:
+                recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None,recovery_origin=None,recovery_fork=None,recovery_controller=None) -> dict:
     case = public_case(case)
     recovery_commit=None
-    if type(recoverable) is not bool or not recoverable and (recovery_records is not None or prior_provider_calls is not None or on_recovery_attempt is not None or recovery_origin is not None or recovery_fork is not None):
+    if type(recoverable) is not bool or not recoverable and (recovery_records is not None or prior_provider_calls is not None or on_recovery_attempt is not None or recovery_origin is not None or recovery_fork is not None or recovery_controller is not None):
         raise ValueError('Stage recovery must be explicitly selected')
     if recoverable:
         from .stage_recovery import StageTape, saved_commit
@@ -71,9 +71,15 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 or (planned_parent is not None or planned_continuation is not None) and recovery_origin is None
                 or recovery_origin is not None and (planned_parent is None or planned_continuation is None)
                 or recovery_fork is not None and (planned_workflow or recovery_origin is not None or resumable)
-                or controller is not None and type(controller) is not RuleController
+                or controller is not None and type(controller) is not RuleController and recovery_controller is None
                 or not callable(on_stage) or (complete_json is None)!=(provider=='none')):
             raise ValueError('Stage recovery requires an original product with a rules recipe and durable callback')
+        if recovery_controller is not None:
+            from .typesafe_controller import TypesafePlannedController
+            if (type(controller) is not TypesafePlannedController or not planned_workflow
+                    or planner_policy!='bounded_planner_v2' or recovery_origin is not None or recovery_fork is not None
+                    or set(recovery_controller)!={'origin_job_id','owner_job_id','prior_attempts','saved_records','on_attempt','prior_receipts'}):
+                raise ValueError('Typesafe recovery requires its owned Planned recipe')
         if recovery_records is not None:recovery_commit=saved_commit(recovery_records)
     if type(planned_workflow) is not bool:
         raise ValueError('Planned workflow must be an explicit boolean')
@@ -201,7 +207,11 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             'independent_critic':independent_critic,'max_output_tokens':max_output_tokens,
             'refinement_rounds':refinement_rounds,'resumable':resumable,'planned_workflow':planned_workflow,
             'planner_policy':planner_policy,'repository_context':repository_context},
-            on_stage=emit,records=recovery_records,prior_provider_calls=prior_provider_calls,on_attempt=on_recovery_attempt,continuation=continuation,fork=recovery_fork)
+            on_stage=emit,records=recovery_records,prior_provider_calls=prior_provider_calls,on_attempt=on_recovery_attempt,continuation=continuation,fork=recovery_fork,
+            controller=({'name':'jev','model':'jev-1.13.0','origin_job_id':recovery_controller['origin_job_id']} if recovery_controller else None))
+        if recovery_controller is not None:
+            from .typesafe_recovery import RecoveringTypesafeController
+            controller=RecoveringTypesafeController(controller,tape,**recovery_controller)
         if complete_json is not None:complete_json=tape.wrap(complete_json)
     if planned_parent is not None:
         evidence=deepcopy([row for row in planned_parent['evidence'] if row['kind']=='code'])

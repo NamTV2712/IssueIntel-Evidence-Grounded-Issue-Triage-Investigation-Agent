@@ -23,13 +23,27 @@
     const panel=el('section',undefined,'workflow-controller');panel.append(el('h3',t('Chi phí quyết định Jev / Typesafe')));container.append(panel);
     panel.append(el('p',t('Chi phí của phiên: {id}',{id:job.id}),'hash-note'),el('p',t('Receipt Typesafe được tính riêng với Groq; số tiền ghi nhận/giữ chỗ chưa phải hóa đơn.'),'notice'));
     const values=job.typesafe_receipts;
+    const recovery=job.typesafe_recovery;
+    if(recovery!==undefined){
+      const valid=recovery?.schema==='typesafe_stage_recovery_v1'&&recovery.owner_job_id===job.id&&/^[a-f0-9]{24}$/.test(recovery.origin_job_id||'')
+        &&recovery.max_calls===4&&recovery.automatic_retry===false&&recovery.billing_verified===false
+        &&[recovery.inherited_calls,recovery.new_calls].every(n=>Number.isInteger(n)&&n>=0&&n<=4)
+        &&recovery.inherited_calls+recovery.new_calls<=4;
+      if(!valid){panel.append(el('p',t('Chưa kiểm được receipt Typesafe của phiên này; chi phí chưa biết. Không cộng vào chi phí Groq.'),'notice'));return;}
+      panel.append(el('p',t('Lượt thử Jev: {inherited} đã ghi trước đó + {current} mới trong phiên này / {max}; giới hạn gốc giữ nguyên.',
+        {inherited:recovery.inherited_calls,current:recovery.new_calls,max:recovery.max_calls}),'notice'),
+        el('p',t('Quyết định dùng lại giữ receipt ở phiên đã tạo; không cộng vào chi phí phiên phục hồi.'),'notice'));
+      if(recovery.new_calls===0&&values&&typeof values==='object'&&!Array.isArray(values)&&!Object.keys(values).length){
+        panel.append(el('p',t('Phiên này không tạo lượt thử Jev mới; quyết định và chi phí trước đó giữ ở phiên nguồn.'),'notice'));return;
+      }
+    }
     if(!values||typeof values!=='object'||Array.isArray(values)||!Object.keys(values).length){
       panel.append(el('p',t('Chưa có receipt Typesafe; chưa coi chi phí là 0. Các lượt bị chặn có thể chưa gửi API.'),'notice'));return;
     }
     const statuses={reserved:'Đang giữ chỗ chi phí',settled:'Đã ghi nhận usage',failed_bound:'Lời gọi lỗi; giữ cận chi phí',
       missing_usage_bound:'Thiếu usage; giữ cận chi phí',breach:'Usage vượt cận chi phí'};
     const receipts=Object.entries(values);
-    const valid=receipts.length<=4&&/^[a-f0-9]{24}$/.test(job.id||'')&&receipts.every(([id,receipt])=>receipt
+    const valid=receipts.length<=4&&(!recovery||receipts.length<=recovery.new_calls)&&/^[a-f0-9]{24}$/.test(job.id||'')&&receipts.every(([id,receipt])=>receipt
       &&receipt.schema==='typesafe_decision_receipt_v1'&&receipt.provider==='typesafe'&&receipt.model==='jev-1.13.0'
       &&receipt.reservation_id===id&&/^[a-f0-9]{32}$/.test(id)&&receipt.binding?.job_id===job.id
       &&Object.hasOwn(statuses,receipt.status)&&Number.isSafeInteger(receipt.micro_usd_charged_or_reserved)&&receipt.micro_usd_charged_or_reserved>=0
@@ -52,7 +66,8 @@
     }
     if(receipts.some(([,receipt])=>receipt.status==='breach'))panel.append(el('p',t('Usage Typesafe vượt cận; cần kiểm ledger trước khi gọi tiếp.'),'error'));
     const button=el('button',t('Xuất receipt Typesafe JSON'));button.type='button';button.onclick=()=>{
-      const output={schema:'typesafe_usage_export_v1',job_id:job.id,is_provider_invoice:false,receipts:receipts.map(([,receipt])=>receipt)};
+      const output={schema:'typesafe_usage_export_v1',job_id:job.id,is_provider_invoice:false,receipts:receipts.map(([,receipt])=>receipt),
+        ...(recovery?{recovery}:{})};
       const url=URL.createObjectURL(new Blob([JSON.stringify(output,null,2)],{type:'application/json'}));const link=el('a');link.href=url;link.download='issueintel-'+job.id+'-typesafe-usage.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     };panel.append(button);
   }

@@ -176,3 +176,101 @@ test('missing, malformed or foreign Typesafe accounting remains unknown even wit
   assert.match(app.text(app.root),/1 decisions used rule fallback/);assert.match(app.text(app.root),/Call failed; cost bound retained/);
   assert.match(app.text(app.root),/not a provider invoice/);
 });
+
+const childId='b'.repeat(24),copy=value=>JSON.parse(JSON.stringify(value));
+function recoveredSaved({newCalls=1}={}){
+  const value=saved(),{plan,pack,sidecar,decision}=value;
+  plan.schema='planned_investigation_v2';plan.policy='bounded_planner_v2';
+  sidecar.schema='typesafe_controller_v2';
+  sidecar.recovery={schema:'typesafe_stage_recovery_v1',owner_job_id:childId,origin_job_id:jobId,
+    inherited_calls:1,new_calls:newCalls,max_calls:4,automatic_retry:false,billing_verified:false};
+  if(newCalls){
+    decision.action='retrieve';
+    plan.rounds=[{round:1,input_annotation_sha256:hash('2'),input_evidence_ids:[...plan.seed_evidence_ids],
+      input_hypotheses:copy(plan.seed_annotation.hypotheses),action:'retrieve',controller:'jev',fallback:false,
+      reason:'unspent_retrieval_budget',search:null,added_ids:[],output_annotation:null,output_annotation_sha256:null}];
+    const current=copy(decision);current.decision_index=2;current.action='verify';current.allowed=['verify','stop'];
+    current.binding.job_id=childId;current.binding.decision_index=2;
+    current.receipt.reservation_id='e'.repeat(32);current.receipt.binding.job_id=childId;current.receipt.binding.decision_index=2;
+    sidecar.records.push(current);
+  }
+  sidecar.decision_owners=sidecar.records.map(record=>record.binding.job_id);
+  return value;
+}
+function usageProjection(value,current=childId){
+  const context=vm.createContext({pack:value.pack,currentJob:current,fetch(){throw Error('Saved projection must not fetch');},api(){throw Error('Saved projection must not call APIs');}});
+  vm.runInContext(appCode.slice(appCode.indexOf('function savedTypesafeUsage()'),appCode.indexOf('function planDrafts()')),context);
+  return copy(context.savedTypesafeUsage());
+}
+
+test('recovered Trace preserves mixed decision owners and bilingual source attribution',()=>{
+  const value=recoveredSaved(),before=JSON.stringify(value),app=dom('workflow.js');
+  app.context.window.IssueIntelWorkflow.render(app.root,value.plan,childId,value.pack);
+  let output=app.text(app.root);
+  assert.doesNotMatch(output,/Không thể gắn quyết định Typesafe/);
+  assert.match(output,/2 \/ 4 lượt quyết định đã ghi/);assert.match(output,/1 đã ghi trước đó \+ 1 mới/);
+  assert.ok(output.includes('Phiên sở hữu quyết định: '+jobId));assert.ok(output.includes('Phiên sở hữu quyết định: '+childId));
+  assert.match(output,/không gọi Typesafe lại/);assert.match(output,/không cộng vào chi phí phiên phục hồi/);
+  app.root.replaceChildren();app.language('en');app.context.window.IssueIntelWorkflow.render(app.root,value.plan,childId,value.pack);
+  output=app.text(app.root);assert.match(output,/1 previously recorded \+ 1 new in this run \/ 4/);
+  assert.match(output,/2 \/ 4 saved decisions/);
+  assert.ok(output.includes('Decision owner run: '+jobId));assert.match(output,/reused without calling Typesafe again/);
+  assert.equal(JSON.stringify(value),before);
+});
+
+test('recovered Trace rejects changed roots, current owners, receipt owners and reset attempt budgets',()=>{
+  const mutations=[value=>value.sidecar.recovery.origin_job_id=childId,
+    value=>value.sidecar.recovery.owner_job_id=jobId,value=>value.sidecar.recovery.max_calls=8,
+    value=>value.sidecar.recovery.inherited_calls=0,value=>value.sidecar.recovery.new_calls=0,
+    value=>value.sidecar.recovery.new_calls=4,value=>value.sidecar.recovery.automatic_retry=true,
+    value=>value.sidecar.recovery.billing_verified=true,value=>value.sidecar.decision_owners[0]=childId,
+    value=>value.sidecar.records[0].receipt.binding.job_id=childId,
+    value=>value.sidecar.records[1].receipt.binding.job_id=jobId];
+  for(const mutation of mutations){
+    const value=recoveredSaved(),app=dom('workflow.js');mutation(value);
+    app.context.window.IssueIntelWorkflow.render(app.root,value.plan,childId,value.pack);
+    assert.match(app.text(app.root),/Không thể gắn quyết định Typesafe/);
+    assert.doesNotMatch(app.text(app.root),/USD ghi nhận\/giữ chỗ:/);
+  }
+});
+
+test('saved usage projection retains only current-owner decisions and receipts',()=>{
+  const value=recoveredSaved(),before=JSON.stringify(value),projected=usageProjection(value);
+  assert.equal(projected.controller,'jev');assert.equal(projected.typesafe_decisions.length,1);
+  assert.equal(projected.typesafe_decisions[0].binding.job_id,childId);
+  assert.deepEqual(Object.keys(projected.typesafe_receipts),['e'.repeat(32)]);
+  assert.equal(projected.typesafe_receipts['e'.repeat(32)].binding.job_id,childId);
+  assert.deepEqual(projected.typesafe_recovery,value.sidecar.recovery);
+  assert.deepEqual(usageProjection(value,'f'.repeat(24)),{controller:'jev'});
+  const wrongOrigin=recoveredSaved();wrongOrigin.sidecar.recovery.origin_job_id=childId;
+  assert.deepEqual(usageProjection(wrongOrigin),{controller:'jev'});
+  assert.equal(JSON.stringify(value),before);
+});
+
+test('a critic-only recovered run reports no new Jev attempts without moving historical charges',()=>{
+  const value=recoveredSaved({newCalls:0}),projected=usageProjection(value),before=JSON.stringify(value);
+  assert.deepEqual(projected.typesafe_decisions,[]);assert.deepEqual(projected.typesafe_receipts,{});
+  for(const language of ['vi','en']){
+    const app=dom('usage.js');app.language(language);
+    app.context.window.IssueIntelUsage.render(app.root,{...generationUsage(),job_id:childId},{id:childId,...projected});
+    const panel=app.all(app.root).find(item=>item.className==='workflow-controller'),output=app.text(panel);
+    assert.match(output,language==='vi'?/không tạo lượt thử Jev mới/:/no new Jev attempts/);
+    assert.match(output,language==='vi'?/giữ ở phiên nguồn/:/remain in their source runs/);
+    assert.doesNotMatch(output,/0\.000005|0\.000000/);
+    assert.ok(!app.all(panel).some(item=>item.tag==='button'));
+  }
+  assert.equal(JSON.stringify(value),before);
+});
+
+test('current Jev usage excludes ancestors and malformed recovery metadata stays unknown',()=>{
+  const value=recoveredSaved(),projected=usageProjection(value),app=dom('usage.js');
+  app.context.window.IssueIntelUsage.render(app.root,{...generationUsage(),job_id:childId},{id:childId,...projected});
+  let panel=app.all(app.root).find(item=>item.className==='workflow-controller'),output=app.text(panel);
+  assert.match(output,/1 receipt Typesafe/);assert.doesNotMatch(output,/2 receipt Typesafe/);
+  const receiptViews=app.all(panel).filter(item=>item.tag==='pre').map(item=>JSON.parse(item.textContent));
+  assert.equal(receiptViews.length,1);assert.ok(receiptViews.every(item=>item.binding.job_id===childId));
+  projected.typesafe_recovery.new_calls=0;app.root.replaceChildren();
+  app.context.window.IssueIntelUsage.render(app.root,generationUsage(),{id:childId,...projected});
+  panel=app.all(app.root).find(item=>item.className==='workflow-controller');output=app.text(panel);
+  assert.match(output,/chi phí chưa biết/);assert.doesNotMatch(output,/1 receipt Typesafe/);
+});

@@ -119,7 +119,7 @@ nguồn chặn xuất trùng qua restart. Chi phí cũ vẫn thuộc phiên ngu�
 chỉ hỗ trợ product Quick/Deep, giữ nguyên generation/verifier và không tự retry.
 Với **phiên product gốc mới** bị lỗi, hủy hoặc ngắt trước các bước đó, mở lịch sử
 rồi chọn **Tiếp tục các stage còn thiếu**. Workbench ghi journal cho Quick/Deep
-và Planned dùng rules. Preview kiểm nguồn tại commit gốc, liệt kê stage đã lưu,
+và Planned dùng rules hoặc Jev. Preview kiểm nguồn tại commit gốc, liệt kê stage đã lưu,
 bước còn thiếu và số lượt thử đã ghi, tính cả lượt lỗi/chưa rõ đã tới provider.
 Sau xác nhận, một phiên con dùng lại prefix đã hoàn tất và chỉ chạy phần còn
 thiếu; receipt cũ thuộc phiên nguồn, receipt mới thuộc phiên con. Cận toàn lượt
@@ -149,12 +149,20 @@ giữ cận 4/6 call của phiên follow-up đó. Đây là cận của lần đ
 các lần phục hồi của nó không cấp lại ngân sách hoặc chép receipt cũ. Nguồn
 memory/context mới thay đổi có thể chặn gọi tiếp; báo cáo đã lưu vẫn mở từ
 provenance đã khóa, không cần đọc lại nguồn hiện tại. Lỗi export có thể tiếp
-tục không API. Luồng mới chưa nhận checkpoint legacy hoặc Jev
-bị lỗi. Với Planned được phục hồi rồi
+tục không API. Checkpoint legacy chưa có recovery journal không tự được chuyển đổi.
+Planned Jev mới lưu thêm từng quyết định và receipt đúng phiên sở hữu. Quyết
+định đã lưu được dùng lại, kể cả khi job ngắt trước checkpoint kế tiếp. Cả chuỗi
+giữ tối đa bốn lượt thử Jev, tách riêng cận Groq 5/7/9; đổi phiên không cấp lại
+ngân sách. Preview nêu provider có thể dùng và receipt đã kết thúc nhưng thiếu
+quyết định; chi phí cũ vẫn giữ nếu tác giả xác nhận thử bước thiếu trong cận còn
+lại. Receipt còn reserved chặn gọi tiếp để đối soát. Khi chỉ còn critic/export,
+không tạo Typesafe client hoặc đọc cấu hình Typesafe. Gói bàn giao kiểm được
+quyết định, lượt thử và receipt xuyên các phiên mà không có token.
+Với Planned được phục hồi rồi
 dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
 thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không
 sửa plan/waiting receipt cũ. Unknown accounting hoặc thiếu ngân sách cho
-generation, schema repair và critic thì từ chối gọi. Mục 8 vẫn đang làm.
+generation, schema repair và critic thì từ chối gọi.
 Phần **So sánh hai phiên điều tra** đối chiếu các báo cáo đã lưu của cùng issue:
 query/snapshot, evidence và hypotheses. Đổi context cần gắn lại citation;
 khác biệt giữa hai kết quả không được coi là đã cải thiện chất lượng hay sửa lỗi.

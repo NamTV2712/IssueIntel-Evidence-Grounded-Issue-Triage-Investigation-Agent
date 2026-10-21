@@ -35,6 +35,11 @@ def validate_case(case,protocol,fork):
 
 def prepare(host,row,*,admission=True,recorded=None,context=None,wait_for_dispatch=False):
     """Rebuild exact user/source bindings. Saved replay never acquires Git."""
+    with host._pack_read_scope():
+        return _prepare(host,row,admission=admission,recorded=recorded,context=context,wait_for_dispatch=wait_for_dispatch)
+
+
+def _prepare(host,row,*,admission,recorded,context,wait_for_dispatch):
     request=row['request'];mode=request['mode'];identifier=row['id']
     if mode not in MODES or canonical_request(request)!=request:raise ValueError('Invalid canonical fork request')
     if admission:host.dossiers._origin(request['parent_job_id'],max_hops=10)

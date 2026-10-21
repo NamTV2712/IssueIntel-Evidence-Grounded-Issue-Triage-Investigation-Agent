@@ -3,6 +3,9 @@ const dir=path.join(__dirname,'../src/issueintel/interfaces/static'),code=fs.rea
 const locale={window:{}};vm.runInNewContext(fs.readFileSync(path.join(dir,'locales.js'),'utf8'),locale);const messages=locale.window.IssueIntelMessages;
 const hash=c=>c.repeat(64),id=c=>c.repeat(24),clone=v=>JSON.parse(JSON.stringify(v));
 function row(c='a'){return {id:id(c),mode:'example',provider:'groq',depth:'quick',status:'failed',stage_checkpoints:{execution_input:{sha256:hash('b')}}};}
+test('raw Jev checkpoint download labels are bilingual rather than exposing internal stage names',()=>{
+  for(let n=1;n<=4;n++)assert.deepEqual(clone(messages['planned_decision_'+n]),{vi:'Quyết định Jev '+n,en:'Jev decision '+n});
+});
 function preview(r){return {schema:'product_stage_recovery_preview_v1',available:true,source_job_id:r.id,binding_sha256:hash('c'),context_sha256:hash('d'),
   commit_sha:'e'.repeat(40),provider:r.provider,depth:r.depth,completed_stages:['execution_input','initial_retrieval','prepared_input'],next_stage:'seed_generation',
   prior_provider_calls:r.provider==='none'?0:1,max_provider_calls:r.provider==='none'?0:4,requires_api:r.provider==='groq',automatic_retry:false,model_calls:0};}
@@ -27,6 +30,41 @@ test('opening a stopped source is read-only and paid recovery requires deliberat
   a.consent().checked=true;a.consent().onchange();await a.click('Tiếp tục phần còn thiếu');
   assert.deepEqual(a.calls[1][1],{binding_sha256:hash('c'),confirmation:'resume_product_stages_with_api_cost'});
   assert.equal(a.events[0].type,'issueintel:stagerecoverycreated');assert.deepEqual(clone(a.events[0].detail),{job_id:id('f'),source_job_id:id('a')});
+});
+
+test('Jev preview separates original attempt bounds, retained receipt gaps and provider consent',async()=>{
+  const r={...row(),controller:'jev',depth:'planned'},a=boot(async(route,body,normal)=>{
+    const p=await normal(route,body);if(!body)Object.assign(p,{controller:'jev',max_provider_calls:9,
+      prior_controller_calls:2,max_controller_calls:4,orphan_terminal_receipts:1,next_provider:'typesafe',
+      api_providers:['groq','typesafe'],next_stage:'planned_decision_2',
+      completed_stages:['execution_input','initial_retrieval','planned_input','seed_generation','planned_decision_1']});return p;
+  });
+  a.show(r);assert.equal(a.calls.length,0);await a.click('Kiểm tra các stage để tiếp tục');
+  assert.match(a.text(a.area),/Jev \/ Typesafe: 2\/4/);assert.match(a.text(a.area),/thiếu quyết định đã lưu/);
+  assert.match(a.text(a.area),/groq, typesafe/);assert.equal(a.button('Tiếp tục phần còn thiếu').disabled,true);
+  a.language('en');assert.match(a.text(a.area),/2\/4/);assert.match(a.text(a.area),/Typesafe/);
+  a.consent().checked=true;a.consent().onchange();await a.click('Continue missing work');
+  assert.equal(a.calls[1][1].confirmation,'resume_product_stages_with_api_cost');
+});
+
+test('controller receipt ambiguity and inherited Jev exhaustion cannot expose paid consent',async()=>{
+  for(const reason of ['controller_receipt_unsettled','original_controller_budget_exhausted']){
+    const a=boot(async()=>({available:false,source_job_id:id('a'),reason,model_calls:0,automatic_retry:false}));
+    a.show({...row(),controller:'jev',depth:'planned'});await a.click('Kiểm tra các stage để tiếp tục');
+    assert.ok(!a.consent());assert.match(a.text(a.area),reason==='controller_receipt_unsettled'?/reserved/:/bốn lượt thử/);
+    a.language('en');assert.ok(!a.consent());assert.equal(a.calls.length,1);
+  }
+});
+
+test('Jev preview must bind its controller, provider scope and original four-attempt allowance',async()=>{
+  for(const mutation of [p=>p.max_controller_calls=8,p=>p.prior_controller_calls=5,
+    p=>p.api_providers=['invented'],p=>p.next_provider='invented',p=>delete p.controller]){
+    const r={...row(),controller:'jev',depth:'planned'},a=boot(async(route,body,normal)=>{
+      const p=await normal(route,body);Object.assign(p,{controller:'jev',max_provider_calls:9,
+        prior_controller_calls:1,max_controller_calls:4,orphan_terminal_receipts:0,next_provider:'typesafe',api_providers:['typesafe']});mutation(p);return p;
+    });
+    a.show(r);await a.click('Kiểm tra các stage để tiếp tục');assert.ok(!a.consent());assert.match(a.text(a.area),/Chưa có journal hợp lệ/);
+  }
 });
 
 test('offline completion is distinct and cannot request paid execution',async()=>{

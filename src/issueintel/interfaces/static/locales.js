@@ -1,4 +1,8 @@
 window.IssueIntelMessages = {
+  "planned_decision_1":{"vi":"Quyết định Jev 1","en":"Jev decision 1"},
+  "planned_decision_2":{"vi":"Quyết định Jev 2","en":"Jev decision 2"},
+  "planned_decision_3":{"vi":"Quyết định Jev 3","en":"Jev decision 3"},
+  "planned_decision_4":{"vi":"Quyết định Jev 4","en":"Jev decision 4"},
   "Phiên cha đã dùng {used}/{max} lượt. Giới hạn phục hồi bên dưới là phần còn lại của cùng ngân sách.":{"vi":"Phiên cha đã dùng {used}/{max} lượt. Giới hạn phục hồi bên dưới là phần còn lại của cùng ngân sách.","en":"The parent has used {used}/{max} attempts. The recovery limit below is the remainder of that same budget."},
   "Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.":{"vi":"Đã dùng {used}/{max} lượt thử trong giới hạn gốc. Không gọi thêm model hoặc đặt lại ngân sách khi phục hồi.","en":"Used {used}/{max} attempts under the original bound. Recovery cannot call the model again or reset this budget."},
   "Phục hồi điều tra":{"vi":"Phục hồi điều tra","en":"Investigation recovery"},
@@ -323,7 +327,7 @@ window.IssueIntelMessages = {
   "Giới hạn sinh/verifier: {calls} call, tối đa 3 truy vấn/6 trích đoạn mới mỗi vòng và 18 trích đoạn mới tổng cộng. Lượt sinh có thể kèm một lần sửa schema. Call Jev/Typesafe tính riêng; xem Token và chi phí để đọc receipt.": {"vi":"Giới hạn sinh/verifier: {calls} call, tối đa 3 truy vấn/6 trích đoạn mới mỗi vòng và 18 trích đoạn mới tổng cộng. Lượt sinh có thể kèm một lần sửa schema. Call Jev/Typesafe tính riêng; xem Token và chi phí để đọc receipt.","en":"Generation/verifier limit: {calls} calls, up to 3 queries/6 new excerpts per round and 18 new excerpts overall. Each generation may include one schema repair. Jev/Typesafe calls are counted separately; see Tokens and cost for receipts."},
   "Quyết định Jev / Typesafe": {"vi":"Quyết định Jev / Typesafe","en":"Jev / Typesafe decisions"},
   "Không thể gắn quyết định Typesafe với phiên và kế hoạch này. Xem JSON gốc để kiểm tra.": {"vi":"Không thể gắn quyết định Typesafe với phiên và kế hoạch này. Xem JSON gốc để kiểm tra.","en":"Typesafe decisions cannot be bound to this run and plan. Inspect the original JSON for details."},
-  "{count} / {limit} lượt quyết định đã ghi · model {model}": {"vi":"{count} / {limit} lượt quyết định đã ghi · model {model}","en":"{count} / {limit} recorded decision attempts · model {model}"},
+  "{count} / {limit} lượt quyết định đã ghi · model {model}": {"vi":"{count} / {limit} lượt quyết định đã ghi · model {model}","en":"{count} / {limit} saved decisions · model {model}"},
   "Các lượt này tính riêng ngoài call sinh giả thuyết/verifier. Quyết định chọn bước không xác minh chất lượng bằng chứng hoặc nguyên nhân.": {"vi":"Các lượt này tính riêng ngoài call sinh giả thuyết/verifier. Quyết định chọn bước không xác minh chất lượng bằng chứng hoặc nguyên nhân.","en":"These calls are separate from generation/verifier calls. Choosing a step does not validate evidence quality or a cause."},
   "Không gọi Typesafe trong phiên này.": {"vi":"Không gọi Typesafe trong phiên này.","en":"No Typesafe call was made in this run."},
   "Quyết định {number}: {action}": {"vi":"Quyết định {number}: {action}","en":"Decision {number}: {action}"},
@@ -1703,5 +1707,17 @@ window.IssueIntelMessages = {
   "Chưa có dependency code":{"vi":"Chưa có dependency code","en":"No code dependencies"},
   "Nguồn code còn nguyên; giả thuyết chưa xác minh":{"vi":"Nguồn code còn nguyên; giả thuyết chưa xác minh","en":"Code unchanged; hypothesis remains unverified"},
   "Nguồn và hash memory":{"vi":"Nguồn và hash memory","en":"Memory sources and hashes"},
-  "Hash giúp đối chiếu nội dung, không xác thực tác giả.":{"vi":"Hash giúp đối chiếu nội dung, không xác thực tác giả.","en":"Hashes check content consistency, not authorship."}
+  "Hash giúp đối chiếu nội dung, không xác thực tác giả.":{"vi":"Hash giúp đối chiếu nội dung, không xác thực tác giả.","en":"Hashes check content consistency, not authorship."},
+  "Quyết định Jev {round}":{"vi":"Quyết định Jev {round}","en":"Jev decision {round}"},
+  "Receipt Jev còn reserved; cần đối soát trước khi gọi tiếp.":{"vi":"Receipt Jev còn reserved; cần đối soát trước khi gọi tiếp.","en":"A Jev receipt is still reserved; reconcile it before making another call."},
+  "Đã hết bốn lượt thử Jev của luồng gốc; phục hồi không cấp lại ngân sách.":{"vi":"Đã hết bốn lượt thử Jev của luồng gốc; phục hồi không cấp lại ngân sách.","en":"The original flow has used all four Jev attempts; recovery does not reset the budget."},
+  "Jev / Typesafe: {used}/{max} lượt thử đã ghi; giới hạn riêng với Groq.":{"vi":"Jev / Typesafe: {used}/{max} lượt thử đã ghi; giới hạn riêng với Groq.","en":"Jev / Typesafe: {used}/{max} attempts recorded; this limit is separate from Groq."},
+  "Provider có thể dùng khi tiếp tục: {providers}. Cấu hình và quyền chi tiêu được kiểm riêng.":{"vi":"Provider có thể dùng khi tiếp tục: {providers}. Cấu hình và quyền chi tiêu được kiểm riêng.","en":"Possible providers when continuing: {providers}. Configuration and spending authorization are checked separately."},
+  "Có {count} receipt Jev đã kết thúc nhưng thiếu quyết định đã lưu. Chi phí cũ vẫn giữ; bước thiếu có thể cần gọi mới trong giới hạn còn lại.":{"vi":"Có {count} receipt Jev đã kết thúc nhưng thiếu quyết định đã lưu. Chi phí cũ vẫn giữ; bước thiếu có thể cần gọi mới trong giới hạn còn lại.","en":"{count} terminal Jev receipts lack a saved decision. Previous costs remain; the missing step may need a new call within the remaining limit."},
+  "Phiên Jev gốc: {id}":{"vi":"Phiên Jev gốc: {id}","en":"Original Jev run: {id}"},
+  "Lượt thử Jev: {inherited} đã ghi trước đó + {current} mới trong phiên này / {max}; giới hạn gốc giữ nguyên.":{"vi":"Lượt thử Jev: {inherited} đã ghi trước đó + {current} mới trong phiên này / {max}; giới hạn gốc giữ nguyên.","en":"Jev attempts: {inherited} previously recorded + {current} new in this run / {max}; the original limit remains."},
+  "Quyết định dùng lại giữ receipt ở phiên đã tạo; không cộng vào chi phí phiên phục hồi.":{"vi":"Quyết định dùng lại giữ receipt ở phiên đã tạo; không cộng vào chi phí phiên phục hồi.","en":"Reused decisions retain receipts in their original run; they are not charged to the recovery run."},
+  "Phiên này không tạo lượt thử Jev mới; quyết định và chi phí trước đó giữ ở phiên nguồn.":{"vi":"Phiên này không tạo lượt thử Jev mới; quyết định và chi phí trước đó giữ ở phiên nguồn.","en":"This run made no new Jev attempts; previous decisions and costs remain in their source runs."},
+  "Phiên sở hữu quyết định: {id}":{"vi":"Phiên sở hữu quyết định: {id}","en":"Decision owner run: {id}"},
+  "Quyết định đã lưu được dùng lại; không gọi Typesafe lại.":{"vi":"Quyết định đã lưu được dùng lại; không gọi Typesafe lại.","en":"The saved decision was reused without calling Typesafe again."}
 };
