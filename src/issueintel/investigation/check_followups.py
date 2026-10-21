@@ -114,11 +114,12 @@ class CheckFollowups:
             raise ValueError('Combined query exceeds the public input bound')
         return parent, raw, depth, receipt
 
-    def assert_intent(self, request, identifier):
+    def assert_intent(self, request, identifier,*,wait_for_dispatch=False):
         validate_request(request, saved=True)
-        db = self._db()
+        db = (self._db() if wait_for_dispatch else sqlite3.connect(
+            (self.host.directory/'check_followups.sqlite').as_uri()+'?mode=ro',uri=True,timeout=30))
         try:
-            db.execute('BEGIN IMMEDIATE')
+            if wait_for_dispatch:db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT target_job FROM intents WHERE request_sha=?', (self.request_sha(request),)).fetchone()
             db.commit()
         finally:

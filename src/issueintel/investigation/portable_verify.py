@@ -15,6 +15,7 @@ import zipfile
 MAX_BYTES = 100_000_000
 MAX_FILES = 512
 SCHEMA = 'issueintel_handoff_v1'
+FORK_MODES={'followup','clarification','check_followup','memory_followup','context'}
 
 
 def sha(raw):
@@ -122,8 +123,8 @@ def _verify_memory(pack,parent,parent_raw,identifier):
 
 def _stage_chain_binding(segments,inventory,context,policy):
     """Standalone declarative projection; no runtime service or SQLite import."""
-    checksum=lambda v:sha(encoded(v));last=segments[-1];root=segments[0]['request'];continuation=root['mode']=='planned_continuation';many=len(segments)>1 or continuation
-    binding={'schema':'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+    checksum=lambda v:sha(encoded(v));last=segments[-1];root=segments[0]['request'];continuation=root['mode']=='planned_continuation';fork=root['mode'] in FORK_MODES;many=len(segments)>1 or continuation or fork
+    binding={'schema':'product_stage_recovery_source_v4' if fork else 'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
         'source_job_id':last['job_id'],'source_request_sha256':checksum(last['request']),'context_sha256':checksum(context),
         'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
         'attempts_sha256':checksum([a for s in segments for a in s['attempts']]),
@@ -141,9 +142,10 @@ def _stage_chain_binding(segments,inventory,context,policy):
 def _verify_stage_chain(witness,source,runs,contents,names):
     checksum=lambda v:sha(encoded(v));segments=witness['source_chain']
     continuation=source['schema']=='product_stage_recovery_source_v3'
+    fork=source['schema']=='product_stage_recovery_source_v4'
     if (set(witness)!={'schema','source','source_chain','new_attempts','requires_api'}
-            or witness['schema']!=('product_stage_handoff_v3' if continuation else 'product_stage_handoff_v2')
-            or type(segments) is not list or not (1 if continuation else 2)<=len(segments)<=8
+            or witness['schema']!=('product_stage_handoff_v4' if fork else 'product_stage_handoff_v3' if continuation else 'product_stage_handoff_v2')
+            or type(segments) is not list or not (1 if continuation or fork else 2)<=len(segments)<=8
             or source.get('root_job_id')!=segments[0]['job_id'] or source['source_job_id']!=segments[-1]['job_id']
             or not _hash_string(source['job_policy_sha256'])):
         raise ValueError('Changed portable recovery chain witness')
@@ -163,7 +165,9 @@ def _verify_stage_chain(witness,source,runs,contents,names):
             raise ValueError('Changed portable recovery segment owner/accounting')
         seen.add(identifier);receipt_ids.update(segment['usage']['receipts'])
         if index==0:
-            if (not continuation and (run['mode'] not in {'example','local','github'} or run['parent_job_id'] is not None)
+            if (not continuation and not fork and (run['mode'] not in {'example','local','github'} or run['parent_job_id'] is not None)
+                    or fork and (run['mode'] not in FORK_MODES or run['parent_job_id']!=request['parent_job_id']
+                        or runs[request['parent_job_id']]['status']!='completed')
                     or continuation and (run['mode']!='planned_continuation' or run['parent_job_id']!=request['source_job_id']
                         or runs[request['source_job_id']]['status']!='completed')):
                 raise ValueError('Changed portable recovery root authority')
@@ -195,6 +199,77 @@ def _verify_stage_chain(witness,source,runs,contents,names):
     return segments[0]['request'],records,attempts
 
 
+def _verify_fork_recovery(pack,context,request,owner,runs,contents):
+    projection=context['fork'];mode=request['mode'];parent_id=request['parent_job_id']
+    parent_raw=contents['runs/'+parent_id+'/pack.json'];parent=parsed(parent_raw)
+    link=projection['context_selection'] if mode=='context' else projection['followup']
+    if (set(projection)!={'origin','followup','context_selection','intake'}
+            or projection['origin']!={'job_id':owner['job_id'],'request':request}
+            or owner['parent_job_id']!=parent_id or runs[parent_id]['status']!='completed'
+            or link['parent_job_id']!=parent_id or link['parent_pack_sha256']!=sha(parent_raw)
+            or any(pack.get(k)!=projection.get(k) for k in ('followup','context_selection','intake'))
+            or pack['snapshot']!=parent['snapshot'] or request['depth'] not in {'quick','deep'}
+            or context['options']['planned_workflow'] is not False or context['options']['resumable'] is not False
+            or pack.get('repository_context')!=context['options']['repository_context']):
+        raise ValueError('Changed portable fork parent or provenance projection')
+    depth=1;current=parent;seen={parent_id}
+    while True:
+        ancestor=current.get('followup') or current.get('context_selection') or current.get('continued_from')
+        if not ancestor:break
+        identifier=ancestor['parent_job_id']
+        if identifier in seen or depth>=8:raise ValueError('Changed portable fork ancestry bound')
+        seen.add(identifier);depth+=1;current=parsed(contents['runs/'+identifier+'/pack.json'])
+    if link['depth']!=depth:raise ValueError('Changed portable fork logical depth')
+    base={'mode':mode,'provider':request['provider'],'depth':request['depth'],'parent_job_id':parent_id}
+    if mode=='context':
+        selected=pack['repository_context']['selection']['sources']
+        expected=dict(parent['case'],revision=parent['snapshot']['commit_sha'])
+        if (projection['followup'] is not None or pack['case']!=expected
+                or link['schema']!='product_context_selection_v1' or link['historical_verified'] is not False
+                or link['context_sha256']!=pack['repository_context']['sha256']
+                or link['selected_sources']!=selected
+                or request!=dict(base,parent_pack_sha256=sha(parent_raw),selected_sources=selected)):
+            raise ValueError('Changed portable selected context request')
+        _plan_context(pack)
+        return
+    additional=link['additional_context']
+    expected={'case_id':'followup:'+owner['job_id'],'repository':parent['case']['repository'],
+        'revision':parent['snapshot']['commit_sha'],'problem_statement':parent['case']['problem_statement']+
+        '\n\n[User follow-up context; unverified]\n'+additional,'issue_created_at':None}
+    if parent['case'].get('issue_url'):expected['issue_url']=parent['case']['issue_url']
+    if (projection['context_selection'] is not None or pack['case']!=expected or pack.get('repository_context') is not None
+            or link['schema']!='investigation_followup_v1' or link['historical_query_verified'] is not False
+            or link['context_sha256']!=sha(additional.encode()) or link['created_at']!=owner['created_at']
+            or link['source_case_id']!=(parent.get('followup') or {}).get('source_case_id',parent['case']['case_id'])):
+        raise ValueError('Changed portable fork query or source case')
+    clarification=link.get('clarification');observations=link.get('check_observations');memory=link.get('memory_selection')
+    if mode=='followup':
+        if (request!=dict(base,additional_context=additional) or clarification or observations or memory):
+            raise ValueError('Changed portable user follow-up request')
+    elif mode=='clarification':
+        if not sealed(clarification) or observations or memory or clarification['additional_context']!=additional:
+            raise ValueError('Changed portable clarification receipt')
+        expected=dict(base,parent_pack_sha256=sha(parent_raw),questions_sha256=clarification['questions_sha256'],
+            language=clarification['language'],answers=[{k:r[k] for k in ('question_id','answer')} for r in clarification['answers']])
+        if link.get('question_job_id'):expected['question_job_id']=link['question_job_id']
+        if request!=expected:raise ValueError('Changed portable clarification answer authority')
+    elif mode=='check_followup':
+        if (not sealed(observations) or clarification or memory or observations['additional_context']!=additional
+                or observations['user_reports_verified'] is not False or observations['executed_by_issueintel'] is not False
+                or observations['causal_verified'] is not False or observations['evaluation_performed'] is not False):
+            raise ValueError('Changed portable observation provenance')
+        payload=json.loads(additional.split('\n\n',1)[1])
+        expected=dict(base,parent_pack_sha256=sha(parent_raw),plan_job_id=payload['source_plan_job_id'],
+            plan_sha256=observations['source']['plan_sha256'],journal_sha256=observations['journal_sha256'],
+            journal_revision=observations['journal_revision'],observation_ids=observations['observation_ids'])
+        if request!=expected:raise ValueError('Changed portable check follow-up intent')
+    elif mode=='memory_followup':
+        if (not sealed(memory) or clarification or observations or memory['additional_context']!=additional
+                or request!=dict(base,parent_pack_sha256=sha(parent_raw),selection_sha256=memory['sha256'],
+                    selections=memory['selections'],policy_sha256=link['memory_policy_sha256'])):
+            raise ValueError('Changed portable memory execution intent')
+
+
 def _verify_stage_recovery(identifier,pack,runs,contents):
     """Recorded journal/attempt consistency only; no Git, AST or provider replay."""
     link=pack['recovered_from'];source=link['source'];run=runs[identifier]
@@ -205,14 +280,14 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
         'refined_generation','verification_input','verification','planned_input','planned_complete',
         *('planned_retrieval_'+str(n) for n in range(1,4)),*('planned_generation_'+str(n) for n in range(1,4))}
     if (link!={'schema':'product_stage_resume_v1','source':source,'automatic_retry':False}
-            or not sealed(source) or source['schema'] not in {'product_stage_recovery_source_v1','product_stage_recovery_source_v2','product_stage_recovery_source_v3'}
+            or not sealed(source) or source['schema'] not in {'product_stage_recovery_source_v1','product_stage_recovery_source_v2','product_stage_recovery_source_v3','product_stage_recovery_source_v4'}
             or run['mode']!='stage_resume' or run['parent_job_id']!=parent['job_id']
             or parent['status'] not in {'failed','interrupted','cancelled'}
             or parent['request_sha256']!=source['source_request_sha256']
             or witness['source']!=source):
         raise ValueError('Changed portable stage recovery owner/source witness')
     records=[]
-    if source['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3'}:
+    if source['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3','product_stage_recovery_source_v4'}:
         request,records,old_attempts=_verify_stage_chain(witness,source,runs,contents,names)
         owner=runs[source['root_job_id']]
     else:
@@ -245,7 +320,9 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
             or pack['snapshot']['protocol']!='benchmark_base' or pack['snapshot']['cutoff'] is not None
             or any(k in case for k in ('instance_id','split')) or case['case_id'].startswith(('verified:','live:','main_dev:','main_test:'))
             or pack['leakage_audit']['strict_issue_time_verified'] is not False
-            or any(pack.get(k) is not None for k in ('resumed_from','finalized_from','followup','context_selection','controller_decisions'))
+            or any(pack.get(k) is not None for k in ('resumed_from','finalized_from','controller_decisions'))
+            or bool(context.get('fork'))!=(request['mode'] in FORK_MODES)
+            or not context.get('fork') and any(pack.get(k) is not None for k in ('followup','context_selection'))
             or bool(context.get('continuation'))!=bool(pack.get('continued_from'))
             or options['provider']!=source['provider'] or options['model']!=('none' if source['provider']=='none' else 'openai/gpt-oss-120b')):
         raise ValueError('Changed portable recovery case, snapshot or truth scope')
@@ -264,6 +341,10 @@ def _verify_stage_recovery(identifier,pack,runs,contents):
         if (source['schema']!='product_stage_recovery_source_v3' or authority['origin']!={'job_id':owner['job_id'],'request':request}
                 or request!=expected or authority['link']!=link or authority['inherited']!=pack['workflow_plan']['inherited']):
             raise ValueError('Changed portable continuation recovery authority or inherited budget')
+    if request['mode'] in FORK_MODES:
+        if source['schema']!='product_stage_recovery_source_v4' or source['depth']=='planned':
+            raise ValueError('Changed portable fork recovery profile')
+        _verify_fork_recovery(pack,context,request,owner,runs,contents)
     limit=0 if source['provider']=='none' else 9 if source['depth']=='planned' else 6 if source['depth']=='deep' else 4
     new_attempts=witness['new_attempts'];prior=source['prior_provider_calls']
     if (type(old_attempts) is not list or type(new_attempts) is not list or type(prior) is not int or len(old_attempts)!=prior
@@ -840,13 +921,16 @@ def verify(path, *, expected_sha256=None):
         if runs[identifier]['mode']=='memory_followup' and not memory:
             raise ValueError('Missing portable memory selection')
         if memory:
-            if runs[identifier]['mode']!='memory_followup' or runs[identifier]['parent_job_id']!=link['parent_job_id']:
+            recovered=(pack.get('recovered_from') or {}).get('source',{})
+            fork_owner=(recovered.get('root_job_id') if recovered.get('schema')=='product_stage_recovery_source_v4' else None)
+            owner_id=fork_owner or identifier;owner=runs[owner_id]
+            if owner['mode']!='memory_followup' or owner['parent_job_id']!=link['parent_job_id']:
                 raise ValueError('Changed portable memory ancestry')
             parent_id=link['parent_job_id']
             if parent_id not in packs:raise ValueError('Missing portable memory parent')
             if parsed(contents.get('runs/'+identifier+'/memory-selection.json',b'{}'))!=memory:
                 raise ValueError('Missing or changed selected memory attachment')
-            try:_verify_memory(pack,packs[parent_id],contents['runs/'+parent_id+'/pack.json'],identifier)
+            try:_verify_memory(pack,packs[parent_id],contents['runs/'+parent_id+'/pack.json'],owner_id)
             except (KeyError,TypeError,AttributeError,IndexError):
                 raise ValueError('Invalid portable memory structure') from None
     for item in handoff.get('claim_reviews',[]):

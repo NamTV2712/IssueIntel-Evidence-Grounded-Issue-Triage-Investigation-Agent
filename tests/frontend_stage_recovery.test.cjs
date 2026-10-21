@@ -99,6 +99,18 @@ test('unknown recovered context does not expose any continuation action',()=>{
   assert.equal(a.nodes.get('stage-recovery-panel').hidden,true);assert.equal(a.calls.length,0);
 });
 
+test('product fork journals expose only explicit preview and bind consent to each original source',async()=>{
+  for(const mode of ['followup','clarification','check_followup','memory_followup','context']){
+    const r={...row(),mode},a=boot();a.show(r);
+    assert.equal(a.nodes.get('stage-recovery-panel').hidden,false);assert.equal(a.calls.length,0);
+    await a.click('Kiểm tra các stage để tiếp tục');assert.match(a.text(a.area),/1\/4/);
+    assert.equal(a.button('Tiếp tục phần còn thiếu').disabled,true);
+    a.consent().checked=true;a.consent().onchange();await a.click('Tiếp tục phần còn thiếu');
+    assert.equal(a.calls[1][0],'/api/jobs/'+r.id+'/stage-recovery');
+    assert.equal(a.calls[1][1].confirmation,'resume_product_stages_with_api_cost');
+  }
+});
+
 test('Planned preview respects a narrower 5/7/9 route bound and rejects attempts past it',async()=>{
   for(const cap of [5,7,9]){const r={...row(),depth:'planned'},a=boot(async(route,body,normal)=>{
       const p=await normal(route,body);if(!body)Object.assign(p,{max_provider_calls:cap,prior_provider_calls:cap-1,next_stage:'verification'});return p;});

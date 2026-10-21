@@ -730,8 +730,28 @@ transaction tạo intent bằng write barrier. Điều này tránh khóa lồng 
 một phiên phục hồi và child tạo recovery intent mới. Admission dành một hop cho
 child trong cận ancestry 11 của dossier; không tạo pack mà dossier không thể mở.
 
-Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev và
-follow-up bị lỗi chưa được nhận vào **stage recovery**.
+`fork_origins.prepare/attach` là logic chung cho initial run và recovery của
+followup/clarification/check_followup/memory_followup/context. Case, parent pack,
+exact user context/answers/observations/selection và intake được tái dựng từ
+nguồn đúng chủ sở hữu. Created-at của link là immutable original job time.
+`product_stage_recovery_source_v4` khóa projection này ngoài options và giữ
+owned stage/attempt chain như v2/v3. Fork dùng Quick/Deep bounds 4/6 của lần
+điều tra dữ kiện mới, không kế thừa lại budget qua mỗi recovery. Không cho fork
+từ waiting Planned để tránh reset root budget. Admission replay Git/current
+selection và policy; saved replay dùng frozen selection/journal prefix, không
+đọc current memory store hoặc current repository index. Memory/check intent
+validation dùng SQLite read-only; initial worker mới giữ dispatch write barrier.
+Initial fork và recovery đều dự phòng child trong cận dossier ancestry 11.
+
+`product_stage_handoff_v4` giữ original fork owner trong chain. Standalone
+verifier đối chiếu original request/parent bytes, exact follow-up query/answers/
+selection, local attempt bound và raw stage hashes. Selected memory attachment
+của child được kiểm bằng original memory-fork identity; mọi unverified truth
+flags giữ nguyên. Included-byte consistency vẫn không xác minh causal truth,
+Git/AST, tác giả hoặc hóa đơn.
+
+Mục 8 còn mở: không tự chuyển checkpoint legacy. Jev
+bị lỗi chưa được nhận vào **stage recovery**.
 Planned phục hồi ở waiting state có thể dùng luồng trả lời
 riêng của mục 5: `planned_waiting.recovery_call_debit()` chiếu phần attempts
 vượt logical completed-stage calls từ recorded recovery binding. Source service

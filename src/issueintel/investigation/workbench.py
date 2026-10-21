@@ -349,7 +349,6 @@ class Workbench:
                 return
             elif mode=='stage_resume':
                 self.stage_recoveries.validate_child(identifier,pack,request)
-                validate_product_case(pack['case'],pack['snapshot']['protocol'])
                 return
             elif mode=='resume':
                 link=pack.get('resumed_from') or {}
@@ -513,7 +512,7 @@ class Workbench:
             row['repository'] = request['repository']
         lease=None
         try:
-            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github','planned_continuation'}
+            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github','planned_continuation','followup','clarification','check_followup','memory_followup','context'}
                     and request.get('controller','rules')=='rules'):
                 # Hold ownership while queued as well as while executing. The
                 # connection is transferred to exactly one callback and released
@@ -912,76 +911,22 @@ class Workbench:
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='prepare_snapshot')
             request = row['request']
-            if request['mode'] in {'local','github','example','planned_continuation'} and request.get('controller','rules')=='rules':
+            if request['mode'] in {'local','github','example','planned_continuation','followup','clarification','check_followup','memory_followup','context'} and request.get('controller','rules')=='rules':
                 from .stage_jobs import job_policy_sha256
                 if recovery_lease is None:recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
                 capture_policy=job_policy_sha256()
             extra = {}
-            followup = None
-            context_selection = None
+            fork_projection = None
             if request['mode']=='planned_continuation':
                 parent,raw,case,receipt,link=self.planned_continuations.input(request,row['id'],admission=True,wait_for_dispatch=True)
                 local=Path(parent['snapshot']['repository'])
                 extra={'planned_parent':parent,'planned_continuation':link,
                     'recovery_origin':{'job_id':row['id'],'request':deepcopy(request)}}
-            elif request['mode']=='context':
-                from issueintel.repository.snapshot import build_snapshot
-                from .versions import compare_versions
-                parent,raw,depth,context=self._selected_context(request)
-                local=Path(parent['snapshot']['repository'])
-                snapshot=build_snapshot(local,parent['snapshot']['commit_sha'])
-                compare_versions(parent,snapshot,snapshot)  # Replay the reviewed source before provider use.
-                case=dict(parent['case'],revision=snapshot.commit_sha)
-                extra=dict(snapshot=snapshot,repository_context=context)
-                context_selection={'schema':'product_context_selection_v1','parent_job_id':request['parent_job_id'],
-                    'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),'depth':depth+1,
-                    'selected_sources':request['selected_sources'],'context_sha256':context['sha256'],
-                    'historical_verified':False}
-            elif request['mode'] in {'followup','clarification','check_followup','memory_followup'}:
-                clarification=None
-                check_observations=None
-                memory_selection=None
-                if request['mode']=='memory_followup':
-                    parent,raw,depth,memory_selection,snapshot=self.memory_followups.input(row['id'],request)
-                    extra={'snapshot':snapshot}
-                elif request['mode']=='check_followup':
-                    from .question_jobs import replay_snapshot
-                    self.check_followups.assert_intent(request,row['id'])
-                    parent,raw,depth,check_observations=self.check_followups.input(request)
-                    snapshot=replay_snapshot(parent)
-                    extra={'snapshot':snapshot}
-                elif request['mode']=='clarification':
-                    from .question_jobs import replay_snapshot
-                    parent,raw,depth,clarification=self._clarification_input(request)
-                    snapshot=replay_snapshot(parent)
-                    extra={'snapshot':snapshot}
-                else:
-                    parent, raw, depth = self._load_pack(request['parent_job_id'])
-                self._reject_waiting_fork(parent)
-                if depth >= 8:
-                    raise ValueError('Follow-up depth is bounded to eight generations')
-                additional = (memory_selection or check_observations or clarification or request)['additional_context']
-                text = parent['case']['problem_statement']+'\n\n[User follow-up context; unverified]\n'+additional
-                if len(text)>100000:
-                    raise ValueError('Combined query exceeds the public input bound')
-                case = {'case_id':'followup:'+row['id'], 'repository':parent['case']['repository'],
-                        'revision':parent['snapshot']['commit_sha'], 'problem_statement':text,
-                        'issue_created_at':None}
-                if parent['case'].get('issue_url'):
-                    case['issue_url'] = parent['case']['issue_url']
-                local = Path(parent['snapshot']['repository'])
-                followup = {'schema':'investigation_followup_v1', 'parent_job_id':request['parent_job_id'],
-                            'parent_pack_sha256':hashlib.sha256(raw).hexdigest(),
-                            'source_case_id':(parent.get('followup') or {}).get('source_case_id',parent['case']['case_id']),
-                            'additional_context':additional, 'context_sha256':hashlib.sha256(additional.encode()).hexdigest(),
-                            'created_at':now(), 'historical_query_verified':False, 'depth':depth+1}
-                if clarification:
-                    followup['clarification']=clarification
-                    if request.get('question_job_id'):followup['question_job_id']=request['question_job_id']
-                if check_observations:followup['check_observations']=check_observations
-                if memory_selection:
-                    followup['memory_selection']=memory_selection
-                    followup['memory_policy_sha256']=request['policy_sha256']
+            elif request['mode'] in {'followup','clarification','check_followup','memory_followup','context'}:
+                from .fork_origins import prepare as prepare_fork
+                prepared=prepare_fork(self,row,wait_for_dispatch=True)
+                case=prepared['case'];local=prepared['local'];extra=prepared['extra']
+                fork_projection=prepared['projection']
             elif request['mode'] == 'main_dev':
                 case, snapshot, query = accepted_context(self.root, request['case_id'])
                 local = Path(snapshot.repository)
@@ -1014,15 +959,10 @@ class Workbench:
                     saved=json.loads(self._job_path(row['id']).read_bytes())
                     if (saved.get('request')!=request or any(saved.get(k)!=request[k] for k in ('mode','provider','depth'))
                             or job_policy_sha256()!=capture_policy):raise ValueError('Original stage source authority changed')
-                if request['mode']=='memory_followup':
-                    _,_,_,selection,_=self.memory_followups.input(row['id'],request)
-                    if selection!=followup['memory_selection']:raise ValueError('Memory execution selection changed')
-                if request['mode']=='check_followup':
+                if fork_projection is not None:
                     saved=json.loads(self._job_path(row['id']).read_bytes())
-                    if saved['request']!=request:raise ValueError('Check follow-up authority changed')
-                    self.check_followups.assert_intent(request,row['id'])
-                    _,_,_,current=self.check_followups.input(request)
-                    if current!=followup['check_observations']:raise ValueError('Check observation source changed')
+                    checked=prepare_fork(self,saved,recorded=fork_projection)
+                    if checked['case']!=case:raise ValueError('Fork execution query changed')
                 if request['mode']=='planned_continuation':
                     self.planned_continuations.input(request,row['id'],admission=True)
                 if planned_v3:
@@ -1128,36 +1068,14 @@ class Workbench:
                 refinement_rounds=1 if request['depth']=='deep' else 0,on_stage=save_stage,
                 resumable=request['depth']!='planned' and request['mode'] in {'github','local','example'},
                 **({'recoverable':True,'on_recovery_attempt':recovery_attempt} if capture_recovery else {}),
+                **({'recovery_fork':fork_projection} if capture_recovery and fork_projection is not None else {}),
                 **({'planned_workflow':True,'planner_policy':'bounded_planner_v3' if planned_v3 else 'bounded_planner_v2'} if request['depth']=='planned' else {}),
                 **({'controller':selected_controller} if selected_controller is not None else {}),**extra)
             self._check_cancelled(row['id'])
             validate_controller_ownership(pack,row)
-            if followup:
-                pack['followup'] = followup
-                if followup.get('check_observations'):
-                    from .check_followups import user_cue_text
-                    cue_addition=user_cue_text(followup['check_observations'])
-                else:
-                    cue_addition=('\n'.join(answer['answer'] for answer in followup['clarification']['answers'])
-                                  if followup.get('clarification') else followup['additional_context'])
-                pack['intake']=self._inspect_query(pack['case']['problem_statement'],
-                    self._cue_text(parent) if followup.get('memory_selection') else self._cue_text(parent)+'\n'+cue_addition)
-                if followup.get('memory_selection'):
-                    receipt=followup['memory_selection']
-                    pack['trace'].append({'stage':'selected_memory_context','selection_sha256':receipt['sha256'],
-                        'context_sha256':receipt['context_sha256'],'selected_items':len(receipt['items']),
-                        'historical_verified':False,'causal_verified':False})
-                if followup.get('clarification'):
-                    pack['trace'].append({'stage':'clarification_answers','questions_sha256':followup['clarification']['questions_sha256'],
-                        'answers_sha256':followup['clarification']['sha256'],'parent_pack_sha256':followup['parent_pack_sha256'],
-                        'answer_count':len(followup['clarification']['answers']),'historical_verified':False})
-                if followup.get('check_observations'):
-                    receipt=followup['check_observations']
-                    pack['trace'].append({'stage':'check_observation_context','plan_sha256':receipt['source']['plan_sha256'],
-                        'journal_sha256':receipt['journal_sha256'],'receipt_sha256':receipt['sha256'],
-                        'observation_ids':receipt['observation_ids'],'historical_verified':False,'user_reports_verified':False})
-            if context_selection:
-                pack['context_selection']=context_selection
+            if fork_projection is not None:
+                from .fork_origins import attach as attach_fork
+                attach_fork(pack,fork_projection)
             check_observation_source()
             if request['mode']=='planned_continuation':
                 self.planned_continuations.validate_child(row['id'],pack,request)
@@ -1320,8 +1238,9 @@ class Workbench:
                 raise ValueError('Stage recovery receipt and job authority differ')
             self.stage_recoveries.validate_child(identifier,pack,saved_request)
             compare_packs(pack,pack)
-            if pack.get('continued_from'):
-                _,_,depth=self._load_pack(pack['continued_from']['parent_job_id'],seen)
+            fork_link=pack.get('continued_from') or pack.get('followup') or pack.get('context_selection')
+            if fork_link:
+                _,_,depth=self._load_pack(fork_link['parent_job_id'],seen)
                 return pack,raw,depth+1
             return pack,raw,0
         if saved_request.get('mode')=='planned_continuation' or 'continued_from' in pack:

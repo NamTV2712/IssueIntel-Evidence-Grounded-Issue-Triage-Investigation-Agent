@@ -56,7 +56,7 @@ def policy_sha256():
            'investigation/controller.py','investigation/planner.py','investigation/planned_waiting.py',
            'investigation/intake.py','investigation/verifier.py','repository/snapshot.py','repository/graph.py',
            'retrieval/__init__.py','retrieval/search.py','retrieval/focused.py','retrieval/gap_directed.py','retrieval/repository_context.py',
-           'investigation/clarifications.py','runtime/io.py',
+           'investigation/clarifications.py','investigation/fork_origins.py','runtime/io.py',
            'annotations/generator.py','annotations/models.py','annotations/public_inputs.py','annotations/structured.py',
            'investigation/providers.py','runtime/config.py','runtime/budget.py')
     return digest({name:sha256((package/name).read_bytes()).hexdigest() for name in names})
@@ -78,9 +78,12 @@ def saved_commit(records):
 
 
 class StageTape:
-    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None,continuation=None):
+    def __init__(self,case,snapshot,graph,options,*,on_stage,records=None,prior_provider_calls=None,on_attempt=None,continuation=None,fork=None):
         from .resume import validate_product_case
-        validate_product_case(case,snapshot.protocol)
+        if fork is None:validate_product_case(case,snapshot.protocol)
+        else:
+            from .fork_origins import validate_case
+            validate_case(case,snapshot.protocol,fork)
         if ('instance_id' in case or not callable(on_stage) or not isinstance(options['provider'],str)
                 or options['provider'] not in {'none','groq'}
                 or options['model']!=('openai/gpt-oss-120b' if options['provider']=='groq' else 'none') or type(options['top_k']) is not int
@@ -92,6 +95,7 @@ class StageTape:
         descriptor['files']=[{k:v for k,v in file.to_dict().items() if k!='text'} for file in snapshot.files]
         self.context={'schema':SCHEMA,'case':deepcopy(case),'snapshot':descriptor,
             'graph_sha256':digest(graph.to_dict()),'options':deepcopy(options),'policy_sha256':policy_sha256()}
+        if fork is not None:self.context['fork']=deepcopy(fork)
         if continuation is not None:
             self.context.update(call_budget_policy=CONTINUATION_BUDGET_POLICY,continuation=deepcopy(continuation))
         elif options['planned_workflow']:

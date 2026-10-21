@@ -75,11 +75,12 @@ class MemoryFollowups:
             raise ValueError('Combined memory-assisted query exceeds the product bound')
         return parent,raw,depth,selection,snapshot
 
-    def assert_intent(self,identifier,request):
+    def assert_intent(self,identifier,request,*,wait_for_dispatch=False):
         validate_request(request,saved=True)
-        db=self._db()
+        db=(self._db() if wait_for_dispatch else sqlite3.connect(
+            (self.host.directory/'memory_followups.sqlite').as_uri()+'?mode=ro',uri=True,timeout=30))
         try:
-            db.execute('BEGIN IMMEDIATE')
+            if wait_for_dispatch:db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT request_sha,target_job,selection FROM intents WHERE preview_key=?',(_key(request),)).fetchone()
             db.commit()
         finally:db.close()
@@ -94,8 +95,8 @@ class MemoryFollowups:
             raise ValueError('Stored memory selection differs from its execution request')
         return parent,raw,depth,selection
 
-    def input(self,identifier,request,*,admission=True):
-        recorded=self.assert_intent(identifier,request)
+    def input(self,identifier,request,*,admission=True,wait_for_dispatch=False):
+        recorded=self.assert_intent(identifier,request,wait_for_dispatch=wait_for_dispatch)
         return self._admit(request) if admission else recorded
 
     def submit(self,request):

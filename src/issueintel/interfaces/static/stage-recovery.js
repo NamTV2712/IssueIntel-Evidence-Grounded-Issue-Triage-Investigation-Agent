@@ -115,10 +115,10 @@
     const start=button(attempt?'Kiểm trạng thái yêu cầu phục hồi':'Tiếp tục phần còn thiếu',()=>submit(e));start.disabled=e.busy||!attempt&&!e.consent;area.append(start);
   }
   function show(row){
-    const original=['example','local','github','planned_continuation'].includes(row?.mode),sourceHash=original?row?.stage_checkpoints?.execution_input?.sha256:row?.pipeline_context_sha256;
+    const original=['example','local','github','planned_continuation','followup','clarification','check_followup','memory_followup','context'].includes(row?.mode),sourceHash=original?row?.stage_checkpoints?.execution_input?.sha256:row?.pipeline_context_sha256;
     const allowed=row&&job(row.id)&&['failed','cancelled','interrupted'].includes(row.status)&&(original||row.mode==='stage_resume')
       &&['none','groq'].includes(row.provider)&&['quick','deep','planned'].includes(row.depth)&&hash(sourceHash)
-      &&!(original&&row.provider==='groq'&&row.depth!=='planned'&&row.stage_checkpoints?.verification_input);
+      &&!(['example','local','github'].includes(row.mode)&&row.provider==='groq'&&row.depth!=='planned'&&row.stage_checkpoints?.verification_input);
     get('stage-recovery-panel').hidden=!allowed;
     if(!allowed){selected=null;epoch++;return;}
     const key=row.id+':'+sourceHash;let e=states.get(key);

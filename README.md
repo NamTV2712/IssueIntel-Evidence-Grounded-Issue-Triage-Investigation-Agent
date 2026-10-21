@@ -142,7 +142,14 @@ cận phục hồi; UI hiển thị riêng số kế thừa và số lượt th�
 Generation đã xong không chạy lại khi critic lỗi. Lỗi export sau khi đủ stage
 có thể phục hồi không API. Luồng này dùng chung Workbench, CLI và gói bàn giao;
 không chép receipt của cha hoặc cấp lại ngân sách khi đổi phiên.
-Luồng mới chưa nhận checkpoint legacy, Jev hoặc follow-up
+Follow-up mới cũng có journal: bổ sung dữ kiện, trả lời câu hỏi làm rõ, quan sát
+kiểm tra, memory đã chọn và context repository đã chọn. Khi phục hồi, hệ thống
+giữ đúng phiên cha/dữ kiện/selection ban đầu, dùng lại generation đã xong và
+giữ cận 4/6 call của phiên follow-up đó. Đây là cận của lần điều tra dữ kiện mới;
+các lần phục hồi của nó không cấp lại ngân sách hoặc chép receipt cũ. Nguồn
+memory/context mới thay đổi có thể chặn gọi tiếp; báo cáo đã lưu vẫn mở từ
+provenance đã khóa, không cần đọc lại nguồn hiện tại. Lỗi export có thể tiếp
+tục không API. Luồng mới chưa nhận checkpoint legacy hoặc Jev
 bị lỗi. Với Planned được phục hồi rồi
 dừng chờ, có thể trả lời để tiếp tục khi đủ ngân sách. Preview trừ cả các lượt
 thử lỗi trước phục hồi; phiên trả lời kế thừa phần đã dùng đúng một lần, không

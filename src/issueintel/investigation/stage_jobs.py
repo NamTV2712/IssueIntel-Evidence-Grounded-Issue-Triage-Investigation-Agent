@@ -10,16 +10,19 @@ import uuid
 from issueintel.runtime.io import digest,canonical_json
 from .pipeline import investigate,export_pack
 from .stage_recovery import SCHEMA,StageTape,RecoveryBudgetExhausted,recorded_call_limit,policy_sha256 as core_policy
+from .fork_origins import MODES as FORK_MODES
 
 
-MODES={'example','local','github','planned_continuation'}
+MODES={'example','local','github','planned_continuation'}|FORK_MODES
 TERMINAL={'failed','cancelled','interrupted'}
 
 
 def job_policy_sha256():
     package=Path(__file__).resolve().parents[1]
     names=('investigation/stage_jobs.py','investigation/workbench.py','investigation/finalization.py',
-           'investigation/dossier.py','investigation/planned_continuations.py')
+           'investigation/dossier.py','investigation/planned_continuations.py','investigation/fork_origins.py',
+           'investigation/memory_followups.py','investigation/check_followups.py','investigation/memory_selection.py',
+           'investigation/product_memory.py','investigation/adaptive_clarifications.py','investigation/question_jobs.py')
     return digest({'core':core_policy(),**{name:sha256((package/name).read_bytes()).hexdigest() for name in names}})
 
 
@@ -29,26 +32,38 @@ def bind_original(request,context):
     from issueintel.integrations.github import github_input
     from .finalization import _snapshot_descriptor
     continuation=request.get('mode')=='planned_continuation'
+    fork=request.get('mode') in FORK_MODES
     if continuation:
         from .planned_continuations import validate_request as validate_continuation
         canonical=validate_continuation(request,saved=True)
+    elif fork:
+        from .fork_origins import canonical_request
+        canonical=canonical_request(request)
     else:canonical=validate_request(request)
     if (digest(canonical)!=digest(request) or request['mode'] not in MODES
             or request.get('controller','rules')!='rules'):
         raise ValueError('Stage recovery requires canonical original product authority')
     case=context['case'];snapshot=context['snapshot'];options=context['options']
-    validate_product_case(case,snapshot['protocol']);_snapshot_descriptor(snapshot)
+    if fork:
+        from .fork_origins import validate_case
+        validate_case(case,snapshot['protocol'],context['fork'])
+    else:validate_product_case(case,snapshot['protocol'])
+    _snapshot_descriptor(snapshot)
     if any(k in case for k in ('split','instance_id')):raise ValueError('Benchmark metadata cannot enter product recovery')
     planned=request['depth']=='planned'
     expected={'provider':request['provider'],'model':'none' if request['provider']=='none' else 'openai/gpt-oss-120b',
         'top_k':4 if request['depth']=='quick' else 12,'refinement_rounds':int(request['depth']=='deep'),
-        'resumable':not planned,'planned_workflow':planned,'independent_critic':True,
+        'resumable':not planned and not fork,'planned_workflow':planned,'independent_critic':True,
         'planner_policy':'bounded_planner_v3' if planned else 'bounded_planner_v1'}
     if (context['schema']!=SCHEMA or any(digest(options[k])!=digest(v) for k,v in expected.items())
             or set(options)!=set(expected)|{'repository_context','max_output_tokens'}
             or type(options['max_output_tokens']) is not int or not 0<options['max_output_tokens']<=65536):
         raise ValueError('Saved stage recipe differs from its original request')
-    if continuation:
+    if fork:
+        if context['fork']['origin']['request']!=request or 'continuation' in context:
+            raise ValueError('Fork recovery authority changed')
+    elif 'fork' in context:raise ValueError('Original recovery cannot claim fork authority')
+    elif continuation:
         authority=context['continuation']
         if authority['origin']['request']!=request or context.get('call_budget_policy')!='continuation_root_budget_v1':
             raise ValueError('Continuation recovery authority changed')
@@ -78,8 +93,8 @@ def source_binding(segments,inventory,context,policy):
     """Versioned immutable ownership projection; never copy prior stage files."""
     last=segments[-1];request=last['request'];root=segments[0]['request']
     attempts=[a for s in segments for a in s['attempts']]
-    continuation=root['mode']=='planned_continuation';many=len(segments)>1 or continuation
-    binding={'schema':'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
+    continuation=root['mode']=='planned_continuation';fork=root['mode'] in FORK_MODES;many=len(segments)>1 or continuation or fork
+    binding={'schema':'product_stage_recovery_source_v4' if fork else 'product_stage_recovery_source_v3' if continuation else 'product_stage_recovery_source_v2' if many else 'product_stage_recovery_source_v1',
         'source_job_id':last['job_id'],'source_request_sha256':digest(request),'context_sha256':digest(context),
         'stages':inventory if many else [{k:v for k,v in ref.items() if k!='owner_job_id'} for ref in inventory],
         'attempts_sha256':digest(attempts),'prior_provider_calls':len(attempts),
@@ -160,7 +175,7 @@ class StageRecoveryJobs:
             raise ValueError('Legacy audit checkpoints are not recovery journals')
         # Existing verifier/export channels own late original Quick/Deep jobs;
         # a failed recovered child has no competing legacy recovery channel.
-        if (len(chain)==1 and root_request['provider']=='groq' and root_request['depth']!='planned'
+        if (len(chain)==1 and root_request['mode'] in {'local','github','example'} and root_request['provider']=='groq' and root_request['depth']!='planned'
                 and 'verification_input' in original['stage_checkpoints']):
             raise ValueError('Use the existing verifier or export continuation')
         records=[];inventory=[];segments=[];attempts=[];receipt_ids=set();context=None;binding=None
@@ -186,6 +201,12 @@ class StageRecoveryJobs:
                             or context['snapshot']!=parent['snapshot']
                             or context['options']['repository_context']!=continued_context(parent,case)):
                         raise ValueError('Continuation journal differs from its source-bound answers')
+                elif root_request['mode'] in FORK_MODES:
+                    from .fork_origins import prepare
+                    prepared=prepare(host,original,admission=admission,recorded=context['fork'],context=context['options']['repository_context'])
+                    if (context['case']!=prepared['case'] or context['snapshot']!=prepared['snapshot']
+                            or context['options']['repository_context']!=prepared['repository_context']):
+                        raise ValueError('Fork journal differs from its source-bound inputs')
             context_sha=digest(context);local_attempts=row.get('pipeline_attempts')
             if (not isinstance(local_attempts,list) or len(attempts)+len(local_attempts)>limit
                     or row.get('pipeline_context_sha256')!=context_sha
@@ -229,8 +250,17 @@ class StageRecoveryJobs:
             if case!=context['case'] or link!=context['continuation']['link']:raise ValueError('Continuation input changed')
             options['repository_context']=None
             extra={'planned_parent':parent,'planned_continuation':link,'recovery_origin':origin}
-        return investigate(context['case'],context['snapshot']['repository'],**options,complete_json=complete,
+        if context.get('fork'):
+            from .fork_origins import prepare
+            origin=context['fork']['origin'];row=json.loads(self.host._job_path(origin['job_id']).read_bytes())
+            prepared=prepare(self.host,row,recorded=context['fork'])
+            extra={'recovery_fork':context['fork'],'snapshot':prepared['extra']['snapshot']}
+        pack=investigate(context['case'],context['snapshot']['repository'],**options,complete_json=complete,
             recoverable=True,recovery_records=records,prior_provider_calls=prior,on_stage=on_stage,on_recovery_attempt=on_attempt,**extra)
+        if context.get('fork'):
+            from .fork_origins import attach
+            attach(pack,context['fork'])
+        return pack
 
     @staticmethod
     def _budget_preview(context):
@@ -412,12 +442,16 @@ class StageRecoveryJobs:
                     'recorded_provider_calls':r['recovery']['provider_calls']} for r in records]
                 or any(pack['leakage_audit'].get(k) is not False for k in
                     ('strict_issue_time_verified','gold_in_inference','snapshot_issue_time_verified','original_query_verified'))
-                or any(k in pack for k in ('followup','resumed_from','finalized_from','context_selection','controller_decisions'))
-                or bool(context.get('continuation'))!=bool(pack.get('continued_from'))):
+                or any(k in pack for k in ('resumed_from','finalized_from','controller_decisions'))
+                or bool(context.get('continuation'))!=bool(pack.get('continued_from'))
+                or not context.get('fork') and any(k in pack for k in ('followup','context_selection'))):
             raise ValueError('Recovered child differs from its owned stage source')
         if context.get('continuation'):
             origin=context['continuation']['origin']
             self.host.planned_continuations.validate_child(origin['job_id'],pack,origin['request'])
+        if context.get('fork'):
+            from .fork_origins import validate_output
+            validate_output(pack,context['fork'])
         row=json.loads(self.host._job_path(identifier).read_bytes())
         attempts=row.get('pipeline_attempts',[])
         if (value.get('new_provider_calls')!=len(attempts)

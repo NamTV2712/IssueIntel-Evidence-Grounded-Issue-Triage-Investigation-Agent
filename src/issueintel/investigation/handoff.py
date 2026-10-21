@@ -122,8 +122,8 @@ class Handoffs:
                         'source_attempts':original['pipeline_attempts'],'new_attempts':child_row['pipeline_attempts'],
                         'source_usage':{'tracking':original.get('usage_tracking'),'receipts':original.get('usage_receipts',{})},
                         'requires_api':child_row['request']['requires_api']}
-                    if binding['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3'}:
-                        witness={'schema':'product_stage_handoff_v3' if binding['schema']=='product_stage_recovery_source_v3' else 'product_stage_handoff_v2','source':binding,'source_chain':segments,
+                    if binding['schema'] in {'product_stage_recovery_source_v2','product_stage_recovery_source_v3','product_stage_recovery_source_v4'}:
+                        witness={'schema':'product_stage_handoff_v'+binding['schema'][-1],'source':binding,'source_chain':segments,
                             'new_attempts':child_row['pipeline_attempts'],'requires_api':child_row['request']['requires_api']}
                     add('runs/'+child['job_id']+'/stage-recovery.json',_json(witness),'stage_recovery_source')
                     for stage in binding['stages']:
