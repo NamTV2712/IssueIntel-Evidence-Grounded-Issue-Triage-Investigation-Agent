@@ -44,8 +44,8 @@ def _viewer(selection):
                 body.append('<details><summary>'+esc(evidence['id']+' · '+evidence['locator'])+'</summary><small>'+esc(evidence['revision'])+'</small><pre>'+esc(evidence['text'])+'</pre></details>')
         else:body.append('<p>Source job metadata only; no completed report is asserted.</p>')
         body.append('</article>')
-    for key in ('plans','observations','claim_reviews','transitions','timeline','hypothesis_links','warnings'):
-        body.append('<details><summary>'+esc(key)+'</summary><pre>'+esc(_json(selection[key]).decode())+'</pre></details>')
+    for key in ('plans','observations','claim_reviews','issue_relations','transitions','timeline','hypothesis_links','warnings'):
+        body.append('<details><summary>'+esc(key)+'</summary><pre>'+esc(_json(selection.get(key,[])).decode())+'</pre></details>')
     body.append('<p>Selection SHA256: <small>'+esc(selection['sha256'])+'</small></p></html>')
     return ''.join(body).encode()
 
@@ -78,6 +78,7 @@ class Handoffs:
             'requested_job_ids':sorted(request['job_ids']),'runs':chosen,
             'plans':[r for r in dossier['plans'] if r['source_job_id'] in included],
             'claim_reviews':[r for r in dossier['claim_reviews'] if r['source_job_id'] in included],
+            'issue_relations':[r for r in dossier.get('issue_relations',[]) if r['source_job_id'] in included],
             'observations':[r for r in dossier['observations'] if any(p['plan_job_id']==r['plan_job_id'] and p['source_job_id'] in included for p in dossier['plans'])],
             'transitions':[r for r in dossier['transitions'] if r['parent_job_id'] in included and r['child_job_id'] in included],
             'timeline':[r for r in dossier['timeline'] if r['job_id'] in included and (r['kind']!='hypothesis_link' or r['event']['relation']['parent_job_id'] in included)],
@@ -88,6 +89,7 @@ class Handoffs:
             'limitations':dossier['limitations']+[
                 'Only selected runs and required ancestors are included; this is not the full source dossier.',
                 'Source replay was performed locally at export. Offline verification checks included bytes and declared bindings, not original Git or remote provenance.',
+                'Issue comparisons include frozen candidate issue inputs, which may belong to an issue outside the selected dossier; their projections, quotes and assessment gates are checked, not full candidate Git/ancestry or provider execution.',
                 'User content, repository paths, code excerpts and observations are private until explicitly shared by the author.'],
             'model_calls':0,'evaluation_performed':False})
         files={};kinds={}
@@ -97,6 +99,16 @@ class Handoffs:
         add('handoff.json',_json(selection),'selected_history')
         add('index.html',_viewer(selection),'offline_viewer')
         add('verify.py',Path(portable_verify.__file__).read_bytes(),'standalone_verifier')
+        for relation in selection['issue_relations']:
+            from .issue_relations import render_markdown as relation_markdown
+            relation_id=relation['relation_job_id'];bundle=relation['bundle']
+            witness=self.host.issue_relations.witness(relation_id)
+            if witness['source']!=bundle['source'] or witness['owner_job_id']!=relation_id:
+                raise ValueError('Issue comparison source changed during handoff')
+            prefix='relations/'+relation_id+'/'
+            add(prefix+'inputs.json',_json(witness),'issue_relation_sources')
+            add(prefix+'comparison.json',_json(bundle),'issue_relation')
+            add(prefix+'comparison.md',relation_markdown(bundle).encode(),'issue_relation_markdown')
         for row in chosen:
             job_id=row['job_id'];prefix='runs/'+job_id+'/'
             if row['report'] is not None:
@@ -150,7 +162,8 @@ class Handoffs:
             '2. Verify using an installed IssueIntel: python -m issueintel verify-handoff bundle.zip --expected-sha256 SHA\n'
             '   Or inspect verify.py, then run it with Python 3.11+: python verify.py bundle.zip --expected-sha256 SHA\n'
             '3. Open index.html locally after extracting with your usual trusted archive tool. No server or API is needed.\n'
-            '4. Report JSON/Markdown and original source packs are under runs/. Selected journals/plans are in handoff.json.\n\n'
+            '4. Report JSON/Markdown and original source packs are under runs/. Selected journals/plans are in handoff.json.\n'
+            '5. Issue-pair comparisons and their frozen candidate inputs are under relations/ when selected.\n\n'
             'The archive has private issue text, code, paths and observations. Review before sharing.\n'
             'Hashes check consistency, not authorship or semantic truth. The HTML page does not run verification.\n'
             'User reports/model judgments are unverified; this is not a benchmark evaluation or proof of a fix.\n')

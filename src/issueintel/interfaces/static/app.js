@@ -8,7 +8,6 @@ let intake=null;
 let reportView=null;
 let hypothesisReview=null;
 let journalData=null;
-let relatedResult=null;
 let planData=null;
 let viewGeneration=0;
 let stageView=null;
@@ -89,6 +88,7 @@ async function submit(event) {
 }
 async function runJob(request,existingJob=null) {
   window.IssueIntelClaimReview?.cancel();
+  window.IssueIntelIssueRelations?.cancel();
   if($('run-button').disabled)return;
   window.IssueIntelStageRecovery?.show(null);
   window.IssueIntelFinalization?.show(null);
@@ -120,6 +120,7 @@ async function runJob(request,existingJob=null) {
 }
 async function openJob(id) {
   window.IssueIntelClaimReview?.cancel();
+  window.IssueIntelIssueRelations?.cancel();
   const generation=++viewGeneration;
   window.IssueIntelDossier?.cancel();
   window.IssueIntelFinalization?.show(null);
@@ -133,7 +134,6 @@ async function openJob(id) {
   reportView=report.status==='fulfilled'?report.value:null;
   hypothesisReview=review.status==='fulfilled'?review.value:null;
   journalData=journal.status==='fulfilled'?journal.value:null;
-  relatedResult=null;
   usageInfo=cost.status==='fulfilled'?cost.value:null;
   showUsage({id,accounting:usageInfo,...savedTypesafeUsage()});
   showStageArtifacts({id,stage_checkpoints:pack.stage_checkpoints});
@@ -221,6 +221,7 @@ function restorePlanDrafts(drafts) {
 function renderTab() {
   window.IssueIntelMemory?.cancel();
   window.IssueIntelClaimReview?.cancel();
+  window.IssueIntelIssueRelations?.cancel();
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();window.IssueIntelProductChecks?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
@@ -270,30 +271,7 @@ function renderTab() {
     }
     const history=node('details');history.append(node('summary',t('Lịch sử thay đổi kế hoạch')),node('pre',JSON.stringify({source_pack_sha256:planData.source_pack_sha256,sha256:planData.sha256,history:planData.history},null,2)));checklist.append(history);
   }
-  if(activeTab==='related') {
-    const search=node('button',t('Tìm issue liên quan trong lịch sử local'));
-    content.append(node('p',t('Chỉ tìm trong 50 phiên local gần nhất, cùng repository. Tương đồng chưa chứng minh duplicate; không đưa vào inference strict.'),'notice'),search);
-    search.onclick=async()=>{
-      const selected=currentJob;search.disabled=true;
-      try {
-        const result=await api('/api/related',{job_id:selected});
-        if(currentJob===selected){relatedResult=result;renderTab();}
-      }catch(error){message(error.message,true);search.disabled=false;}
-    };
-    if(relatedResult?.job_id===currentJob){
-      content.append(node('p',t('Đã đọc {scanned} phiên; {issues} issue khác; bỏ qua {skipped} nguồn lỗi.',{scanned:relatedResult.scanned_completed,issues:relatedResult.distinct_other_issues,skipped:relatedResult.skipped_integrity}),'notice'));
-      if(!relatedResult.results.length)content.append(node('p',t('Chưa tìm thấy ứng viên phù hợp trong phạm vi này.'),'notice'));
-      for(const result of relatedResult.results){
-        const card=node('article',undefined,'hypothesis-card');
-        card.append(node('h3',result.case_id),node('span',t('Ứng viên liên quan · chưa xác nhận duplicate'),'badge'),
-          node('p',t('Điểm lexical: {score}; không phải xác suất.',{score:result.score})),
-          node('p',t('Từ khớp: ')+result.matched_terms.join(', ')),node('pre',result.snippet.text),
-          node('p','Query SHA256 '+result.query_sha256,'hash-note'),node('p','Pack SHA256 '+result.pack_sha256,'hash-note'));
-        const open=node('button',t('Mở báo cáo nguồn'));open.onclick=()=>{activeTab='evidence';openJob(result.job_id).catch(error=>message(error.message,true));};
-        card.append(open);content.append(card);
-      }
-    }
-  }
+  if(activeTab==='related')window.IssueIntelIssueRelations?.render(content,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
   if(activeTab==='intake' && intake) {
     content.append(node('h3',t('Loại issue: ')+t(intake.intent)),node('p',t('Phân loại dựa trên từ khóa, chưa xác minh. Có nhắc thông tin không có nghĩa là thông tin đầy đủ.'),'notice'));
     if(intake.cue_basis==='user_content_excluding_generated_questions'){

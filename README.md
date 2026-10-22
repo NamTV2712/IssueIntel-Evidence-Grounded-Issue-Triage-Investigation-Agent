@@ -211,6 +211,30 @@ Câu hỏi là đề xuất của model, chưa chứng minh khả năng phân bi
 Tab **Issue liên quan / Related issues** tìm ứng viên trong lịch sử local cùng
 repository, có đoạn khớp và hash nguồn. Điểm tương đồng chưa xác nhận duplicate;
 kết quả không tự đi vào inference strict.
+Trong tab này, **Đối chiếu hai issue** cho chọn một phiên product đã lưu hoặc một
+**issue** GitHub đã đồng bộ của đúng repository, xem trước hai nguồn rồi chủ động
+duyệt gửi chúng tới Groq. Báo cáo offline chưa có giả thuyết cũng dùng được.
+Tìm ứng viên và preview không gọi model; PR/comment chỉ làm context ở luồng chọn
+nguồn bên dưới, không được dùng thay issue ứng viên trong đối chiếu.
+
+Kết quả riêng gồm triệu chứng, cơ chế, phiên bản và khác biệt, với đoạn hỗ trợ/
+phản bác ghi rõ phía trái/phải, nguồn, revision và vị trí Unicode. Model nêu
+`related`, `possible_duplicate` hoặc `insufficient`; server tính lại mức đủ bằng
+chứng và giữ nguyên nhận xét gốc, giả định, phản bác và phần chưa biết. Cùng thông
+báo lỗi chưa đủ để nhận `possible_duplicate`. Phiên bản ảnh hưởng chưa rõ vẫn
+hiển thị thành khoảng trống cần hỏi thêm; commit code không tự thành phiên bản
+phát hành. `possible_duplicate` chỉ là ứng viên cần xem lại, chưa xác nhận
+duplicate, nguyên nhân hoặc bản sửa.
+
+Mỗi lựa chọn cặp/nguồn/policy có một intent bền vững, tối đa hai call kể cả một
+lần sửa output; lỗi, hủy và restart không tự tạo lượt trả phí thay thế. Snapshot
+và nguồn được kiểm trước provider, các call kiểm lại nguồn/policy và giữ receipt
+đúng owner. Nội dung ứng viên được khóa để lần đồng bộ sau không đổi bản đã lưu.
+Đọc/xuất JSON hoặc Markdown không cần Git, token hay cấu hình provider. Hồ sơ issue
+và ZIP bàn giao giữ kết quả cùng nguồn ứng viên đã khóa; preview tính cả phần
+nguồn bổ sung này, dù ứng viên không thuộc các phiên đang chọn trong dossier.
+Không tự comment, gắn nhãn hoặc đóng issue.
+
 Với báo cáo issue GitHub, mục **Chọn nguồn cho điều tra** tìm trong
 repository đã đồng bộ. Xem trích đoạn rồi chọn tối đa sáu nguồn; phiên mới giữ
 query và commit gốc, chỉ dùng đúng các nguồn đã chọn. Nội dung/receipt đổi sẽ yêu
@@ -499,10 +523,12 @@ CLI có thể dùng cùng job store/journal với Workbench bằng `--durable`:
 # Hoặc --without-api khi preview không cần call mới.
 ```
 
-`--durable` chỉ nhận product gốc với rules và critic, không benchmark case,
-custom output hoặc tắt critic. Quick mặc định, `--refinement-rounds 1` chọn Deep,
-`--planned` chọn rules v3; chỉ thêm `--provider groq` khi muốn gọi API. CLI thường
-vẫn giữ contract/output cũ. Durable output ở `artifacts/demo/runs/JOB_ID/`, hiện
+`--durable` nhận product gốc với critic, không benchmark case, custom output
+hoặc tắt critic. Quick mặc định, `--refinement-rounds 1` chọn Deep; `--planned`
+với rules dùng v3. Có thể chọn `--controller jev --planned --provider groq`
+để dùng Jev v2 với cổng cấu hình/ngân sách riêng; có key chưa cấp quyền chi tiêu.
+Rules chỉ gọi API khi thêm `--provider groq`. CLI thường vẫn giữ contract/output
+cũ. Durable output ở `artifacts/demo/runs/JOB_ID/`, hiện
 trong lịch sử Workbench; job ID được in ngay vào stderr, trạng thái cuối ở JSON
 stdout. Job lỗi trả exit 2 và giữ stage/receipt; không tự retry.
 
@@ -566,4 +592,9 @@ artifacts/           báo cáo, blind review, lỗi và tiến độ; ignored
 
 Groq: `openai/gpt-oss-120b`. Tác giả đã bỏ cả trần token và USD cho phần dựng lại cần thiết ngày 12/10/2026; quyết định ghi trong `configs/author_decisions.json`. Thiếu limit đơn thuần không bật unlimited. Vẫn có giới hạn context/output từng call, reservation và usage ledger qua restart; lỗi/usage thiếu giữ cận trên. Giá quá 30 ngày phải kiểm lại. Khóa nằm trong `.env`, không đưa vào báo cáo. Dữ liệu được lưu local; khi chọn Groq, issue và đoạn code được chọn sẽ gửi đến API Groq.
 
-Jev có cổng quyết định typed và fallback theo luật; transport/dịch vụ Jev chưa được cấu hình. Không dùng ngân sách Groq để tự gọi dịch vụ khác. Các tính năng sản phẩm mở rộng trong proposal vẫn thuộc roadmap, không được coi đã triển khai.
+Jev có adapter Typesafe, cổng quyết định typed, fallback theo luật và stage recovery.
+Kết nối đã được thử bằng bốn call dữ liệu tổng hợp theo quyền thử riêng; cấu hình
+product thường vẫn tắt/trần 0, chưa có đánh giá chất lượng controller. Không dùng
+ngân sách Groq để tự gọi Typesafe. Phạm vi đã triển khai và các mục còn lại được
+đối chiếu tại [docs/PRODUCT.md](docs/PRODUCT.md); proposal không phải tuyên bố mọi
+chức năng đã hoàn tất.

@@ -39,6 +39,50 @@ dossier/handoff bằng nguồn đã replay; portable verifier kiểm owner/quote
 trên included bytes, không đánh giá ngữ nghĩa. API/UI tách claim sidecar khỏi
 whole-hypothesis critique cũ và không rewrite generation/verifier/report v1.
 
+`investigation.issue_relations` cung cấp `product_issue_relation_v1` và
+`issue_relation_sufficiency_v1` cho hai issue khác nhau. `issue_relation_source_v1`
+giữ hai projection riêng đã seal, mỗi phía có identity, reference, commit/snapshot
+khi có và các issue/code/context excerpts. Không cần annotation/hypotheses đã sinh.
+Citation dùng `side + source_id + start/end + quote`; offset là Unicode code point,
+đầu gồm/cuối không gồm. Raw model comparison giữ riêng assessment được tái tính
+cho symptoms/mechanism/version/differences. Cơ chế phải có nguồn cả hai phía;
+quote trùng triệu chứng không tự thành reported mechanism. Counter/giả định chưa
+giải quyết hoặc khác biệt có ý nghĩa chặn nâng lên `possible_duplicate`. Phiên
+bản ảnh hưởng chưa biết giữ gap và có thể cần hỏi thêm, không tự phủ nhận một
+ứng viên có cơ chế được dẫn nguồn; commit snapshot không chứng minh affected
+release hoặc fix. Mọi classification vẫn automatic/unverified, không confirmed
+duplicate, causal proof hay nhãn người. Model payload dùng public projection để
+không gửi machine path, job ID hoặc pack digest không cần thiết.
+
+`issue_relation_jobs.IssueRelationJobs` là service cặp nguồn riêng, không dùng
+single-source runner để suy quyền cho nguồn thứ hai. Candidate chỉ là saved
+product investigation hoặc synced **issue**, không PR/comment. Server replay cả
+hai authority/repository identity, từ chối self/same-query local mơ hồ,
+cross-repository và benchmark/strict trước paid call. Hai GitHub issue có URL
+canonical khác nhau vẫn có thể có nội dung giống hệt nhau. Preview khóa source
+và policy; SQLite intent theo đúng selection/hash/policy giữ một target qua
+restart, tối đa 20 intent cho mỗi source pack và hai call kể cả output repair.
+Admission replay Git snapshot trước provider; guard trước/sau call và trước
+publication kiểm lại authority, source/policy, cancellation và owned attempts/
+receipts. Transport/admission lỗi không được dùng như quyền retry.
+
+Intent lưu `issue_relation_inputs_v1`: exact UTF-8 pack bytes dưới dạng JSON string
+và job authority cho phía local, hoặc full record/receipt đã chọn cho phía synced.
+Saved reopen kiểm local pack/authority và phần synced đã khóa; không reacquire
+Git, đọc index mới hoặc tạo provider/config. Vì vậy refresh index không đổi
+comparison cũ; nguồn local bị sửa vẫn bị phát hiện. Sidecar ở
+`artifacts/demo/issue_relation_runs/`, tách khỏi pack/report gốc. Dossier gắn
+comparison vào source run, không biến candidate thành ancestry của source.
+
+Handoff thêm `relations/<job>/inputs.json`, `comparison.json` và `comparison.md`;
+preview dung lượng tính cả raw candidate inputs có thể nằm ngoài dossier đã chọn.
+Standalone verifier dựng lại side projection từ included pack/record/receipt,
+kiểm quotes, source/job references, policy/request binding, cận attempts khai báo
+và tính lại sufficiency. Chỉ có bytes
+được gửi mới được kiểm; không thay thế full candidate Git/ancestry replay, xác
+thực tác giả, chứng nhận provider thực sự chạy hay đánh giá duplicate đúng/sai.
+Viewer hiển thị kết quả và giới hạn này mà không gọi model hoặc tải nguồn mới.
+
 `investigation.handoff.Handoffs` xuất một selection riêng từ dossier đã replay,
 giữ pack bytes/report bindings, tự thêm ancestry và chỉ lấy checkpoint recovery
 được con tham chiếu. Không sao chép folder job, database, `.env` hoặc Git cache.
@@ -78,8 +122,9 @@ flowchart LR
 
 Workbench bổ sung intake, follow-up, so sánh, truy xuất lịch sử và checklist qua
 shared modules trong `investigation`/`retrieval`. Follow-up có lineage pack hash,
-giữ commit và tạo query mới unverified. Related search chỉ tham khảo lịch sử local,
-không nhập vào strict inference. `investigation.plan.PlanStore` dùng SQLite local
+giữ commit và tạo query mới unverified. Related search có tìm ứng viên local và
+synced issue; model comparison là thao tác riêng sau preview/consent, không nhập
+vào strict inference. `investigation.plan.PlanStore` dùng SQLite local
 riêng cho user-reported checks, hash chain và optimistic concurrency; không dùng
 PostgreSQL hoặc sửa benchmark receipts. Interface chỉ render và gọi các service.
 
@@ -521,7 +566,7 @@ quyền thực thi tool/code hoặc benchmark evaluation. Các stage cố địn
 `planned_complete` giữ tiến độ khi lỗi; receipt chi phí gắn đúng stage.
 
 Web rules Planned mới dùng `planned_investigation_v3` / `bounded_planner_v3`;
-CLI `--planned` và Jev giữ v2. Library `investigate` giữ v1 mặc định cho caller
+CLI thường `--planned` và Jev giữ v2; CLI `--durable` với rules dùng v3. Library `investigate` giữ v1 mặc định cho caller
 cũ và nhận explicit `planner_policy='bounded_planner_v2'` hoặc v3. Mọi phiên bản
 đi qua cùng pipeline/validator, version pair phải khớp; không sửa hoặc chuyển
 đổi pack v1/v2 đã lưu. V2/v3 dùng

@@ -221,7 +221,7 @@ class Dossiers:
         host._clarification_product(identifier,selected)
         _,identity=self._origin(identifier,authenticate=True)
         selected_sha=_sha(selected_raw)
-        packs={};runs=[];plans=[];observations=[];claim_reviews=[];timeline=[];warnings=[]
+        packs={};runs=[];plans=[];observations=[];claim_reviews=[];issue_relations=[];timeline=[];warnings=[]
         for path in sorted(host.jobs.glob('*.json')):
             job_id=path.stem
             try:
@@ -256,6 +256,18 @@ class Dossiers:
         for run in runs:
             job_id=run['job_id']
             if run['report'] is None:continue
+            try:
+                rows=host.issue_relation_history(job_id)['relation_jobs']
+                for relation_job in rows:
+                    event={'event_id':relation_job['id']+':issue_relation','kind':'issue_relation','job_id':job_id,
+                           'relation_job_id':relation_job['id'],'occurred_at':relation_job['created_at'],'status':relation_job['status']}
+                    if relation_job['status']=='completed':
+                        bundle=host.issue_relation_bundle(relation_job['id'])
+                        issue_relations.append({'relation_job_id':relation_job['id'],'source_job_id':job_id,'bundle':bundle})
+                        event['sha256']=bundle['sha256']
+                    timeline.append(event)
+            except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):
+                warnings.append({'job_id':job_id,'artifact':'issue_relation','reason':'source_replay_failed'})
             try:
                 rows=host.claim_review_history(job_id)['review_jobs']
                 for review_job in rows:
@@ -325,7 +337,7 @@ class Dossiers:
         runs.sort(key=lambda row:(row['created_at'],row['job_id']))
         source={'selected_job_id':identifier,'selected_pack_sha256':selected_sha,'identity_sha256':identity['sha256']}
         return _seal({'schema':SCHEMA,'source':source,'issue':identity,'runs':runs,'plans':plans,
-                      'observations':observations,'claim_reviews':claim_reviews,'transitions':transitions,'timeline':timeline,
+                      'observations':observations,'claim_reviews':claim_reviews,'issue_relations':issue_relations,'transitions':transitions,'timeline':timeline,
                       'hypothesis_links':links,'warnings':warnings,'limitations':list(LIMITATIONS),
                       'model_calls':0,'evaluation_performed':False})
 

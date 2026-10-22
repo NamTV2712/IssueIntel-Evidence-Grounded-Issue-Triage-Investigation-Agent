@@ -30,6 +30,8 @@ STATIC['/dossier.js'] = ('dossier.js', 'text/javascript; charset=utf-8')
 STATIC['/dossier.css'] = ('dossier.css', 'text/css; charset=utf-8')
 STATIC['/claim-review.js'] = ('claim-review.js', 'text/javascript; charset=utf-8')
 STATIC['/claim-review.css'] = ('claim-review.css', 'text/css; charset=utf-8')
+STATIC['/issue-relations.js'] = ('issue-relations.js','text/javascript; charset=utf-8')
+STATIC['/issue-relations.css'] = ('issue-relations.css','text/css; charset=utf-8')
 STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
@@ -58,8 +60,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None):
-            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None, source_pack_sha256=None, issue_relation_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256, source_pack_sha256, issue_relation_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -83,6 +85,10 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Dossier-SHA256',dossier_sha256)
             if claim_review_sha256 is not None:
                 self.send_header('X-IssueIntel-Claim-Review-SHA256',claim_review_sha256)
+            if source_pack_sha256 is not None:
+                self.send_header('X-IssueIntel-Source-Pack-SHA256',source_pack_sha256)
+            if issue_relation_sha256 is not None:
+                self.send_header('X-IssueIntel-Issue-Relation-SHA256',issue_relation_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -184,6 +190,13 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200,workbench.question_history(parts[0]))
                     elif len(parts)==2 and parts[1]=='claim-reviews':
                         self._json(200,workbench.claim_review_history(parts[0]))
+                    elif len(parts)==2 and parts[1]=='issue-relations':
+                        self._json(200,workbench.issue_relation_history(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'issue-relation.json','issue-relation.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        raw,source_sha,relation_sha=workbench.issue_relation_export(parts[0],format)
+                        self._send(200,raw,'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',
+                            download=parts[1],source_pack_sha256=source_sha,issue_relation_sha256=relation_sha)
                     elif len(parts)==2 and parts[1] in {'claim-review.json','claim-review.md'}:
                         format='json' if parts[1].endswith('.json') else 'md'
                         raw,report_sha,review_sha=workbench.claim_review_export(parts[0],format)
@@ -273,6 +286,12 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(202,workbench.submit_check_plan(request))
                 elif route=='/api/claim-reviews':
                     self._json(202,workbench.submit_claim_review(request))
+                elif route=='/api/issue-relation-candidates':
+                    self._json(200,workbench.relation_candidates(request))
+                elif route=='/api/issue-relations/preview':
+                    self._json(200,workbench.relation_preview(request))
+                elif route=='/api/issue-relations':
+                    self._json(202,workbench.submit_issue_relation(request))
                 elif route=='/api/check-followups':
                     self._json(202,workbench.submit_check_followup(request))
                 elif route == '/api/repositories/sync':

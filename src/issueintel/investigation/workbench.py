@@ -148,6 +148,8 @@ class Workbench:
         self.check_plans=CheckPlanJobs(self)
         from .claim_review_jobs import ClaimReviewJobs
         self.claim_reviews=ClaimReviewJobs(self)
+        from .issue_relation_jobs import IssueRelationJobs
+        self.issue_relations=IssueRelationJobs(self)
         from .check_observations import CheckObservationStore
         self.observation_journals=CheckObservationStore(self.directory/'plans.sqlite')
         from .check_followups import CheckFollowups
@@ -278,7 +280,7 @@ class Workbench:
         rows = []
         for path in paths:
             row = self.job(path.stem)
-            if row.get('mode') in {'version_comparison','adaptive_questions','release_check','check_plan','claim_review'}:
+            if row.get('mode') in {'version_comparison','adaptive_questions','release_check','check_plan','claim_review','issue_relation'}:
                 continue
             if (row.get('mode') == 'repository') == repository:
                 rows.append(row)
@@ -446,6 +448,18 @@ class Workbench:
 
     def claim_review_export(self,identifier,format='json'):return self.claim_reviews.export(identifier,format)
 
+    def relation_candidates(self,request):return self.issue_relations.candidates(request)
+
+    def relation_preview(self,request):return self.issue_relations.preview(request)
+
+    def submit_issue_relation(self,request):return self.issue_relations.submit(request)
+
+    def issue_relation_history(self,identifier):return self.issue_relations.history(identifier)
+
+    def issue_relation_bundle(self,identifier):return self.issue_relations.bundle(identifier)
+
+    def issue_relation_export(self,identifier,format='json'):return self.issue_relations.export(identifier,format)
+
     def check_observations(self,identifier,request=None):
         plan=self.check_plan_bundle(identifier)
         if request is None:return self.observation_journals.load(plan,identifier)
@@ -519,7 +533,7 @@ class Workbench:
             row['repository'] = request['repository']
         lease=None
         try:
-            if (request['mode']=='stage_resume' or request['mode'] in {'example','local','github','planned_continuation','followup','clarification','check_followup','memory_followup','context'}
+            if (request['mode'] in {'stage_resume','issue_relation'} or request['mode'] in {'example','local','github','planned_continuation','followup','clarification','check_followup','memory_followup','context'}
                     and request.get('controller','rules') in {'rules','jev'}):
                 # Hold ownership while queued as well as while executing. The
                 # connection is transferred to exactly one callback and released
