@@ -1261,3 +1261,40 @@ giữ nguyên receipt tên cũ; nhiều case aliases bị từ chối để đ�
 local Origin/session guard, kiểm redaction, dedup qua receiver recreation và gỡ
 installation. Bộ liên quan đạt 174 test local, không real provider/upstream write.
 Phần này chưa xác nhận App/HTTPS thật hoặc đổi publication token thành App auth.
+
+## Review usefulness offline — tooling V02
+
+`evaluation.usefulness` là module thuần cho selection/native source replay,
+blind whole-bundle cards, rubric, reviewer declaration, strict CSV và scoring.
+`usefulness_files` giữ I/O riêng: chỉ explicit workspace-relative product JSON
+trong ignored artifacts; tối đa 100 slot, 8 MB/file và 64 MB frozen package.
+Không construct Workbench, database, provider hoặc Git; CLI dispatch trước
+load_local_env. Raw source hashes khác canonical inner seals. Product admission
+chặn split/instance/strict và reserved benchmark IDs ngay cả failed/unavailable
+slot; included bytes không chứng minh nguồn thuộc một job thật hay Git còn tồn tại.
+
+Build công bố folder mới từ staging đã kiểm tuyệt đối trong artifacts, không
+overwrite. Organizer giữ raw sources dedup theo SHA, original selection và mapping;
+reviewer giữ random card IDs/order, original source/proposal content và HTML tĩnh
+escape/CSP, không condition/model/provider/recommendation/effort. Rubric/question
+prompt dùng ngôn ngữ en/vi đã lưu, không gọi model để dịch. Một card cho cả bundle
+giữ denominator theo selected unit/condition/kind, không nhân các câu hỏi thành
+case mới. Các status completed/empty được kiểm bằng native artifact; failed và
+unavailable chỉ là organizer declarations, không đo job/provider failure rate.
+
+Manifest khóa JSON/HTML/blank template/raw sources. Editable ratings.csv nằm
+ngoài immutable manifest; exact submitted bytes và reviewer JSON được giữ trong
+receipt. Reopen dựng lại từ frozen copies rồi so cả display/mapping/template,
+không đọc lại export gốc. Hash kiểm included-byte consistency, không authorship.
+Import dùng OS writer lock, kiểm tổng/count/file caps trước publication, giữ
+receipt cũ; exact reimport không nhân receipt hoặc mất idempotence khi đầy cận.
+Corrections cần supersedes leaf cùng reviewer và reason, không branch/cycle.
+Score read-only dùng active leaf, tách mỗi reviewer/condition/kind, giữ uncertain,
+missing và no-proposal coverage; model/agent/human provenance không bị gộp thành
+independent human review. Không paired contrast tự động, agreement, efficacy
+hoặc benchmark/holdout performance. Mọi source và review bundle giữ private.
+
+290 local checks đạt, gồm native question/check replay, forbidden data, byte/
+receipt limits, append-only corrections, CLI without environment/constructors,
+actual Windows junction và isolated -I -S no site packages. Đây là nghiệm thu
+tooling tổng hợp; V02 quality gate vẫn mở vì chưa có review/experiment thực.

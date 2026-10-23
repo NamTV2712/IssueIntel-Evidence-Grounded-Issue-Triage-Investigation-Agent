@@ -19,6 +19,18 @@ def main(argv=None) -> int:
     handoff = commands.add_parser('verify-handoff', help='Verify a portable handoff offline without Git, credentials or model calls')
     handoff.add_argument('archive',type=Path)
     handoff.add_argument('--expected-sha256')
+    usefulness_build = commands.add_parser('usefulness-build', help='Freeze selected product question/check exports for offline blind review; no API or dataset')
+    usefulness_build.add_argument('--selection', type=Path, required=True)
+    usefulness_build.add_argument('--output', type=Path, required=True)
+    usefulness_import = commands.add_parser('usefulness-import', help='Retain explicit reviewer ratings with provenance; no automatic labels')
+    usefulness_import.add_argument('--review', type=Path, required=True)
+    usefulness_import.add_argument('--ratings', type=Path, required=True)
+    usefulness_import.add_argument('--reviewer', type=Path, required=True)
+    usefulness_import.add_argument('--supersedes')
+    usefulness_import.add_argument('--correction-reason', default='')
+    usefulness_score = commands.add_parser('usefulness-score', help='Describe saved ratings and missing/failure denominators; not efficacy acceptance')
+    usefulness_score.add_argument('--review', type=Path, required=True)
+    usefulness_score.add_argument('--output', type=Path)
     memory_capture=commands.add_parser('memory-capture',help='Retain source-bound architecture or unverified prior hypotheses locally; no model')
     memory_capture.add_argument('--pack',type=Path,required=True)
     memory_capture.add_argument('--kind',choices=('architecture','lesson'),default='architecture')
@@ -164,6 +176,21 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('usefulness-'):
+        try:
+            from issueintel.evaluation.usefulness_files import build_files, import_ratings, score_files
+            if args.command == 'usefulness-build':
+                result = build_files(args.root, args.selection, args.output)
+            elif args.command == 'usefulness-import':
+                result = import_ratings(args.root, args.review, args.ratings, args.reviewer,
+                    supersedes=args.supersedes, correction_reason=args.correction_reason)
+            else:
+                result = score_files(args.root, args.review, args.output)
+            print(json.dumps(result, ensure_ascii=True, allow_nan=False, indent=2))
+            return 0
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+            print('IssueIntel: offline review input, hashes, provenance or protected paths are invalid', file=sys.stderr)
+            return 2
     if args.command=='verify-handoff':
         from issueintel.investigation.portable_verify import main as verify_handoff
         return verify_handoff([str(args.archive)]+(['--expected-sha256',args.expected_sha256] if args.expected_sha256 else []))

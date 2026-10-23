@@ -58,6 +58,25 @@ CI có job browser riêng. Chỉ khi test lỗi mới lưu screenshot/trace dư�
 `artifacts/browser-tests/`. Cài browser/Playwright dành riêng cho kiểm thử; chạy
 sản phẩm vẫn dùng lõi Python chuẩn và không cần Node hoặc Chromium.
 
+## Review câu hỏi và bước kiểm tra ngoại tuyến
+
+Ba lệnh `usefulness-build`, `usefulness-import`, `usefulness-score` chuẩn bị và
+tổng hợp review các question/check exports **product đã lưu**, không đọc `.env`,
+mở benchmark, gọi model hoặc chạy code đích. Selection khóa file/hash và giữ
+cả trạng thái rỗng/lỗi/không có đề xuất; xem schema và giới hạn trong
+[docs/PRODUCT.md](docs/PRODUCT.md#review-usefulness-ngoại-tuyến--chuẩn-bị-v02).
+
+```powershell
+python -m issueintel usefulness-build --selection artifacts/selection.json --output artifacts/reviews/study-01
+# Đọc reviewer/review.html, điền reviewer/ratings.csv; khai báo reviewer riêng.
+python -m issueintel usefulness-import --review artifacts/reviews/study-01 --ratings artifacts/reviews/study-01/reviewer/ratings.csv --reviewer artifacts/reviewer.json
+python -m issueintel usefulness-score --review artifacts/reviews/study-01
+```
+
+Chỉ thư mục `reviewer/` có nội dung ẩn tên phương pháp; `organizer/` chứa mapping
+và nguồn private. Nhãn nhập không tự thành kiểm người độc lập hoặc bằng chứng
+cải thiện chất lượng. Không tự tạo nhãn hoặc chấm khi chưa có reviewer.
+
 ## Workbench chạy local
 
 ```powershell

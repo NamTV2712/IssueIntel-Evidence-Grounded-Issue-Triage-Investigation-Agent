@@ -638,6 +638,7 @@ Không ghi lên repo đích, không mở benchmark/Holdout/Live và không đán
 lượng chẩn đoán. Đã sửa lỗi Link issues có `after` cursor với red regression;
 74 index checks và 178 GitHub/context checks đạt, phạm vi có overlap.
 Ingress `0a40087` có cả hai CI job test/browser thành công tại run `40035125021`.
+Pagination `21fd8d4` cũng thành công cả hai job tại run `40035496626`.
 Smoke chỉ đọc này không đóng mục 4: installation/HTTPS/events/approved comment
 thật, restart và mất quyền trên dịch vụ thật vẫn cần nghiệm thu riêng.
 
@@ -1016,12 +1017,81 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 | 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Đã nghiệm thu tại `0c7b44c`: source-bound excerpts, sáu trạng thái, bounded exact-line search, captured witnesses/scope/limits, validator, API/export và UI Việt/Anh sáng/tối. Original/follow-up/recovery sources giữ authority; legacy vẫn đọc được. Đạt 73 core/integration, 74 shared regression, 350 frontend và 17 Chromium (các phạm vi có overlap), 3 ca trực tiếp kiểm lại sau sửa validator. CI `39956853347` thành công cả hai job; issue #12 đã đóng |
 | 13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Đã nghiệm thu tại `36de11f`: shared runtime check với launcher, guarded provider/price inspection, read-only bounded sync/WAL và 17 capability conditions. Metadata scan có cận/partial/protected defaults/narrow cache preview, bỏ qua reparse/junction/device boundary, không xóa. API/UI Việt/Anh sáng/tối; 80 backend/quick-start, 108 shared regression, 28 HTTP/Workbench sau sửa backlog, 364 frontend và 20 Chromium đạt (3 ca trực tiếp kiểm lại sau sửa nhãn); hai symlink ca skip trên Windows, junction thật đã kiểm. Cả hai CI job run `39960756363` thành công; issue #13 đã đóng |
 | V01 | Validation | Diagnostic accepted Main Dev: pinned comparative retrieval/graph/history/verifier/counter-search, localization/grounding/cost/latency. Giữ pilot và gold boundaries. | Chưa nghiệm thu; tái dùng diagnostic hợp lệ khi phù hợp |
-| V02 | Validation | Đo usefulness của câu hỏi/checks theo rubric; phân biệt model/user reports/human review và giới hạn nhãn. | Chưa nghiệm thu |
+| V02 | Validation | Đo usefulness của câu hỏi/checks theo rubric; phân biệt model/user reports/human review và giới hạn nhãn. | Chưa nghiệm thu chất lượng. Có công cụ offline freeze/import/score cho saved product exports: native hash/source validation, một card mỗi bundle, blind condition metadata, rubric và reviewer provenance, append-only correction chains và mẫu số giữ empty/failed/unavailable. Synthetic tooling checks không phải review người hoặc thí nghiệm usefulness |
 | V03 | Validation | So Jev/rules cùng công cụ/model/budget, decision/output quality, fallback/latency/USD. | Cần cấu hình và quyền chi tiêu Typesafe riêng; 4 smoke calls không cấp quyền tiếp |
 | V04 | Validation | Pin phiên bản/protocol; explicit recorded authorization + open_test_split trước Holdout; Live đủ temporal proof mới được nhận. | Chưa mở; không tuning test/live hoặc chờ đủ 400 để phát triển product |
 
 Thứ tự ưu tiên: 1 → 2 → 3 → 5 → 6 → 8. Mục 4 chạy khi có cấu hình
 thật; các mục còn lại và diagnostic được triển khai/nghiệm thu theo dependencies.
+
+## Review usefulness ngoại tuyến — chuẩn bị V02
+
+`usefulness-build --selection ... --output ...` nhận JSON có đúng các trường
+`schema: usefulness_selection_v1`, `purpose`, `protocol_id`, `language: en|vi`,
+`slots`. Mỗi slot là một bundle câu hỏi hoặc check plan đã lưu, có đúng
+`unit_id`, `condition_id`, `kind: question|check`,
+`status: completed|empty|failed|unavailable`, `reason`, `source_job_id`,
+`pack: {path, sha256}`, `artifact: {path, sha256}|null`. Cặp ba
+unit/condition/kind phải duy nhất. Hash là SHA256 của **raw file bytes**, tách
+khỏi seal JSON bên trong. Paths là workspace-relative JSON trong `artifacts/`;
+không nhận absolute/parent traversal/link/reparse. Question export thường ở
+`artifacts/demo/question_runs/<id>/questions.json`, check plan ở
+`artifacts/demo/check_plan_runs/<id>/check-plan.json`, pack ở
+`artifacts/demo/runs/<source_job_id>/pack.json`.
+
+Completed/empty được replay qua native question/check source validators. Empty
+chỉ nhận check plan có danh sách checks rỗng hợp lệ; question bundle rỗng không
+hợp lệ. Failed/unavailable có pack product nhưng không artifact, bắt buộc reason;
+đây là khai báo của organizer, **không** phải failure rate đo từ job/provider
+receipt hay proof không tồn tại nguồn. Pack benchmark/strict/instance/split bị
+từ chối, kể cả slot lỗi hoặc `split: null`. Gói giữ cả unit có annotation thiếu
+khi không có proposal; không dùng restricted patch/test/human rationale.
+
+Output phải là folder mới trong ignored `artifacts/`. `organizer/` giữ selection,
+mapping, nguồn raw theo SHA và receipt; `reviewer/` giữ thứ tự/ID ngẫu nhiên đã
+khóa, JSON, HTML offline và CSV. Mỗi card là **cả bundle**, không biến 1–4 câu
+hỏi hoặc 0–3 checks thành nhiều case độc lập. Card giữ nguyên issue, hypotheses,
+evidence và proposals cần chấm; ẩn condition/model/provider/job/local metadata,
+recommendation và effort/ranking. Nội dung có thể vẫn làm lộ phương pháp, nên
+không tuyên bố blind hoàn hảo. HTML escape nội dung, CSP chặn script/network;
+chỉ đưa thư mục reviewer cho người chấm. Gói vẫn private, không tự gửi ai.
+
+CSV có đúng cột `blind_id`, `display_sha256`, `specificity`, `grounding`,
+`discrimination`, `feasibility`, `useful_next_action`, `rationale` và đủ từng ID
+một lần. Điền `yes|no|uncertain` hoặc giữ trống; nhãn không trống cần rationale.
+Không chấm card empty/failed/unavailable. `ratings.template.csv` là bản trống
+bất biến; `ratings.csv` là bản có thể sửa. Import giữ exact UTF-8 bytes, không
+đổi template hoặc suy nhãn cho ô trống.
+
+Reviewer JSON có đúng `schema: usefulness_reviewer_v1`, `reviewer_id`,
+`kind: human|agent|model`, `assistance: none|ai|unknown`,
+`relationship: author|declared_independent|unknown`, `model_id: string|null`,
+`reviewed_at` theo UTC và `declaration`. Agent/model hoặc human có AI assistance
+cần model ID; human tự khai không đồng nghĩa identity/independence đã xác minh.
+Import append-only và idempotent. Sửa nhãn cần `--supersedes <receipt SHA>` cùng
+`--correction-reason`, giữ nguyên receipt cũ. Writer lock chặn import chồng;
+kiểm cận trước publication để không tự tạo gói vượt giới hạn đọc.
+
+Score kiểm lại source copies/frozen display/template và receipt chain, không
+cần export gốc, Git, cấu hình hay provider. Mỗi reviewer được báo riêng theo
+condition/kind, không gộp nhiều reviewer thành nhiều case. Có coverage theo
+status, yes/no/uncertain/missing, known rate `yes/(yes+no)` hoặc null. Observed
+bundle-yield bounds là `yes/all selected` đến
+`(yes+uncertain+completed-but-blank)/all selected`; no-proposal slot góp 0 vào
+yield nhưng không bị gán nhãn chất lượng âm. Missing và uncertain không bị đổi
+thành no. Không tự tính agreement, paired contrast theo q1/check_1, causal
+efficacy, benchmark performance hoặc independent human validation. Selection
+post hoc không phải preregistration và không chứng minh coverage của quần thể.
+
+Cận hiện tại: 100 slots, 8 MB/file, 64 MB nguồn/gói đã freeze và 64 MB receipt,
+1.000 receipt đã công bố. Partial writes chưa công bố được giữ để kiểm tra;
+không tự xóa. Hash và replay chỉ kiểm included-byte consistency, không xác thực
+tác giả, full Git availability hay semantic correctness. Tooling đã kiểm bằng
+fixture tổng hợp; chưa có nhãn người mới hoặc phép đo usefulness được nghiệm thu.
+Source cuối đạt 290 kiểm tra local cho core/files/CLI và native question/check/
+quick-start/relay regression. Bao gồm cận receipt, correction chain, dữ liệu
+restricted/benchmark, actual Windows junction và subprocess Python `-I -S`
+không site packages; không gọi API hoặc mở dataset thật.
 
 ## Kiểm nhận định (D03 — F08)
 
