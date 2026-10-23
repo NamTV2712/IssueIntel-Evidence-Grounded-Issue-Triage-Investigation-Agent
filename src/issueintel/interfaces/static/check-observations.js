@@ -12,6 +12,7 @@
   let area=null,binding=null,source=null,plan=null,report=null,journal=null,draft=null,notice=null;
   let generation=0,view=0,loading=false,saving=false,creating=false,consent=false,depth='quick',created=null;
   const selected=new Set();
+  const drafts=new Map();let draftState=null;
 
   function sourceFor(value,identifier,parent,parentId){
     if(value?.schema!=='product_check_plan_v1'||!job(identifier)||!job(parentId)||!hash(value.sha256)
@@ -56,7 +57,8 @@
   const activeEvents=()=>{const old=new Set((journal?.events||[]).map(row=>row.observation.supersedes));return (journal?.events||[]).filter(row=>!old.has(row.observation_id));};
   function freshDraft(){return {check_id:plan.checks[0]?.id||'',outcome:'not_run',conditions:'',observed_result:'',interpretation:'',tested_commit_sha:null,supersedes:null};}
   function current(token){return token===generation&&!!binding;}
-  function cancel(){area=null;view++;consent=false;}
+  function rememberDraft(){if(draftState)Object.assign(draftState,{draft,depth,journal,saving,creating,created,notice});}
+  function cancel(){rememberDraft();area=null;view++;consent=false;}
   function button(label,action,disabled=false,values={}){const target=area,revision=view,item=node('button',t(label,values));item.type='button';item.disabled=disabled;
     item.onclick=()=>{if(area===target&&view===revision&&!item.disabled)return action();};return item;}
   function citations(ids){const target=area,revision=view,list=node('div',undefined,'product-check-citations');for(const id of ids){const item=button('Xem bằng chứng {id}',()=>{
@@ -148,26 +150,30 @@
   }
   async function save(){
     if(!binding||!journal||loading||saving||creating||journal.revision>=100||!draft)return;
-    const observation={...draft},token=generation;
+    const observation={...draft},state=draftState,key=binding,savedPlan=plan,savedReport=report,savedSource={...source},previous=journal;
     if(!Object.hasOwn(outcomes,observation.outcome)||!plan.checks.some(row=>row.id===observation.check_id)
       ||['conditions','observed_result','interpretation'].some(key=>typeof observation[key]!=='string'||observation[key].includes('\0')||observation[key].length>(key==='observed_result'?4000:2000))
       ||!(observation.tested_commit_sha===null||/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(observation.tested_commit_sha))
       ||(observation.outcome==='not_run'?(!observation.interpretation.trim()||observation.observed_result.trim()||observation.tested_commit_sha!==null):(!observation.conditions.trim()||!observation.observed_result.trim()))){notice='Điền điều kiện và kết quả quan sát; nếu chưa chạy, ghi lý do và để trống kết quả/commit.';redraw();return;}
-    saving=true;consent=false;notice=null;redraw();
-    try{const value=await api('/api/jobs/'+source.plan_job_id+'/check-observations',{expected_sha256:journal.sha256,observation});if(!current(token))return;if(!valid(value))throw Error('Invalid saved observations');journal=value;draft=freshDraft();selected.clear();created=null;notice='Đã lưu quan sát thủ công; chưa xác minh kết quả.';}
-    catch(_){if(current(token))notice='Chưa lưu được. Tải lại nhật ký nếu phiên bản đã đổi; nội dung đang nhập vẫn được giữ.';}
-    finally{if(current(token)){saving=false;redraw();}}
+    saving=true;consent=false;notice=null;rememberDraft();redraw();
+    try{const value=await api('/api/jobs/'+savedSource.plan_job_id+'/check-observations',{expected_sha256:previous.sha256,observation});
+      if(!valid(value,savedPlan,savedSource.plan_job_id,savedReport,savedSource.source_job_id)
+        ||value.revision!==previous.revision+1||value.parent_sha256!==previous.sha256
+        ||!same(value.events.slice(0,-1),previous.events)||!same(value.events.at(-1).observation,observation))throw Error('Invalid saved observations');
+      Object.assign(state,{journal:value,draft:null,created:null,notice:'Đã lưu quan sát thủ công; chưa xác minh kết quả.'});
+    }catch(_){state.notice='Chưa lưu được. Tải lại nhật ký nếu phiên bản đã đổi; nội dung đang nhập vẫn được giữ.';}
+    finally{state.saving=false;if(draftState===state&&binding===key){journal=state.journal;draft=state.draft||freshDraft();created=state.created;notice=state.notice;saving=false;selected.clear();redraw();}}
   }
   async function createChild(){
     if(!binding||!journal||loading||saving||creating||created||!selected.size||selected.size>3)return;
     if(document.getElementById('run-button')?.disabled){notice='Đang theo dõi tác vụ khác; kiểm tra lịch sử trước khi tiếp tục.';redraw();return;}
     const ids=activeEvents().filter(row=>row.observation.outcome!=='not_run'&&selected.has(row.observation_id)).map(row=>row.observation_id);if(ids.length!==selected.size)return;
     const request={plan_job_id:source.plan_job_id,plan_sha256:plan.sha256,journal_sha256:journal.sha256,observation_ids:ids,provider:consent?'groq':'none',depth};
-    const token=generation;creating=true;consent=false;notice=null;redraw();
-    try{const value=await api('/api/check-followups',request);if(!current(token))return;if(!job(value?.id))throw Error('Invalid child job');created=value.id;notice=null;
-      if(area)document.dispatchEvent(new CustomEvent('issueintel:checkfollowupcreated',{detail:{job_id:value.id}}));}
-    catch(_){if(current(token))notice='Chưa xác nhận được phiên mới. Mở lịch sử trước khi chủ động gửi lại; các quan sát vẫn được giữ.';}
-    finally{if(current(token)){creating=false;redraw();}}
+    const state=draftState,key=binding;creating=true;consent=false;notice=null;rememberDraft();redraw();
+    try{const value=await api('/api/check-followups',request);if(!job(value?.id))throw Error('Invalid child job');state.created=value.id;state.notice=null;
+      if(draftState===state&&binding===key){created=value.id;notice=null;if(area)document.dispatchEvent(new CustomEvent('issueintel:checkfollowupcreated',{detail:{job_id:value.id}}));}}
+    catch(_){state.notice='Chưa xác nhận được phiên mới. Mở lịch sử trước khi chủ động gửi lại; các quan sát vẫn được giữ.';}
+    finally{state.creating=false;if(draftState===state&&binding===key){created=state.created;notice=state.notice;creating=false;redraw();}}
   }
   async function exportJournal(format){
     if(!['json','md'].includes(format)||!valid(journal))return;const token=generation,value=journal,identifier=source.plan_job_id;
@@ -181,10 +187,14 @@
   }
   function render(target,value,identifier,parent,parentId){
     const next=sourceFor(value,identifier,parent,parentId),key=next?JSON.stringify(next):null;
-    if(key!==binding){generation++;binding=key;source=next;plan=value;report=parent;journal=null;draft=null;notice=null;selected.clear();loading=false;saving=false;creating=false;consent=false;depth='quick';created=null;}
+    if(key!==binding){rememberDraft();generation++;binding=key;source=next;plan=value;report=parent;
+      if(key&&!drafts.has(key))drafts.set(key,{draft:null,depth:'quick',journal:null,saving:false,creating:false,created:null,notice:null});
+      draftState=drafts.get(key)||null;draft=draftState?.draft||null;depth=draftState?.depth||'quick';
+      saving=draftState?.saving===true;creating=draftState?.creating===true;created=draftState?.created||null;
+      journal=saving||creating?draftState.journal:null;notice=journal?draftState?.notice||null:null;selected.clear();loading=false;consent=false;}
     area=node('section',undefined,'check-observations');target.append(area);redraw();if(binding&&!journal&&!loading&&!notice)return load();
   }
-  document.addEventListener('issueintel:packchange',event=>{if(event.detail?.job_id!==source?.source_job_id||event.detail?.intake?.source_pack_sha256!==source?.source_pack_sha256){generation++;binding=null;source=null;plan=null;report=null;journal=null;draft=null;selected.clear();cancel();}});
+  document.addEventListener('issueintel:packchange',event=>{if(event.detail?.job_id!==source?.source_job_id||event.detail?.intake?.source_pack_sha256!==source?.source_pack_sha256){rememberDraft();generation++;binding=null;source=null;plan=null;report=null;journal=null;draft=null;draftState=null;selected.clear();cancel();}});
   document.addEventListener('issueintel:languagechange',()=>{consent=false;redraw();});
   window.IssueIntelCheckObservations=Object.freeze({render,valid,cancel});
 })();

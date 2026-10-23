@@ -13,6 +13,8 @@ let viewGeneration=0;
 let stageView=null;
 let usageView=null,usageInfo=null;
 let typesafeStatus=null,typesafeStatusLoaded=false,typesafeStatusRequested=false;
+const checklistDrafts=new Map(),followupDrafts=new Map();
+let checklistDraftBinding=null,followupDraftBinding=null;
 async function api(path, body) {
   let response;
   try {response = await fetch(path, {method:body === undefined ? 'GET':'POST', headers:{'X-IssueIntel-Token':token, ...(body === undefined ? {}:{'Content-Type':'application/json'})}, ...(body === undefined ? {}:{body:JSON.stringify(body)})});}
@@ -94,30 +96,30 @@ async function runJob(request,existingJob=null) {
   window.IssueIntelStageRecovery?.show(null);
   window.IssueIntelFinalization?.show(null);
   window.IssueIntelDossier?.cancel();
-  const finalizing=request.mode==='finalization',originView=viewGeneration;
+  const finalizing=request.mode==='finalization';let trackedView=viewGeneration;
+  const following=()=>viewGeneration===trackedView;
+  const followupSource=request.mode==='followup'?followupDraftBinding:null;
   try {
     stageView=null;$('stage-artifacts').hidden=true;
     $('run-button').disabled=true;$('followup-button').disabled=true;message(t(finalizing?'Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…':"Đang chuẩn bị snapshot và bằng chứng…"));
     const job=existingJob||await api('/api/investigations',request);activeJob=job.id;$('cancel-button').hidden=false;
     for(;;) {
       const state=await api('/api/jobs/'+job.id);
-      const following=viewGeneration===originView;
-      if(following)showUsage(state);
+      if(following())showUsage(state);
       if(['completed','failed','cancelled','interrupted'].includes(state.status)) {
-        if(!following){
-          message(t('Phiên {id} đã kết thúc; mở lại trong lịch sử để xem trạng thái và kết quả.',{id:job.id}));
-        }else if(state.status==='completed') {
-          await openJob(job.id);message(t("Đã lưu investigation pack cục bộ."));
-          if(request.mode==='followup' && $('additional-context').value===request.additional_context)$('additional-context').value='';
+        if(state.status==='completed'&&followupSource)completeFollowupDraft(followupSource,request);
+        if(following()&&state.status==='completed') {
+          trackedView=viewGeneration+1;
+          await openJob(job.id);if(following())message(t("Đã lưu investigation pack cục bộ."));
         }
-        else {message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);showStageArtifacts(state);}
+        else if(following()){message(t('Tác vụ không hoàn tất. Kiểm tra đầu vào, dữ liệu hoặc cấu hình provider; không tự thử lại.'),true);showStageArtifacts(state);}
         break;
       }
-      message(finalizing?t('Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…'):state.stage==='prepare_snapshot'?t("Đang kiểm query và snapshot…"):t("Đang truy xuất, điều tra và kiểm chứng…"));
+      if(following())message(finalizing?t('Đang kiểm checkpoint và kết xuất hồ sơ đã lưu…'):state.stage==='prepare_snapshot'?t("Đang kiểm query và snapshot…"):t("Đang truy xuất, điều tra và kiểm chứng…"));
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
-  } catch(error) {message(error.message,true);}
-  finally {activeJob=null;$('run-button').disabled=false;$('followup-button').disabled=false;$('cancel-button').hidden=true;await history();}
+  } catch(error) {if(following())message(error.message,true);}
+  finally {activeJob=null;$('run-button').disabled=false;$('followup-button').disabled=false;$('cancel-button').hidden=true;await history(following());}
 }
 async function openJob(id) {
   window.IssueIntelClaimReview?.cancel();
@@ -131,7 +133,7 @@ async function openJob(id) {
   const loaded=await api('/api/jobs/'+id+'/pack.json');
   const [inspected,plan,cost,report,review,journal]=await Promise.allSettled([api('/api/jobs/'+id+'/intake'),api('/api/jobs/'+id+'/plan'),api('/api/jobs/'+id+'/usage'),api('/api/jobs/'+id+'/investigation-report.json'),readHypothesisReview(id),readCheckJournal(id)]);
   if(generation!==viewGeneration)return;
-  if(!activeJob)message(t('Đang xem phiên: {id}',{id}));
+  message(t('Đang xem phiên: {id}',{id}));
   pack=loaded;intake=inspected.status==='fulfilled'?inspected.value:null;planData=plan.status==='fulfilled'?plan.value:null;currentJob=id;
   reportView=report.status==='fulfilled'?report.value:null;
   hypothesisReview=review.status==='fulfilled'?review.value:null;
@@ -143,6 +145,7 @@ async function openJob(id) {
 }
 function renderPack() {
   if(!pack)return;
+  bindFollowupDraft();
   const waiting=pack.workflow_plan?.schema==='planned_investigation_v3' && !!pack.workflow_plan.waiting;
   document.dispatchEvent(new CustomEvent('issueintel:packchange',{detail:{job_id:currentJob,
     planned_waiting:waiting,
@@ -223,7 +226,38 @@ function restorePlanDrafts(drafts) {
     const note=form.querySelector('textarea');note.value=draft.note;note.required=['blocked','reported_done'].includes(draft.status);
   }
 }
-function renderTab() {
+function draftSourceKey(){
+  const sha=reportView?.source?.pack_sha256||intake?.source_pack_sha256;
+  return /^[a-f0-9]{24}$/.test(currentJob||'')&&/^[a-f0-9]{64}$/.test(sha||'')?currentJob+':'+sha:null;
+}
+function rememberChecklistDrafts(savedStep=null){
+  if(!checklistDraftBinding)return;
+  const forms=[...document.querySelectorAll('[data-plan-step]')];
+  checklistDrafts.set(checklistDraftBinding,planDrafts().filter(draft=>{
+    const form=forms.find(value=>value.dataset.planStep===draft.id);
+    return draft.id!==savedStep&&form&&(draft.status!==form.savedStatus||draft.note!==form.savedNote);
+  }));
+}
+function rememberFollowupDraft(){
+  if(followupDraftBinding)followupDrafts.set(followupDraftBinding,{text:$('additional-context').value,
+    depth:$('followup-depth').value,groq:$('followup-groq').checked});
+}
+function bindFollowupDraft(){
+  const key=draftSourceKey();if(key&&key===followupDraftBinding)return;
+  rememberFollowupDraft();followupDraftBinding=key;
+  const draft=followupDrafts.get(key);
+  $('additional-context').value=draft?.text||'';$('followup-depth').value=draft?.depth||'quick';
+  $('followup-groq').checked=draft?.groq===true;
+}
+function completeFollowupDraft(key,request){
+  if(followupDraftBinding===key)rememberFollowupDraft();
+  const draft=followupDrafts.get(key);
+  if(!draft||draft.text!==request.additional_context)return;
+  followupDrafts.set(key,{...draft,text:'',groq:false});
+  if(followupDraftBinding===key){$('additional-context').value='';$('followup-groq').checked=false;}
+}
+function renderTab(savedPlanStep=null) {
+  rememberChecklistDrafts(savedPlanStep);checklistDraftBinding=null;
   window.IssueIntelMemory?.cancel();
   window.IssueIntelClaimReview?.cancel();
   window.IssueIntelIssueRelations?.cancel();
@@ -246,6 +280,7 @@ function renderTab() {
   if(activeTab==='plan' && !planData)content.append(node('p',t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),'notice'));
   if(activeTab==='plan' && planData){
     const checklist=node('details',undefined,'journal-checklist');checklist.append(node('summary',t('Trạng thái các bước trong kế hoạch')));content.append(checklist);
+    checklist.open=Boolean(checklistDrafts.get(draftSourceKey())?.length);
     const reload=node('button',t('Tải lại kế hoạch'));reload.onclick=async()=>{
       const selected=currentJob;
       try{const plan=await api('/api/jobs/'+selected+'/plan');if(currentJob===selected){planData=plan;renderTab();}}
@@ -259,6 +294,7 @@ function renderTab() {
       node('p',t('Trạng thái và ghi chú do người dùng tự báo cáo; hệ thống không chạy code và chưa xác minh bản sửa.'),'notice'),reload,exportPlan);
     for(const step of planData.steps){
       const form=node('form',undefined,'hypothesis-card');form.dataset.planStep=step.id;form.append(node('h3',recommendedText(step.description)));
+      form.savedStatus=step.status;form.savedNote=step.note;
       const label=node('label',t('Trạng thái bước kiểm tra'));const status=node('select');status.id='status-'+step.id;label.htmlFor=status.id;
       for(const value of ['todo','in_progress','blocked','reported_done']){const option=node('option',t(value));option.value=value;status.append(option);}status.value=step.status;
       const noteLabel=node('label',t('Ghi chú hoặc quan sát'));const note=node('textarea');note.id='note-'+step.id;noteLabel.htmlFor=note.id;note.value=step.note;note.maxLength=2000;note.rows=3;
@@ -270,12 +306,13 @@ function renderTab() {
         event.preventDefault();save.disabled=true;
         try{
           const plan=await api('/api/jobs/'+selected+'/plan',{expected_sha256:expected,step_id:step.id,status:status.value,note:note.value});
-          if(currentJob===selected){const drafts=planDrafts().filter(d=>d.id!==step.id);planData=plan;renderTab();restorePlanDrafts(drafts);message(t('Đã lưu phiên bản kế hoạch mới.'));}
+          if(currentJob===selected){const drafts=planDrafts().filter(d=>d.id!==step.id);planData=plan;renderTab(step.id);restorePlanDrafts(drafts);message(t('Đã lưu phiên bản kế hoạch mới.'));}
         }catch(error){message(t('Chưa lưu được. Kiểm tra ghi chú hoặc tải lại kế hoạch nếu phiên bản đã đổi.'),true);save.disabled=false;}
       };
       checklist.append(form);
     }
     const history=node('details');history.append(node('summary',t('Lịch sử thay đổi kế hoạch')),node('pre',JSON.stringify({source_pack_sha256:planData.source_pack_sha256,sha256:planData.sha256,history:planData.history},null,2)));checklist.append(history);
+    checklistDraftBinding=draftSourceKey();restorePlanDrafts(checklistDrafts.get(checklistDraftBinding)||[]);
   }
   if(activeTab==='related')window.IssueIntelIssueRelations?.render(content,reportView,currentJob,pack,{available:intake?.check_journal_available===true});
   if(activeTab==='intake' && intake) {
@@ -370,8 +407,8 @@ function renderTab() {
     };
   }
 }
-async function history() {
-  try {jobRows=await api('/api/jobs');renderHistory();}catch(error){message(error.message,true);}
+async function history(showErrors=true) {
+  try {jobRows=await api('/api/jobs');renderHistory();}catch(error){if(showErrors)message(error.message,true);}
 }
 function renderHistory() {
   const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):row.mode==='finalization'?t("Kết xuất từ checkpoint"):row.mode==='stage_resume'?t('Phục hồi điều tra'):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(++viewGeneration,showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
@@ -525,7 +562,7 @@ async function exportCheckJournal(format){
 }
 $('mode').onchange=switchMode;$('depth').onchange=updateDepthControls;$('use-groq').onchange=updateTypesafeControls;$('case-search').oninput=filterCases;$('investigation-form').onsubmit=submit;
 $('compare-form').onsubmit=compareRuns;
-$('followup-form').onsubmit=event=>{event.preventDefault();if(!currentJob)return;runJob({mode:'followup',parent_job_id:currentJob,additional_context:$('additional-context').value,provider:$('followup-groq').checked?'groq':'none',depth:$('followup-depth').value});};
+$('followup-form').onsubmit=event=>{event.preventDefault();if(!currentJob)return;if(!followupDraftBinding||followupDraftBinding!==draftSourceKey()){message(t('Chưa đọc được metadata; báo cáo nguồn vẫn có thể xuất.'),true);return;}rememberFollowupDraft();runJob({mode:'followup',parent_job_id:currentJob,additional_context:$('additional-context').value,provider:$('followup-groq').checked?'groq':'none',depth:$('followup-depth').value});};
 $('try-example').onclick=()=>{$('mode').value='example';switchMode();submit();};
 $('cancel-button').onclick=async()=>{try{if(!activeJob)return;await api('/api/jobs/'+activeJob+'/cancel',{});message(t("Đã yêu cầu hủy; lời gọi API đang xử lý có thể vẫn tính phí."));}catch(error){message(error.message,true);}};
 $('export-md').onclick=()=>downloadPath('/api/jobs/'+currentJob+'/investigation-report.md','issueintel-'+currentJob+'-report.md');

@@ -13,6 +13,7 @@ dependencies = []
 dev = ["pytest>=8,<9", "jsonschema>=4.23,<5"]
 data = ["pyarrow>=17,<24"]
 llm = ["tiktoken>=0.12,<1"]
+browser = ["playwright==1.64.1"]
 
 [project.scripts]
 issueintel = "issueintel.interfaces.cli:main"
@@ -27,3 +28,4 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = ["browser: synthetic Chromium end-to-end tests (enable with ISSUEINTEL_BROWSER_TESTS=1)"]

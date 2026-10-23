@@ -10,6 +10,13 @@ function fixture(){
   const journal={schema:'supplemental_check_observation_journal_v1',source:{plan_job_id:job('f'),plan_sha256:hash('9'),source_job_id:job('a'),source_pack_sha256:hash('b'),report_sha256:hash('e'),query_sha256:hash('c'),snapshot_sha256:hash('d'),commit_sha:'1'.repeat(40),annotation_sha256:hash('6'),source_projection_sha256:hash('5')},checks:clone(checks),revision:0,parent_sha256:null,events:[],...flags,sha256:hash('1')};
   return {report,plan,journal,planId:job('f'),sourceId:job('a')};
 }
+function otherSource(source='7',pack='4',planId='8'){
+  const value=fixture();value.sourceId=job(source);value.planId=job(planId);
+  value.report.source.job_id=value.sourceId;value.report.source.pack_sha256=hash(pack);
+  value.plan.source.source_job_id=value.sourceId;value.plan.source.source_pack_sha256=hash(pack);
+  value.journal.source.source_job_id=value.sourceId;value.journal.source.source_pack_sha256=hash(pack);value.journal.source.plan_job_id=value.planId;
+  return value;
+}
 const observation=extra=>({check_id:'check_1',outcome:'A',conditions:'Same input, cache disabled.',observed_result:'The error remains.',interpretation:'Reported observation only.',tested_commit_sha:null,supersedes:null,...extra});
 function add(value,obs=observation()){
   const journal=value.journal,revision=journal.revision+1,event={schema:'manual_check_plan_observation_v1',source:clone(journal.source),revision,parent_sha256:journal.sha256,observation_id:'observation_'+revision,check_binding:{id:obs.check_id,sha256:hash('2')},observation:clone(obs),recorded_at:'2026-10-18T09:00:00+00:00',...flags,sha256:hash('3')};
@@ -102,4 +109,50 @@ test('paused Planned keeps observation journal available while hiding generic ch
   app.language.value='en';app.events.get('issueintel:languagechange')();
   assert.match(app.text(app.target),/Use the form in Trace/);
   assert.equal(app.calls.length,1);
+});
+
+test('observation drafts and depth return only to the exact source and plan binding without API consent',async()=>{
+  const a=add(fixture()),b=add(otherSource()),changed=add(otherSource('a','2','f'));
+  const app=boot(a,(route)=>clone(route.includes(b.planId)?b.journal:app.currentJournal));app.currentJournal=a.journal;
+  await app.render(a);app.field('interpretation').value='Only A draft';app.field('interpretation').oninput();
+  app.field('depth').value='deep';app.field('depth').onchange();app.toggle('observation_1 · check_1');app.toggle('Tôi đồng ý gửi nguồn');
+  app.change({job_id:b.sourceId,intake:{source_pack_sha256:b.report.source.pack_sha256}});await app.render(b);
+  assert.equal(app.field('interpretation').value,'');assert.equal(app.field('depth').value,'quick');assert.equal(app.field('groq').checked,false);
+  app.field('interpretation').value='Only B draft';app.field('interpretation').oninput();
+  app.change({job_id:a.sourceId,intake:{source_pack_sha256:a.report.source.pack_sha256}});await app.render(a);
+  assert.equal(app.field('interpretation').value,'Only A draft');assert.equal(app.field('depth').value,'deep');assert.equal(app.field('groq').checked,false);
+  app.language.value='en';app.events.get('issueintel:languagechange')();assert.equal(app.field('interpretation').value,'Only A draft');
+  app.currentJournal=changed.journal;await app.render(changed);assert.equal(app.field('interpretation').value,'');
+  app.currentJournal=a.journal;await app.render(a);assert.equal(app.field('interpretation').value,'Only A draft');
+  await app.render(b);assert.equal(app.field('interpretation').value,'Only B draft');
+});
+
+test('an observation save stays single-flight across source navigation and clears only its accepted draft',async()=>{
+  const a=fixture(),b=otherSource();let finish,posts=0;
+  const app=boot(a,(route,body)=>{if(body){posts++;return new Promise(resolve=>finish=()=>{add(a,body.observation);resolve(clone(a.journal));});}return clone(route.includes(b.planId)?b.journal:a.journal);});
+  await app.render(a);app.field('interpretation').value='Submitted A';app.field('interpretation').oninput();const pending=app.submit();
+  await app.render(b);app.field('interpretation').value='Unsubmitted B';app.field('interpretation').oninput();
+  await app.render(a);assert.equal(app.button('Đang lưu quan sát…').disabled,true);await app.submit();assert.equal(posts,1);
+  await app.render(b);finish();await pending;assert.equal(app.field('interpretation').value,'Unsubmitted B');
+  await app.render(a);assert.equal(app.field('interpretation').value,'');assert.match(app.text(app.target),/observation_1/);assert.equal(posts,1);
+});
+
+test('a stale or different source-valid save acknowledgement cannot erase the submitted observation draft',async()=>{
+  for(const response of ['stale','different']){
+    const value=fixture(),app=boot(value,(route,body)=>{
+      if(!body||response==='stale')return clone(value.journal);
+      return add(fixture(),observation({outcome:'not_run',conditions:'',observed_result:'',interpretation:'A different write'})).journal;
+    });
+    await app.render();app.field('interpretation').value='The actual submitted draft';app.field('interpretation').oninput();await app.submit();
+    assert.equal(app.field('interpretation').value,'The actual submitted draft');assert.match(app.text(app.target),/Chưa lưu được/);assert.equal(app.calls.length,2);
+  }
+});
+
+test('a late created observation child is retained for its source without navigating another source or resubmitting',async()=>{
+  const a=add(fixture()),b=add(otherSource());let finish,posts=0;
+  const app=boot(a,(route,body)=>{if(body){posts++;return new Promise(resolve=>finish=()=>resolve({id:job('8')}));}return clone(route.includes(b.planId)?b.journal:a.journal);});
+  await app.render(a);app.toggle('observation_1 · check_1');const pending=app.click('Tạo phiên từ quan sát đã chọn');
+  await app.render(b);await app.render(a);assert.equal(app.button('Đang tạo phiên từ quan sát…').disabled,true);
+  await app.render(b);finish();await pending;assert.equal(app.dispatched.length,0);
+  await app.render(a);await app.click('Tạo phiên từ quan sát đã chọn');assert.equal(posts,1);await app.click('Mở phiên đã tạo');assert.equal(app.dispatched[0].detail.job_id,job('8'));
 });

@@ -1014,7 +1014,8 @@ mới hoặc xóa attempt không có receipt; max call vẫn 1/2/2. Journal này
 collector phân biệt 0 call đã ghi với attempt không có receipt. Legacy không có
 journal giữ attempt count unknown, không migration hay gọi lại model. Journal đã
 khởi tạo, kể cả còn rỗng, không được reset khi runner vào lại để cấp thêm attempt.
-Runner/collector đã có kiểm thử tổng hợp; toàn mốc vẫn đang nghiệm thu.
+Runner/collector đã có kiểm thử tổng hợp. Mục 9 được nghiệm thu tại `300164a`
+sau CI toàn repo thành công; issue #9 đã đóng.
 
 Workbench cung cấp `investigation_usage()` và `investigation_usage_export()`;
 GET `investigation-usage`, `.json`, `.md` dùng cùng bundle. Downloads khóa
@@ -1039,3 +1040,40 @@ không thiếu file/call hoặc xác nhận hóa đơn provider.
 Reservation token/cost trước HTTP được ghi trong SQLite transaction `BEGIN IMMEDIATE`, chống các call đồng thời vượt tổng khi có cap. Tác giả đã cho phép bỏ token/USD cap cho công việc dựng lại cần thiết; explicit flags phải khớp author decision, không suy ra unlimited từ cấu hình thiếu. Usage hợp lệ mới giảm charge từ cận trên; call lỗi/usage thiếu giữ cận. Usage vượt bound hoặc bất nhất khóa ledger để review. Ledger không chứa prompt/secret. Giá có ngày và nguồn, decimal/round-up, giá cũ quá 30 ngày chặn.
 
 Authorization không đi qua redirect; chỉ endpoint Groq cố định. Không retry ngầm, built-in tool hoặc vòng server không kiểm soát. CI chỉ dùng synthetic fixture/mocked transport. PostgreSQL DSN cũ trong .env không được dùng. Artifact/data/secrets đều ignored; demo và review chỉ dùng cục bộ.
+
+## Kiểm thử trình duyệt tổng hợp — mục 10
+
+`tests/browser` dùng Playwright Python 1.64.1 qua extra development `browser`.
+Mặc định module bị skip; chỉ chạy khi `ISSUEINTEL_BROWSER_TESTS=1`. Chromium
+headless mở static UI thật, gọi HTTP thật tới `make_server()` ở loopback/cổng
+ngẫu nhiên và chạy Workbench/pipeline chung. Fixture có Git repo, config, giá và
+ledger tổng hợp dưới thư mục tạm; native `GroqProvider` dùng transport tiêm sẵn
+để vẫn chạy reservation/receipt. Không load `.env`, khóa người dùng hoặc dataset;
+acquisition, GitHub, Typesafe và benchmark entry points bị chặn. Python socket
+guard từ chối outbound; browser chỉ cho HTTP tới đúng origin fixture.
+
+Các kịch bản kiểm create/follow-up, preview/download/verify handoff, generation
+reuse qua recovery và finalization không call mới. Route gate trì hoãn request
+pack thật để kiểm response muộn; provider gate giữ một phiên chạy khi người dùng
+mở phiên khác. Luồng bàn phím và viewport 390px Việt/tối đi cùng luồng desktop
+Anh/sáng. Đây là kiểm hợp đồng/workflow tổng hợp, không đánh giá semantic quality
+hoặc nghiệm thu GitHub App thật. Source cuối đạt chín browser test và 326 frontend
+test; CI phát hành và quyết định nghiệm thu được theo dõi ở issue #10.
+
+Draft frontend chỉ ở các Map trong bộ nhớ trang. Checklist/follow-up gắn exact
+job/pack; câu trả lời làm rõ thêm query/questions SHA; quan sát gắn full plan/
+source binding. Capture dùng binding của DOM cũ trước khi thay DOM/nguồn, tránh
+ghi nháp A dưới B. Checklist chỉ cache thay đổi chưa lưu và mở khi khôi phục;
+nguồn sạch vẫn thu gọn. Follow-up lưu lựa chọn Groq riêng của đúng nguồn;
+clarification/observation không khôi phục consent sau đổi nguồn/ngôn ngữ.
+Pending/posted state theo binding ngăn A → B → A tạo gửi trùng; acknowledgement
+quan sát phải nối đúng SHA/revision/prefix và chứa đúng observation vừa gửi mới
+xóa draft. Reload/đóng trang không giữ nháp riêng tư. View generation chặn progress,
+terminal/error của tác vụ cũ ghi đè phiên mới; mở A luôn đặt thông báo đang xem A
+dù B còn chạy, không đổi ownership/cancel của B.
+
+CI có job browser độc lập: cài `.[dev,browser]`, Chromium headless shell và chạy
+`python -m pytest tests/browser -q` với activation env. Chỉ test lỗi mới lưu
+screenshot/trace dưới ignored `artifacts/browser-tests/`; CI tải chúng làm failure
+artifact. Dependency browser không vào product runtime; người dùng chạy sản phẩm
+vẫn không cần Node hoặc Playwright.

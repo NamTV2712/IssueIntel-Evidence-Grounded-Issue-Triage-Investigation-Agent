@@ -89,13 +89,71 @@ test('pending submission is single-flight, freezes input, and keeps the sent lan
   assert.equal(app.calls[0][1].language,'vi');finish({id:job('e')});await pending;assert.equal(app.dispatched.length,1);
 });
 
-test('source changes clear answers and consent; late success cannot open the previous run',async()=>{
+test('source changes show only their own answers and consent; late success cannot open the previous run',async()=>{
   let finish;const app=boot(()=>new Promise(resolve=>{finish=resolve;}));app.show();app.answer(0,'Prior output');
   app.get('clarifications-groq').checked=true;const pending=app.submit();app.show(intake(job('f')));
   assert.equal(app.inputs()[0].value,'');assert.equal(app.get('clarifications-groq').checked,false);
   finish({id:job('e')});await pending;assert.equal(app.dispatched.length,0);
   assert.match(app.get('clarifications-parent').textContent,new RegExp(job('f')));
   assert.equal(app.get('clarifications-submit').disabled,true);
+});
+
+test('navigation restores exact-source answers and depth without restoring API consent or sharing drafts',async()=>{
+  const app=boot(()=>({id:job('e')})),a=intake(),b=intake(job('f'));
+  app.show(a);app.answer(0,'Only A');app.get('clarifications-depth').value='deep';app.get('clarifications-depth').onchange();
+  app.get('clarifications-groq').checked=true;app.show(b);
+  assert.equal(app.inputs()[0].value,'');assert.equal(app.get('clarifications-depth').value,'quick');
+  assert.equal(app.get('clarifications-groq').checked,false);
+  app.answer(1,'Only B');app.get('clarifications-groq').checked=true;app.show(a);
+  assert.equal(app.inputs()[0].value,'Only A');assert.equal(app.inputs()[1].value,'');
+  assert.equal(app.get('clarifications-depth').value,'deep');assert.equal(app.get('clarifications-groq').checked,false);
+  app.language('en');assert.equal(app.inputs()[0].value,'Only A');assert.equal(app.get('clarifications-depth').value,'deep');
+  app.show(b);assert.equal(app.inputs()[0].value,'');assert.equal(app.inputs()[1].value,'Only B');
+  assert.equal(app.get('clarifications-depth').value,'quick');assert.equal(app.calls.length,0);
+  await app.submit();assert.equal(app.calls[0][1].parent_job_id,job('f'));
+  assert.equal(app.calls[0][1].provider,'none');assert.equal(app.calls[0][1].answers[0].answer,'Only B');
+  app.show(a);assert.equal(app.inputs()[0].value,'Only A');
+  const fresh=boot();fresh.show(a);assert.equal(fresh.inputs()[0].value,'');assert.equal(fresh.get('clarifications-depth').value,'quick');
+});
+
+test('pack, query and question hash versions each own a separate draft for the same job',()=>{
+  const app=boot(),a=intake();app.show(a);app.answer(0,'Original');
+  const variants=[value=>{value.source_pack_sha256=hash('e');},value=>{value.query_sha256=hash('e');value.clarifications.query_sha256=hash('e');},
+    value=>{value.clarifications.sha256=hash('e');}];
+  for(const [index,change] of variants.entries()){
+    const value=intake();change(value);app.show(value);assert.equal(app.inputs()[0].value,'');app.answer(0,'Version '+index);
+    app.show(a);assert.equal(app.inputs()[0].value,'Original');
+    app.show(value);assert.equal(app.inputs()[0].value,'Version '+index);app.show(a);
+  }
+  app.show(a,false);assert.equal(app.inputs().length,0);app.show(a);assert.equal(app.inputs()[0].value,'Original');
+  const malformed=intake();delete malformed.source_pack_sha256;app.show(malformed);assert.equal(app.inputs().length,0);
+  app.show(a);assert.equal(app.inputs()[0].value,'Original');assert.equal(app.calls.length,0);
+});
+
+test('returning to a pending draft stays single-flight and a late success clears only that draft without navigation',async()=>{
+  let finish;const app=boot(()=>new Promise(resolve=>{finish=resolve;})),a=intake(),b=intake(job('f'));
+  app.show(a);app.answer(0,'Submitted A');app.get('clarifications-depth').value='deep';
+  const pending=app.submit();app.show(b);app.answer(0,'Unsubmitted B');app.show(a);
+  assert.equal(app.inputs()[0].value,'Submitted A');assert.equal(app.get('clarifications-depth').value,'deep');
+  assert.equal(app.inputs()[0].disabled,true);assert.equal(app.get('clarifications-submit').disabled,true);
+  await app.submit();assert.equal(app.calls.length,1);
+  finish({id:job('e')});await pending;
+  assert.equal(app.dispatched.length,0);assert.equal(app.inputs()[0].value,'');assert.equal(app.get('clarifications-submit').disabled,true);
+  assert.equal(app.get('clarifications-depth').value,'quick');assert.equal(app.get('clarifications-groq').checked,false);
+  app.show(b);assert.equal(app.inputs()[0].value,'Unsubmitted B');assert.equal(app.inputs()[0].disabled,false);
+  app.show(a);assert.equal(app.inputs()[0].value,'');await app.submit();assert.equal(app.calls.length,1);
+});
+
+test('a late failure preserves its own answers and depth while leaving the active source untouched',async()=>{
+  let fail;const app=boot(()=>new Promise((_,reject)=>{fail=reject;})),a=intake(),b=intake(job('f'));
+  app.show(a);app.answer(0,'Keep A');app.get('clarifications-depth').value='deep';app.get('clarifications-groq').checked=true;
+  const pending=app.submit();app.show(b);app.answer(1,'Keep B');app.get('clarifications-groq').checked=true;
+  fail(Error('Synthetic failure'));await pending;
+  assert.equal(app.inputs()[1].value,'Keep B');assert.equal(app.get('clarifications-groq').checked,true);
+  assert.equal(app.get('clarifications-message').textContent,'');assert.equal(app.dispatched.length,0);
+  app.show(a);assert.equal(app.inputs()[0].value,'Keep A');assert.equal(app.get('clarifications-depth').value,'deep');
+  assert.equal(app.get('clarifications-groq').checked,false);assert.equal(app.inputs()[0].disabled,false);
+  assert.match(app.get('clarifications-message').textContent,/Câu trả lời được giữ lại/);assert.equal(app.calls.length,1);
 });
 
 test('same source rerenders preserve answers; changed source or question hashes require answering anew',()=>{

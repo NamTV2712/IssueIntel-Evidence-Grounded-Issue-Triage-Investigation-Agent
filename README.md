@@ -22,6 +22,25 @@ python -m venv .venv
 
 Lõi dùng thư viện chuẩn Python. `data` để nhập Parquet; `dev` để kiểm thử; `llm` thêm tokenizer gốc cho các input lớn trên Groq. Không cần PostgreSQL, Docker, Torch hoặc GPU để chạy lõi.
 
+### Kiểm thử trình duyệt tổng hợp
+
+Development có extra `browser` tùy chọn, pin Playwright 1.64.1. Chạy trên Windows:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,browser]"
+.\.venv\Scripts\python.exe -m playwright install --only-shell chromium
+$env:ISSUEINTEL_BROWSER_TESTS = "1"
+.\.venv\Scripts\python.exe -m pytest tests/browser -q
+Remove-Item Env:\ISSUEINTEL_BROWSER_TESTS
+```
+
+Các test mở Chromium thật tới server HTTP loopback, dùng repository/config/receipt
+tổng hợp trong thư mục tạm. Không cần `.env`, khóa thật hoặc dữ liệu benchmark;
+transport giả lập giữ cơ chế receipt của provider, không gửi API ra ngoài.
+CI có job browser riêng. Chỉ khi test lỗi mới lưu screenshot/trace dưới ignored
+`artifacts/browser-tests/`. Cài browser/Playwright dành riêng cho kiểm thử; chạy
+sản phẩm vẫn dùng lõi Python chuẩn và không cần Node hoặc Chromium.
+
 ## Workbench chạy local
 
 ```powershell
@@ -194,6 +213,15 @@ chạy code đích. Mở lại không cần Git, cấu hình API hoặc model. �
 và rubric trên nhận xét tự động; chưa chứng minh độ chính xác chẩn đoán.
 Thanh đầu trang hỗ trợ **Tiếng Việt / English** và **sáng / tối / theo hệ thống**,
 nhớ lựa chọn trong browser. Đổi ngôn ngữ không gọi model hoặc dịch nội dung nguồn.
+Nháp checklist, dữ kiện bổ sung, câu trả lời làm rõ và quan sát kiểm tra được giữ
+trong bộ nhớ của trang theo đúng phiên/pack và bộ câu hỏi hoặc kế hoạch nguồn.
+Đổi tab/ngôn ngữ hoặc mở B rồi trở lại A khôi phục đúng nháp của A; B không nhận
+nháp hoặc lựa chọn Groq của A. Nháp checklist chưa lưu được mở lại để thấy phần
+đang sửa. Form bổ sung dữ kiện giữ lựa chọn Groq riêng của đúng nguồn; form làm
+rõ/quan sát tắt consent khi đổi nguồn hoặc ngôn ngữ. Vẫn cần chủ động gửi từng
+form. Reload/đóng trang mất nháp chưa lưu; nội dung riêng tư không được ghi vào
+localStorage. Mở báo cáo A khi B còn chạy hiển thị rõ A; B vẫn chạy và có thể hủy,
+còn response/progress muộn của B không ghi đè trạng thái báo cáo đang xem.
 Tab **Thông tin đầu vào / Intake** chỉ ra cue và thông tin cần xem lại. Form
 **Bổ sung dữ kiện / Add context** tạo phiên mới cùng commit, giữ nguồn dẫn và
 hash về phiên cha; dữ kiện mới không được kế thừa nhãn strict lịch sử.
@@ -306,7 +334,7 @@ có thể dùng chung tổ tiên nên không cộng chúng thành tổng của c
 bytes và binding cục bộ được gửi, không chứng minh không có call/file bị thiếu
 hoặc số tiền trên hóa đơn provider. Bộ kiểm lõi, collector/runner, bàn giao,
 hồi quy rộng và browser QA đã đạt với dữ liệu tổng hợp. CI phát hành và quyết
-định nghiệm thu mục 9 được theo dõi trong `docs/PRODUCT.md` và issue #9.
+định nghiệm thu mục 9 đã đạt trên commit `300164a`; issue #9 đã đóng.
 
 Mục **Đối chiếu phiên bản code** dưới báo cáo product nhận commit/tag khác, đọc
 snapshot và lưu riêng thay đổi code cùng hash nguồn/đích. Diff ưu tiên file trong

@@ -219,18 +219,18 @@ test('component is bilingual, inert and wired to the Workbench',()=>{
 test('a running recovery cannot replace another report or its accounting after navigation',async()=>{
   const app=fs.readFileSync(path.join(dir,'app.js'),'utf8'),start=app.indexOf('async function runJob('),end=app.indexOf('async function openJob(',start);
   for(const navigateDuringPost of [false,true]){
-    const controls=new Map(),opened=[],usage=[],logs=[];let polls=0;
+    const controls=new Map(),opened=[],usage=[],logs=[];let polls=0,logsAtNavigation=null;
     const get=key=>{if(!controls.has(key))controls.set(key,{disabled:false,hidden:false});return controls.get(key);};
     const context={window:{},$:get,viewGeneration:0,stageView:null,activeJob:null,
       t:(key,slots={})=>messages[key].en.replace(/\{(\w+)\}/g,(_,k)=>slots[k]),message:v=>logs.push(v),
       api:async route=>{
-        if(route==='/api/investigations'){context.viewGeneration++;return {id:id('f')};}
-        polls++;if(!navigateDuringPost&&polls===2)context.viewGeneration++;
+        if(route==='/api/investigations'){context.viewGeneration++;logsAtNavigation=logs.length;return {id:id('f')};}
+        polls++;if(!navigateDuringPost&&polls===2){context.viewGeneration++;logsAtNavigation=logs.length;}
         return polls===1&&!navigateDuringPost?{status:'running',stage:'replay_stages'}:{status:'completed'};
       },showUsage:v=>usage.push(v),showStageArtifacts(){},openJob:async value=>opened.push(value),history:async()=>{},setTimeout:fn=>fn()};
     vm.createContext(context);vm.runInContext(app.slice(start,end),context);
     await context.runJob({mode:'stage_resume'},navigateDuringPost?null:{id:id('f')});
     assert.equal(opened.length,0);assert.equal(usage.length,navigateDuringPost?0:1);
-    assert.match(logs.at(-1),new RegExp(id('f')));assert.match(logs.at(-1),/history/);
+    assert.equal(logs.length,logsAtNavigation,'An old task must not replace the newer view status');
   }
 });

@@ -400,9 +400,46 @@ không tràn ngang. ZIP tải từ browser đã được verifier độc lập k
 một accounting projection, current 0 và lineage giữ chi phí cha. Các khoản này
 đến từ transport tổng hợp, không phải số đo giá provider thật. Lượt hồi quy rộng
 đạt **416 test**, có giao với các bộ trên nên không cộng thành số test duy nhất.
-CI toàn repo trên commit phát hành và quyết định nghiệm thu/đóng mục được theo
-dõi tại [issue #9](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/9).
+Mục 9 đã nghiệm thu trên commit `300164aaac29cd0900d8b391313213f8f37a05d6`:
+[CI toàn repo thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39880133317)
+và [issue #9 đã đóng](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/9).
 Không gọi provider thật hoặc mở Holdout/Live/evaluation ở mốc này.
+
+### Mục 10 — P1: kiểm thử trình duyệt trọn luồng
+
+Bộ `tests/browser` mở Chromium thật qua Playwright Python 1.64.1, đi qua static
+UI → HTTP server loopback → Workbench/pipeline và native provider receipts bằng
+transport tổng hợp. Fixture có repository/config/giá/ledger riêng trong thư mục
+tạm; không cần `.env`, khóa thật, dataset hoặc đọc Main Dev/Holdout/Live. Browser
+và Python chặn network ngoài loopback; không có lời gọi provider thật, gửi comment
+hoặc acquisition. Chín kịch bản bao phủ:
+
+- Tạo phiên từ form, follow-up cùng commit, preview/tải ZIP bàn giao và chạy
+  verifier trong Python isolated; luồng desktop Anh/sáng và 390px Việt/tối.
+- Recovery giữ generation đã xong, chỉ thêm critic sau consent bàn phím;
+  finalization giữ chi phí cha mà không thêm call.
+- Trì hoãn response pack thật rồi đổi phiên; mở A khi B còn chạy và giữ đúng
+  report/chi phí/thông báo A khi B tiếp tục hoặc kết thúc.
+- Checklist, follow-up, clarification và observation draft qua đổi tab/ngôn ngữ/
+  nguồn; A → B → A khôi phục đúng A, không mang nháp hoặc consent sang B.
+
+Draft chỉ ở bộ nhớ trang, không vào localStorage; reload/đóng trang mất phần
+chưa lưu. Key luôn gồm source job/pack, cùng questions/query hoặc full plan
+binding khi áp dụng. Checklist có nháp chưa lưu mở lại để thấy nội dung; nguồn
+sạch vẫn thu gọn. Follow-up giữ lựa chọn Groq riêng của đúng nguồn; clarification
+và observation cần consent mới sau đổi nguồn/ngôn ngữ. Request đang gửi giữ
+single-flight qua đổi nguồn; chỉ acknowledgement nối đúng journal và observation
+mới được xóa draft quan sát. Không coi bản nháp hoặc quan sát tự báo là kiểm người.
+
+CI thêm job browser riêng. Extra development `browser` và Chromium chỉ phục vụ
+kiểm thử; runtime sản phẩm vẫn dùng Python chuẩn, không cần Node/Playwright.
+Chạy rõ `ISSUEINTEL_BROWSER_TESTS=1` rồi `python -m pytest tests/browser -q`;
+lệnh cài Chromium headless shell ở README. Khi test lỗi mới lưu screenshot/trace
+trong ignored `artifacts/browser-tests/` và CI failure artifact. Source cuối đạt
+**9 test browser** và **326 test frontend**; chế độ mặc định không bật browser
+skip đúng chín ca, trả exit code thành công. Khi đã bật mà thiếu Playwright,
+test báo lỗi cấu hình thay vì bỏ qua. CI trên commit phát hành và quyết định
+nghiệm thu/đóng mục được theo dõi tại [issue #10](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/10).
 
 ## Kế hoạch kiểm tra có phiên bản
 
@@ -878,8 +915,8 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 | 6 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | 7 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Đã triển khai/nghiệm thu tại `396fcc9`: sidecar bốn chiều, exact side-scoped refs, sufficiency tái tính, frozen pair/intent/receipts, API/UI và dossier/standalone handoff. Core 66, service 33, handoff 18, neighbor 76, legacy 145 và frontend 293 test đạt; browser QA/ZIP độc lập và CI toàn repo đạt; issue #7 đã đóng |
 | 8 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đã triển khai/nghiệm thu tổng hợp: original Workbench/durable CLI Quick/Deep/Planned rules và Jev, answer continuations, năm loại fork và chuỗi stage-resume; journal/lease, source/policy guards, explicit consent, lineage/handoff và tương thích verifier/export cũ. Attempt/receipt giữ owner và budget xuyên phiên; 207 test hồi quy backend, 272 frontend và kiểm bàn giao/JSON type cuối đã đạt. CI/đóng mục theo issue #8 |
-| 9 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Đã triển khai: bounded read-only snapshot, pure accounting/native receipt replay, typed ancestor + source-bound artifact scope, immutable receipt ownership, API/UI và accounting bàn giao riêng từng requested run. Source cuối đạt 174 test (102 core/43 collector/29 handoff), hồi quy rộng 416 và frontend 310; browser QA và ZIP tải từ browser/verify độc lập đạt. CI phát hành và quyết định đóng mục theo issue #9 |
-| 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Chưa triển khai |
+| 9 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Đã nghiệm thu tại `300164a`: bounded read-only snapshot, native receipt replay, typed ancestor/source-bound artifact scope, immutable receipt ownership, API/UI và accounting bàn giao từng requested run. Source cuối đạt 174 test (102 core/43 collector/29 handoff), hồi quy rộng 416 và frontend 310; browser QA/ZIP độc lập và CI toàn repo đạt; issue #9 đã đóng |
+| 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Đã triển khai: optional Playwright/Chromium, real UI/HTTP/pipeline với native synthetic receipts, outbound guards và CI job riêng; exact-bound draft isolation/pending state, stale view status và keyboard/mobile scenarios. 9 browser và 326 frontend test đạt; default skip và independent test review đã kiểm. CI phát hành và quyết định đóng mục theo issue #10 |
 | 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
 | 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
 | 13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
