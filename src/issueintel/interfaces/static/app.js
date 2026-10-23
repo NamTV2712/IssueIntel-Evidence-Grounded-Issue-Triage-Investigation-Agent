@@ -602,6 +602,14 @@ document.addEventListener('issueintel:showevidence',event=>{
 document.addEventListener('issueintel:dossieropen',event=>{
   if(/^[a-f0-9]{24}$/.test(event.detail?.job_id))openJob(event.detail.job_id).catch(error=>message(error.message,true));
 });
+document.addEventListener('issueintel:batchchildopen',async event=>{
+  const identifier=event.detail?.job_id;if(!/^[a-f0-9]{24}$/.test(identifier||''))return;
+  const generation=++viewGeneration;
+  try{const row=await api('/api/jobs/'+identifier);if(generation!==viewGeneration||row.id!==identifier)return;
+    if(row.status==='completed'){await openJob(identifier);return;}
+    showStageArtifacts(row);showUsage(row);message(t('Đang xem phiên: {id}',{id:identifier}));
+  }catch(error){if(generation===viewGeneration)message(error.message,true);}
+});
 loadTypesafeStatus();
 (async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();
 

@@ -10,6 +10,7 @@ import sqlite3
 import time
 
 from issueintel.investigation.workbench import Workbench
+from issueintel.investigation.batch_jobs import BatchConflict
 
 STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
@@ -50,6 +51,8 @@ STATIC['/product-checks.js'] = ('product-checks.js', 'text/javascript; charset=u
 STATIC['/product-checks.css'] = ('product-checks.css', 'text/css; charset=utf-8')
 STATIC['/check-observations.js'] = ('check-observations.js', 'text/javascript; charset=utf-8')
 STATIC['/check-observations.css'] = ('check-observations.css', 'text/css; charset=utf-8')
+STATIC['/batches.js'] = ('batches.js', 'text/javascript; charset=utf-8')
+STATIC['/batches.css'] = ('batches.css', 'text/css; charset=utf-8')
 
 
 def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
@@ -155,6 +158,14 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.typesafe_status())
                 elif route == '/api/jobs':
                     self._json(200, workbench.history())
+                elif route == '/api/batches':
+                    self._json(200, workbench.batch_history())
+                elif route.startswith('/api/batches/'):
+                    parts = route.split('/')[3:]
+                    if len(parts) == 1 and parts[0]:
+                        self._json(200, workbench.batch(parts[0]))
+                    else:
+                        self._json(404, {'error': 'Route not found'})
                 elif route == '/api/repositories/jobs':
                     self._json(200, workbench.repository_history())
                 elif route=='/api/investigation-report-schema':
@@ -272,6 +283,14 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 return
             lengths = self.headers.get_all('Content-Length') or []
             maximum = 2_000_000 if route == '/api/github/webhook' else 512000
+            if route == '/api/batches':
+                # The acceptance body contains a bounded manifest and the exact
+                # frozen preview, including captured input witnesses.
+                maximum = 9 * 1024 * 1024
+            elif route == '/api/batches/preview':
+                # A pasted manifest can be sent as JSON text so duplicate
+                # inner fields survive transport and are rejected by the parser.
+                maximum = 1024 * 1024 + 1024
             if (self.headers.get('Transfer-Encoding') is not None or len(lengths) != 1
                     or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= maximum
                     or self.headers.get('Content-Type', '').split(';')[0] != 'application/json'):
@@ -288,9 +307,40 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         secret=os.environ['GITHUB_WEBHOOK_SECRET'])
                     self._json(202, job)
                     return
-                request = json.loads(raw)
+                if route == '/api/batches' or route.startswith('/api/batches/'):
+                    def unique_fields(pairs):
+                        result = {}
+                        for key, value in pairs:
+                            if key in result:
+                                raise ValueError('Duplicate batch request field')
+                            result[key] = value
+                        return result
+                    def invalid_constant(value):
+                        raise ValueError('Non-finite batch JSON value')
+                    request = json.loads(raw, object_pairs_hook=unique_fields, parse_constant=invalid_constant)
+                else:
+                    request = json.loads(raw)
                 if route == '/api/investigations':
                     self._json(202, workbench.submit(request))
+                elif route == '/api/batches/preview':
+                    if type(request) is not dict or set(request) not in ({'manifest'}, {'manifest_json'}):
+                        raise ValueError('A batch preview requires one manifest')
+                    if 'manifest_json' in request:
+                        from issueintel.investigation.product_batches import parse_manifest
+                        manifest = parse_manifest(request['manifest_json'])
+                    else:
+                        manifest = request['manifest']
+                    self._json(200, workbench.batch_preview(manifest))
+                elif route == '/api/batches':
+                    self._json(202, workbench.batch_submit(request))
+                elif route.startswith('/api/batches/'):
+                    parts = route.split('/')[3:]
+                    if len(parts) == 2 and parts[1] in {'pause', 'continue', 'cancel'}:
+                        self._json(200, workbench.batch_action(parts[0], parts[1], request))
+                    elif len(parts) == 4 and parts[1] == 'items' and parts[3] == 'cancel':
+                        self._json(200, workbench.batch_item_cancel(parts[0], parts[2], request))
+                    else:
+                        self._json(404, {'error': 'Route not found'})
                 elif route=='/api/adaptive-questions':
                     self._json(202,workbench.submit_questions(request))
                 elif route=='/api/check-plans':
@@ -380,7 +430,9 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     self._json(200, workbench.publish_comment(route.split('/')[3], request))
                 else:
                     self._json(404, {'error': 'Route not found'})
-            except (ValueError, UnicodeError, KeyError, TypeError):
+            except BatchConflict:
+                self._json(409, {'error': 'This batch identity already owns a different source or approval'})
+            except (ValueError, UnicodeError, KeyError, TypeError, RecursionError):
                 self._json(400, {'error': 'Invalid investigation input'})
             except FileNotFoundError:
                 self._json(404, {'error': 'Job not found'})

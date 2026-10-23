@@ -175,6 +175,9 @@ class Workbench:
         self.active = set()
         self.execution_leases = {}
         self.cancelled = set()
+        self.active_batch_children = set()
+        from .batch_jobs import BatchJobs
+        self.batch_jobs = BatchJobs(self)
         self.plans = PlanStore(self.directory/'plans.sqlite')
         from .check_journal import CheckJournalStore
         self.check_journals = CheckJournalStore(self.directory/'plans.sqlite')
@@ -268,7 +271,8 @@ class Workbench:
         with self.lock:
             row = json.loads(self._job_path(identifier).read_bytes())
             if (row['status'] in {'queued', 'running'} and identifier not in self.active
-                    and not self.stage_recoveries.externally_owned(identifier)):
+                    and not self.stage_recoveries.externally_owned(identifier)
+                    and not self.batch_jobs.prepared(identifier,row)):
                 row = dict(row, status='interrupted', stage='interrupted',
                            error='Interrupted before completion; no automatic model retry.')
             from .usage import job_usage
@@ -305,6 +309,18 @@ class Workbench:
                 raise ValueError('Choose an existing completed follow-up source') from None
             self._reject_waiting_fork(parent)
         return self._enqueue(request, self._run)
+
+    def batch_preview(self,manifest):return self.batch_jobs.preview(manifest)
+
+    def batch_submit(self,payload):return self.batch_jobs.submit(payload)
+
+    def batch_history(self):return self.batch_jobs.history()
+
+    def batch(self,identifier):return self.batch_jobs.read(identifier)
+
+    def batch_action(self,identifier,action,payload):return self.batch_jobs.action(identifier,action,payload)
+
+    def batch_item_cancel(self,identifier,key,payload):return self.batch_jobs.action(identifier,'cancel',payload,key=key)
 
     @staticmethod
     def _reject_waiting_fork(pack):
@@ -557,6 +573,52 @@ class Workbench:
 
     def _take_execution_lease(self,identifier):
         with self.lock:return self.execution_leases.pop(identifier,None)
+
+    def _prepare_batch_job(self,request,identifier,binding):
+        """Create a fixed child once. Batch SQLite intent owns this reservation."""
+        if validate_request(request)!=request:
+            raise ValueError('Batch children require canonical original requests')
+        path=self._job_path(identifier)
+        with self.lock:
+            if path.exists():raise ValueError('A fixed batch child identity already exists')
+            row={'id':identifier,'status':'queued','stage':'queued','created_at':now(),
+                 'mode':request['mode'],'provider':request['provider'],'depth':request['depth'],
+                 'request':deepcopy(request),'batch':deepcopy(binding)}
+            write_json(path,row)
+        return row
+
+    def _dispatch_prepared(self,row,callback):
+        """Dispatch untouched durable work without overwriting a saved job."""
+        if not self.capacity.acquire(blocking=False):
+            raise RuntimeError('The investigation queue is full')
+        lease=None;registered=False
+        try:
+            lease=self.stage_recoveries.lease(row['id'],create=True)
+            with self.lock:
+                saved=json.loads(self._job_path(row['id']).read_bytes())
+                if (saved!=row or not self.batch_jobs._pristine(saved) or row['id'] in self.active):
+                    raise ValueError('Prepared batch source is no longer dispatchable')
+                self.active.add(row['id']);registered=True
+                self.active_batch_children.add(row['id'])
+                self.execution_leases[row['id']]=lease
+            self.executor.submit(callback,row)
+        except BaseException:
+            if registered:
+                with self.lock:
+                    self.active.discard(row['id']);self.execution_leases.pop(row['id'],None)
+                    self.active_batch_children.discard(row['id'])
+            if lease is not None:lease.close()
+            self.capacity.release()
+            raise
+
+    def _release_prepared(self,identifier):
+        lease=self._take_execution_lease(identifier)
+        if lease is not None:lease.close()
+        with self.lock:
+            registered=identifier in self.active
+            self.active.discard(identifier);self.cancelled.discard(identifier)
+            self.active_batch_children.discard(identifier)
+        if registered:self.capacity.release()
 
     def repository_history(self):
         return self._history_mode(True, 20)
@@ -896,6 +958,11 @@ class Workbench:
 
     def cancel(self, identifier):
         row = self.job(identifier)
+        if row.get('batch') is not None:
+            source=row['batch']
+            self.batch_item_cancel(source['batch_id'],source['item_key'],
+                {key:source[key] for key in ('manifest_sha256','preview_sha256')})
+            return self.job(identifier)
         if row.get('connection') or (row['mode']=='repository' and row.get('repository') and self.github_sync.connection(row['repository'])):
             self.github_sync.change(row['repository'], paused=True)
         with self.lock:
@@ -907,6 +974,8 @@ class Workbench:
         with self.lock:
             if identifier in self.cancelled:
                 raise InterruptedError('Cancelled')
+        if identifier in self.active_batch_children and self.batch_jobs.is_cancelled(identifier):
+            raise InterruptedError('Cancelled')
 
     def _example(self):
         path = self.directory/'example_repo'
@@ -940,7 +1009,16 @@ class Workbench:
                 capture_policy=job_policy_sha256()
             extra = {}
             fork_projection = None
-            if request['mode']=='planned_continuation':
+            if row.get('batch') is not None:
+                case,local=self.batch_jobs.input(row)
+                if request['mode']=='github':
+                    connection=self.github_sync.connection(case['repository'])
+                    if connection and not connection['paused']:
+                        from issueintel.integrations.github_index import RepositoryIndex
+                        from issueintel.retrieval.repository_context import collect_context
+                        extra['repository_context']=collect_context(RepositoryIndex(self.root,case['repository']),
+                                                                    case['issue_url'],case['problem_statement'])
+            elif request['mode']=='planned_continuation':
                 parent,raw,case,receipt,link=self.planned_continuations.input(request,row['id'],admission=True,wait_for_dispatch=True)
                 local=Path(parent['snapshot']['repository'])
                 extra={'planned_parent':parent,'planned_continuation':link,
@@ -982,6 +1060,9 @@ class Workbench:
                     saved=json.loads(self._job_path(row['id']).read_bytes())
                     if (saved.get('request')!=request or any(saved.get(k)!=request[k] for k in ('mode','provider','depth'))
                             or job_policy_sha256()!=capture_policy):raise ValueError('Original stage source authority changed')
+                    if row.get('batch') is not None:
+                        batch_case,_=self.batch_jobs.input(saved,acquire=False)
+                        if batch_case!=case:raise ValueError('Batch captured issue source changed')
                 if fork_projection is not None:
                     saved=json.loads(self._job_path(row['id']).read_bytes())
                     checked=prepare_fork(self,saved,recorded=fork_projection)
@@ -1022,6 +1103,8 @@ class Workbench:
                 client=(self.typesafe_factory or TypesafeClient)(typesafe_config,on_receipt=capture_typesafe)
                 selected_controller=TypesafePlannedController(client,row['id'],on_decision=capture_decision)
             config = RuntimeConfig.load(self.root) if request['provider'] == 'groq' else None
+            if row.get('batch') is not None and config is not None and config.model!='openai/gpt-oss-120b':
+                raise ValueError('Batch investigations require the authorized product model')
             if planned_v3 and config is not None and config.model!='openai/gpt-oss-120b':
                 raise ValueError('Planned waiting model has no supported authorization')
             if request['mode']=='check_followup' and config is not None and config.model!='openai/gpt-oss-120b':
@@ -1138,6 +1221,7 @@ class Workbench:
             with self.lock:
                 self.active.discard(row['id'])
                 self.cancelled.discard(row['id'])
+                self.active_batch_children.discard(row['id'])
             self.capacity.release()
 
     def result_bytes(self, identifier, name='pack.json'):
@@ -1579,4 +1663,5 @@ class Workbench:
     def close(self):
         self.sync_stop.set()
         if self.sync_thread is not None:self.sync_thread.join(5)
+        self.batch_jobs.close()
         self.executor.shutdown(wait=True)

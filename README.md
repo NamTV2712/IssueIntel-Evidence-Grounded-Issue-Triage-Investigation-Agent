@@ -393,6 +393,45 @@ giá cuối và không chờ đủ 400 strict. [Quyết định](configs/develop
 không tự mở evaluation, đóng băng cohort mới hay khởi động lại bulk LLM.
 Trạng thái implementation theo proposal nằm trong [docs/PRODUCT.md](docs/PRODUCT.md).
 
+## Điều tra một danh sách issue
+
+Panel **Điều tra nhiều issue / Batch investigations** nhận manifest JSON gồm
+1–20 đầu vào product `local`, `github` hoặc `example`, dùng rules. Có thể dán
+JSON, đọc file cục bộ hoặc điền mẫu tổng hợp. Ví dụ không gọi model:
+
+```json
+{
+  "schema": "product_batch_manifest_v1",
+  "run_key": "demo-batch-1",
+  "items": [
+    {"key": "quick", "request": {"mode": "example", "provider": "none", "depth": "quick"}},
+    {"key": "deep", "request": {"mode": "example", "provider": "none", "depth": "deep"}}
+  ]
+}
+```
+
+**Xem trước** có thể đọc Git/GitHub để chụp nội dung issue và resolve commit đầy
+đủ; không gọi model. Preview hiển thị nguồn, commit, lỗi từng mục và cận call.
+Sửa manifest/file hoặc đổi ngôn ngữ làm mất hiệu lực consent trước đó. Nếu có
+`provider: "groq"`, cần duyệt toàn bộ preview và chi phí riêng trước khi chạy;
+tổng USD chưa biết không được coi là 0. Cận từng call/giá/ledger vẫn được kiểm.
+Không dùng Main Dev, Holdout/Live, follow-up hoặc Jev trong batch product.
+
+Mỗi mục giữ job ID, receipt và báo cáo riêng; dispatcher dùng worker/queue chung,
+tối đa một mục chạy mỗi lúc. Có trạng thái từng mục, partial success, tạm dừng
+nhận mục mới và hủy từng mục/cả lô. Tạm dừng không hủy call đang chạy; hủy cần
+đợi ranh giới stage và call đã gửi vẫn có thể tính phí. Mục lỗi/ngắt không tự
+được thử lại. Mở child là thao tác riêng; tiến độ batch không đổi báo cáo đang xem.
+
+Giữ nguyên `run_key` để nhận lại cùng lô/child IDs khi gửi trùng hoặc restart;
+cùng key nhưng manifest/nguồn duyệt khác sẽ bị từ chối. Mất phản hồi chỉ mở đối
+soát từ danh sách đã lưu, không tự gửi lại hoặc đổi key. Sau restart, đọc trạng
+thái không tự chạy tiếp; chủ động **Tiếp tục mục chưa chạy**, duyệt lại Groq nếu
+có. Kết quả đã xong vẫn mở được mà không gọi model. Manifest/nguồn chụp lưu private
+trong ignored artifacts; mẫu mới không cấp quyền chi tiêu Jev hoặc evaluation.
+Mục 11 đã triển khai và qua kiểm thử tổng hợp cục bộ; CI phát hành và quyết định
+nghiệm thu được theo dõi ở `docs/PRODUCT.md` và issue #11.
+
 ## Memory repository lưu trên máy
 
 Memory kiến trúc và giả thuyết từ phiên product đã lưu có CLI dùng riêng,

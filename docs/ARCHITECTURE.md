@@ -1058,7 +1058,8 @@ pack thật để kiểm response muộn; provider gate giữ một phiên chạ
 mở phiên khác. Luồng bàn phím và viewport 390px Việt/tối đi cùng luồng desktop
 Anh/sáng. Đây là kiểm hợp đồng/workflow tổng hợp, không đánh giá semantic quality
 hoặc nghiệm thu GitHub App thật. Source cuối đạt chín browser test và 326 frontend
-test; CI phát hành và quyết định nghiệm thu được theo dõi ở issue #10.
+test. Mục 10 đã nghiệm thu tại `6c761e7`, cả hai job test/browser của CI
+`39882645559` thành công; issue #10 đã đóng.
 
 Draft frontend chỉ ở các Map trong bộ nhớ trang. Checklist/follow-up gắn exact
 job/pack; câu trả lời làm rõ thêm query/questions SHA; quan sát gắn full plan/
@@ -1077,3 +1078,49 @@ CI có job browser độc lập: cài `.[dev,browser]`, Chromium headless shell 
 screenshot/trace dưới ignored `artifacts/browser-tests/`; CI tải chúng làm failure
 artifact. Dependency browser không vào product runtime; người dùng chạy sản phẩm
 vẫn không cần Node hoặc Playwright.
+
+## Batch product — mục 11
+
+`investigation.product_batches` là contract thuần dữ liệu cho manifest, frozen
+source/preview và read projection; `investigation.batch_jobs.BatchJobs` sở hữu
+SQLite private `artifacts/demo/product_batches.sqlite`, acquisition và dispatcher.
+Manifest có `run_key` tác giả chọn và 1–20 `{key,request}`; chỉ original product
+local/GitHub/example, provider none/Groq, Quick/Deep/Planned rules. Không nhận
+benchmark/fork/Jev. Request đi qua validator Workbench chung; default/canonical
+request, key và duplicate được kiểm trước acquisition.
+
+Preview giữ issue body, full commit, request/source/policy SHA và lỗi từng mục;
+có thể đọc Git/GitHub, không gọi model. Source chỉ là current captured product
+input, không cấp temporal proof. Groq có call upper bound nhưng aggregate USD
+vẫn unknown; offline có model cost 0. POST nhận exact frozen preview cùng xác nhận
+và paid consent; không lấy input mới thay thế giữa duyệt và chạy. Manifest/source
+đã lưu private, không đưa vào Git hoặc benchmark.
+
+Stable batch/child IDs được gắn với run_key/item key trước dispatch. Gửi trùng
+trả lại bản cũ, không kích hoạt công việc; key đã gắn nội dung khác bị conflict.
+Scheduler nằm ngoài executor điều tra, dùng shared Workbench capacity/lease và
+pipeline, tối đa một child mỗi lúc. Queue đầy giữ mục chờ, không bỏ mục hay chiếm
+worker rồi đợi child. Started work không được tự gọi lại; interrupted cần existing
+recovery sau xác nhận riêng. Constructor/GET/saved open không tự dispatch sau
+restart; tiếp tục mục chưa chạy cần thao tác rõ ràng với binding cũ và paid consent
+khi áp dụng. Pause/cancel intent bền vững; requested cancellation chưa là terminal
+cancellation khi child còn đang chạy/queued.
+
+Read projection chỉ có metadata/status/counts, fixed IDs và `job_available`;
+không đưa issue body vào history. ID cố định chưa chứng minh job đã được tạo:
+UI chỉ cho mở khi `job_available` đúng. Frontend batch có generation/batch/manifest/
+preview binding riêng, không dùng `runJob()` để poll hoặc tự chuyển report.
+Start mất ACK chỉ đối soát từ read API; không tự rotate key, retry all hoặc gửi
+lại. Pause/continue/cancel và item cancel kiểm exact manifest/preview SHA; đổi
+ngôn ngữ không phát call, reset consent, giữ nguồn nguyên văn. Module/CSS dùng
+semantic tokens hiện có và progressive item details cho màn hình nhỏ.
+
+API gồm POST `/api/batches/preview` (`manifest` hoặc raw `manifest_json` để kiểm
+duplicate fields), POST `/api/batches` (`manifest`, exact `preview`, `confirmed`,
+`allow_api_calls`), GET history/detail, POST pause/continue/cancel và item cancel.
+Source cục bộ đạt 26 test backend/HTTP integration cuối, 22 HTTP route checks,
+345 frontend và 14 Chromium E2E; lượt hồi quy Workbench/recovery riêng đạt 114 test
+trước các sửa isolation/race cuối đã được kiểm lại trong bộ 26 test. Các phạm vi
+này có overlap, không cộng thành một tổng test độc lập. Fixture Chromium dùng
+chung qua `tests/browser/conftest.py`; default optional mode skip 14 ca thành công.
+UI đã kiểm thực tế Anh/sáng và Việt/tối ở 390px. CI/đóng mục theo issue #11.

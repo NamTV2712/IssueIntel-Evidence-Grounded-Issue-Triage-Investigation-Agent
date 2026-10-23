@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import sys
-import uuid
 import zipfile
 
 import pytest
@@ -24,55 +23,6 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(not BROWSER_ENABLED,
 
 def expect(actual):
     return pw.expect(actual)
-
-
-@pytest.fixture(scope='session')
-def chromium():
-    with pytest.MonkeyPatch.context() as environment:
-        for name in list(os.environ):
-            if re.search('TOKEN|SECRET|API_KEY|PRIVATE_KEY', name, re.I):
-                environment.delenv(name)
-        with pw.sync_playwright() as driver:
-            browser = driver.chromium.launch(headless=True, args=['--disable-background-networking',
-                '--disable-component-update', '--no-first-run'])
-            try:
-                yield browser
-            finally:
-                browser.close()
-
-
-@pytest.fixture
-def browser_page(chromium, browser_backend, request):
-    context = chromium.new_context(accept_downloads=True, locale='en-US',
-        viewport={'width': 1280, 'height': 800}, color_scheme='light')
-    rejected, errors = [], []
-    def network(route):
-        url = route.request.url
-        if url.startswith(browser_backend.base_url + '/'):
-            route.continue_()
-        else:
-            rejected.append(url)
-            route.abort('blockedbyclient')
-    context.route('**/*', network)
-    page = context.new_page()
-    page.set_default_timeout(15_000)
-    page.on('pageerror', lambda error: errors.append(str(error)))
-    context.tracing.start(screenshots=True, snapshots=True, sources=False)
-    failed_before = request.session.testsfailed
-    try:
-        yield page
-    finally:
-        if request.session.testsfailed > failed_before:
-            folder = Path(__file__).resolve().parents[2] / 'artifacts/browser-tests' / (
-                re.sub(r'[^a-zA-Z0-9_-]', '_', request.node.name) + '-' + uuid.uuid4().hex[:8])
-            folder.mkdir(parents=True)
-            page.screenshot(path=str(folder / 'failure.png'), full_page=True)
-            context.tracing.stop(path=str(folder / 'trace.zip'))
-        else:
-            context.tracing.stop()
-        context.close()
-        assert not rejected, 'The browser attempted outbound requests: ' + repr(rejected)
-        assert not errors, 'Uncaught browser errors: ' + repr(errors)
 
 
 def visit(page, backend, *, language='en', theme='light'):

@@ -438,8 +438,55 @@ lệnh cài Chromium headless shell ở README. Khi test lỗi mới lưu screen
 trong ignored `artifacts/browser-tests/` và CI failure artifact. Source cuối đạt
 **9 test browser** và **326 test frontend**; chế độ mặc định không bật browser
 skip đúng chín ca, trả exit code thành công. Khi đã bật mà thiếu Playwright,
-test báo lỗi cấu hình thay vì bỏ qua. CI trên commit phát hành và quyết định
-nghiệm thu/đóng mục được theo dõi tại [issue #10](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/10).
+test báo lỗi cấu hình thay vì bỏ qua. Mục 10 đã nghiệm thu tại `6c761e7`;
+[cả hai job test/browser của CI thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39882645559)
+và [issue #10 đã đóng](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/10).
+
+### Mục 11 — P2: batch điều tra product — chờ CI phát hành
+
+Panel **Điều tra nhiều issue** nhận JSON hoặc file cục bộ theo
+`product_batch_manifest_v1`: run_key ổn định và 1–20 mục có key riêng. Phạm vi
+original local/GitHub/example, Quick/Deep/Planned rules, none/Groq; không Main Dev,
+Holdout/Live, fork hoặc Jev. Mẫu tổng hợp mặc định offline. Preview có thể đọc
+Git/GitHub để chụp issue và full commit, nhưng không gọi model; hiển thị từng
+nguồn/lỗi và cận call. Sửa input làm mất preview/consent. Với Groq cần duyệt exact
+manifest/preview và chi phí, không coi aggregate USD unknown là 0.
+
+Batch lưu intent/source/preview và fixed child IDs private. Dispatcher gọi
+pipeline Workbench chung, concurrency 1 và dùng shared queue/capacity; nhiều hơn
+bốn mục không được bỏ vì queue đang đầy. Có status/count từng mục, partial success,
+pause/continue, hủy từng mục/cả lô và mở kết quả/checkpoint riêng. Requested cancel
+đợi child dừng trước khi thành terminal; call đang gửi có thể còn chi phí.
+Completed item vẫn mở được khi mục khác lỗi. Job ID giữ từ trước dispatch;
+`job_available` quyết định có thể mở job thật, tránh nút trỏ tới file chưa tồn tại.
+
+Gửi trùng cùng key/manifest trả lại cùng batch/child IDs; key đổi nội dung bị
+conflict. Mất ACK khóa yêu cầu đã gửi để đối soát read-only, không tự đổi key hoặc
+retry all. Saved read và restart không tự khởi chạy; tiếp tục mục chưa chạy cần
+chủ động chọn đúng batch/binding, có consent Groq mới khi cần. Started failed/
+interrupted child không được batch tự retry; recovery hiện có giữ cổng riêng.
+Batch polling không dùng `runJob()` hoặc tự đổi report; stale preview/create/poll/
+cancel responses không được gắn vào batch mới. Tiếng Việt/Anh, semantic light/dark,
+bàn phím và item details ở màn hình nhỏ dùng cùng nguồn.
+
+API product gồm preview/start/history/detail, pause/continue/cancel và item cancel.
+Raw `manifest_json` được parser server kiểm duplicate fields trước chuẩn hóa;
+JSON/source text chỉ render inert. Contract thuần dữ liệu đạt 107 test; source cuối
+đạt 26 test backend/HTTP integration, 22 HTTP route checks, 345 frontend và toàn
+bộ 14 kịch bản Chromium (chín luồng cũ và năm luồng batch). Chế độ optional mặc
+định skip đúng 14 ca, exit thành công. Hồi quy Workbench/recovery đạt 114 test;
+các sửa isolation/race sau lượt đó đã được kiểm lại trong bộ 26 test cuối. Các
+phạm vi có overlap, không cộng thành tổng test độc lập.
+
+Test tái hiện snapshot DB chậm hơn JSON và hoàn tất giữa lần đọc row/lease; nguồn
+hỏng vẫn giữ occupied khi worker còn quyền thực thi. Batch hỏng không có worker
+được báo riêng trong lịch sử, giữ các batch hợp lệ hoạt động. Chromium kiểm nguồn
+đã duyệt, sáu mục vượt capacity, paid consent/partial success/native receipts,
+hủy pending, delayed HTTP A→B, mở child, bàn phím và màn hình 390px. Visual QA giữ
+nguồn đã duyệt trong details gọn, đồng bộ trạng thái/counts giữa detail và history.
+Chỉ dùng dữ liệu/transport tổng hợp; chưa gọi model thật hoặc mở evaluation.
+CI đúng commit và quyết định đóng mục được theo dõi tại
+[issue #11](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/11).
 
 ## Kế hoạch kiểm tra có phiên bản
 
@@ -885,8 +932,9 @@ replay cùng ancestry lặp lại giữa các helper. Một lần chuẩn bị f
 memo theo thread trong đúng lượt đồng bộ đó, luôn xóa khi kết thúc hoặc lỗi.
 Mọi guard trước/sau provider vẫn đọc nguồn mới, policy/hash/cycle checks giữ
 nguyên. Test tám phiên đã đạt với deadline cũ; mutation giữa hai lượt chuẩn bị,
-failure cleanup và cycle đều có hồi quy. CI toàn bộ trên đúng commit phát hành
-và quyết định đóng mục được ghi tại [issue #8](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/8).
+failure cleanup và cycle đều có hồi quy. Mục 8 đã nghiệm thu tại `ecd1233`:
+[CI toàn bộ trên đúng commit thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39613072345)
+và [issue #8 đã đóng](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/issues/8).
 
 CI toàn bộ mốc fork `088aa61` đã
 [thành công](https://github.com/NamTV2712/IssueIntel-Evidence-Grounded-Issue-Triage-Investigation-Agent/actions/runs/39562986985).
@@ -914,10 +962,10 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 | 5 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
 | 6 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | 7 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Đã triển khai/nghiệm thu tại `396fcc9`: sidecar bốn chiều, exact side-scoped refs, sufficiency tái tính, frozen pair/intent/receipts, API/UI và dossier/standalone handoff. Core 66, service 33, handoff 18, neighbor 76, legacy 145 và frontend 293 test đạt; browser QA/ZIP độc lập và CI toàn repo đạt; issue #7 đã đóng |
-| 8 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đã triển khai/nghiệm thu tổng hợp: original Workbench/durable CLI Quick/Deep/Planned rules và Jev, answer continuations, năm loại fork và chuỗi stage-resume; journal/lease, source/policy guards, explicit consent, lineage/handoff và tương thích verifier/export cũ. Attempt/receipt giữ owner và budget xuyên phiên; 207 test hồi quy backend, 272 frontend và kiểm bàn giao/JSON type cuối đã đạt. CI/đóng mục theo issue #8 |
+| 8 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đã nghiệm thu tại `ecd1233`: original Workbench/durable CLI Quick/Deep/Planned rules và Jev, answer continuations, năm loại fork và chuỗi stage-resume; journal/lease, source/policy guards, explicit consent, lineage/handoff và tương thích verifier/export cũ. Attempt/receipt giữ owner và budget xuyên phiên; 207 test hồi quy backend, 272 frontend và kiểm bàn giao/JSON type cuối đã đạt. CI toàn repo thành công; issue #8 đã đóng |
 | 9 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Đã nghiệm thu tại `300164a`: bounded read-only snapshot, native receipt replay, typed ancestor/source-bound artifact scope, immutable receipt ownership, API/UI và accounting bàn giao từng requested run. Source cuối đạt 174 test (102 core/43 collector/29 handoff), hồi quy rộng 416 và frontend 310; browser QA/ZIP độc lập và CI toàn repo đạt; issue #9 đã đóng |
-| 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Đã triển khai: optional Playwright/Chromium, real UI/HTTP/pipeline với native synthetic receipts, outbound guards và CI job riêng; exact-bound draft isolation/pending state, stale view status và keyboard/mobile scenarios. 9 browser và 326 frontend test đạt; default skip và independent test review đã kiểm. CI phát hành và quyết định đóng mục theo issue #10 |
-| 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Chưa triển khai |
+| 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Đã nghiệm thu tại `6c761e7`: optional Playwright/Chromium, real UI/HTTP/pipeline với native synthetic receipts, outbound guards và CI job riêng; exact-bound draft isolation/pending state, stale view status và keyboard/mobile. 9 browser/326 frontend test, default skip và independent review đạt; cả hai CI job thành công; issue #10 đã đóng |
+| 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Đã triển khai; chờ CI phát hành: original product manifest/frozen server preview, fixed child IDs, shared pipeline/queue concurrency 1, partial success, durable pause/cancel/explicit continue và UI Việt/Anh. Contract 107, backend/integration cuối 26, HTTP 22, frontend 345 và toàn bộ 14 Chromium test đạt; hồi quy shared runner 114 đạt, fixes cuối có deterministic tests. Chưa đóng issue #11 |
 | 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
 | 13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
 | V01 | Validation | Diagnostic accepted Main Dev: pinned comparative retrieval/graph/history/verifier/counter-search, localization/grounding/cost/latency. Giữ pilot và gold boundaries. | Chưa nghiệm thu; tái dùng diagnostic hợp lệ khi phù hợp |
