@@ -336,17 +336,39 @@ class RepositoryIndex:
             return
         validator = GitHubReader(self.repository, token='')
         validator.repository_id = repository_id
+        validator.validate_url(current)
         validator.validate_url(next_url)
         before, after = urlsplit(current), urlsplit(next_url)
-        a, b = parse_qs(before.query), parse_qs(after.query)
         try:
-            page = int(a.pop('page', ['1'])[0])
-            next_page = int(b.pop('page')[0])
-        except (ValueError, KeyError):
+            a, b = (parse_qs(query, keep_blank_values=True, strict_parsing=True,
+                             errors='strict', max_num_fields=12)
+                    for query in (before.query, after.query))
+            for parameters in (a, b):
+                if (parameters.keys() - {'page', 'per_page', 'state', 'sort', 'direction', 'after'}
+                        or any(len(values) != 1 or not values[0]
+                               or any(ord(c) < 32 or ord(c) == 127 for c in values[0])
+                               for values in parameters.values())):
+                    raise ValueError
+            page, next_page = a.pop('page', ['1'])[0], b.pop('page')[0]
+            if not all(re.fullmatch('[1-9][0-9]*', value) for value in (page, next_page)):
+                raise ValueError
+            page, next_page = int(page), int(next_page)
+            previous_cursor, next_cursor = a.pop('after', [None])[0], b.pop('after', [None])[0]
+            for cursor in (previous_cursor, next_cursor):
+                if cursor is not None and (len(cursor) > 1024 or any(not '!' <= c <= '~' for c in cursor)):
+                    raise ValueError
+        except (ValueError, KeyError, UnicodeError):
             raise ValueError('Invalid GitHub next-page cursor') from None
         canonical_path = lambda path: path.replace('/repositories/' + str(repository_id), '/repos/' + self.repository, 1)
         if canonical_path(before.path) != canonical_path(after.path) or a != b or next_page != page + 1:
             raise ValueError('GitHub pagination changed endpoint, filters or page sequence')
+        # Issue-list Link headers can add/update an opaque `after` alongside
+        # page+1. Keep following and storing the exact returned URL, while all
+        # scope/filter checks above still apply. Other endpoints stay page-only.
+        if (previous_cursor is not None or next_cursor is not None) and (
+                canonical_path(before.path) != '/repos/' + self.repository + '/issues'
+                or previous_cursor is not None and next_cursor in {None, previous_cursor}):
+            raise ValueError('Invalid GitHub issue cursor progression')
 
     def sync(self, *, revision='HEAD', max_requests=50, refresh=False, reader=None, snapshot_builder=None,
              on_progress=None, check_cancelled=None, expected_repository_id=None):

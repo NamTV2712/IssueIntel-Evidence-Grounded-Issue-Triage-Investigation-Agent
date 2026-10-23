@@ -311,6 +311,138 @@ def test_numeric_repository_pagination_is_bound_to_verified_global_id(connected)
         transport.validate_url(next_url.replace('/42/', '/43/'))
 
 
+def test_issue_after_cursor_resume_keeps_exact_links_and_page_receipts(connected):
+    index, builder = connected
+    first = index._url('/issues', per_page=100, page=1, state='all', sort='created', direction='asc')
+    numeric = 'https://api.github.com/repositories/42/issues'
+    filters = 'per_page=100&state=all&sort=created&direction=asc'
+    second = numeric + '?' + filters + '&page=2&after=opaque%2Bcursor%2Fone%3D'
+    third = numeric + '?' + filters + '&page=3&after=opaque%2Bcursor%2Ftwo%3D'
+    first_reader = Reader({first: ([issue(1)], second, digest('first cursor page'))})
+    first_report = index.sync(reader=first_reader, snapshot_builder=builder, max_requests=2)
+    original_snapshot = first_report['current_snapshot']
+
+    def page_state(expected_url, expected_pages):
+        with index.connect() as db:
+            task = db.execute("SELECT * FROM tasks WHERE kind='issues'").fetchone()
+            assert task['url'] == expected_url and task['pages'] == expected_pages
+            receipts = [json.loads(row[0]) for row in db.execute('SELECT value FROM receipts ORDER BY rowid')]
+            assert [(row['source_url'], row['next_url']) for row in receipts] == [
+                (first, second), (second, third), (third, None)
+            ][:expected_pages]
+            assert db.execute('SELECT COUNT(*) FROM versions').fetchone()[0] == expected_pages
+
+    page_state(second, 1)
+    assert not first_report['scan_complete'] and first_report['counts'] == {'issue': 1}
+    index = RepositoryIndex(index.root, REPO)
+    second_reader = Reader({second: ([issue(2)], third, digest('second cursor page'))})
+    second_report = index.sync(reader=second_reader, max_requests=2,
+                               snapshot_builder=lambda _: pytest.fail('snapshot rebuilt on cursor resume'))
+    page_state(third, 2)
+    assert first not in second_reader.calls and second in second_reader.calls
+    assert second_report['current_snapshot'] == original_snapshot
+    index = RepositoryIndex(index.root, REPO)
+    third_reader = Reader({third: ([issue(3)], None, digest('terminal cursor page'))})
+    final_report = index.sync(reader=third_reader,
+                              snapshot_builder=lambda _: pytest.fail('snapshot rebuilt on terminal page'))
+    # Other empty endpoints also get receipts after the terminal issue page.
+    with index.connect() as db:
+        issue_receipts = [json.loads(row[0]) for row in db.execute('SELECT value FROM receipts ORDER BY rowid')
+                          if '/issues?' in json.loads(row[0])['source_url']]
+        assert [(row['source_url'], row['next_url']) for row in issue_receipts] == [
+            (first, second), (second, third), (third, None)
+        ]
+        task = db.execute("SELECT * FROM tasks WHERE kind='issues'").fetchone()
+        assert task['url'] == third and task['pages'] == 3 and task['done'] == 1
+    assert first not in third_reader.calls and second not in third_reader.calls and third in third_reader.calls
+    assert final_report['scan_complete'] and final_report['counts'] == {'issue': 3}
+    assert final_report['current_snapshot'] == original_snapshot
+
+
+@pytest.mark.parametrize('suffix', [
+    'after=', 'after=one&after=two', 'after=one&after=one', 'after=bad%00cursor',
+    'after=bad%0Acursor', 'after=bad%7Fcursor', 'after=white%20space', 'after=%C3%A9',
+    'after=' + 'a' * 1025, 'before=one', 'cursor=one', 'after=one&before=two',
+    'after=one&page=2', 'after=one&page=', 'after=one&state=', 'after=one&sort=created',
+    'after=one&unknown=', 'after=one&unknown=value',
+])
+def test_invalid_issue_cursor_leaves_page_receipt_and_documents_uncommitted(connected, suffix):
+    index, builder = connected
+    first = index._url('/issues', per_page=100, page=1, state='all', sort='created', direction='asc')
+    bad = first.replace('page=1&', 'page=2&') + '&' + suffix
+    with pytest.raises(ValueError, match='GitHub'):
+        index.sync(reader=Reader({first: ([issue(1)], bad, digest('invalid cursor page'))}),
+                   snapshot_builder=builder)
+    assert index.status()['counts'] == {} and index.status()['run']['pages'] == 0
+    with index.connect() as db:
+        assert db.execute('SELECT COUNT(*) FROM receipts').fetchone()[0] == 0
+        assert db.execute('SELECT COUNT(*) FROM versions').fetchone()[0] == 0
+        task = db.execute("SELECT * FROM tasks WHERE kind='issues'").fetchone()
+        assert task['url'] == first and task['pages'] == 0
+
+
+@pytest.mark.parametrize('next_changes', [
+    {'after': None}, {'after': 'first'}, {'page': '2', 'after': 'second'},
+    {'page': '4', 'after': 'second'}, {'page': '1', 'after': 'second'},
+    {'page': '03', 'after': 'second'}, {'page': '+3', 'after': 'second'},
+    {'page': '3', 'after': 'second', 'state': 'open'},
+    {'page': '3', 'after': 'second', 'per_page': '50'},
+    {'page': '3', 'after': 'second', 'sort': 'updated'},
+    {'page': '3', 'after': 'second', 'direction': 'desc'},
+])
+def test_invalid_cursor_transition_preserves_previously_committed_page(connected, next_changes):
+    from urllib.parse import urlencode
+    index, builder = connected
+    params = dict(per_page='100', page='2', state='all', sort='created', direction='asc', after='first')
+    second = 'https://api.github.com/repositories/42/issues?' + urlencode(params)
+    first = index._url('/issues', per_page=100, page=1, state='all', sort='created', direction='asc')
+    index.sync(reader=Reader({first: ([issue(1)], second, digest('accepted cursor page'))}),
+               snapshot_builder=builder, max_requests=2)
+    params.update(page='3', after='second')
+    params.update(next_changes)
+    bad = 'https://api.github.com/repositories/42/issues?' + urlencode({k: v for k, v in params.items() if v is not None})
+    with pytest.raises(ValueError, match='GitHub'):
+        index.sync(reader=Reader({second: ([issue(2)], bad, digest('invalid next cursor page'))}))
+    assert index.status()['counts'] == {'issue': 1} and index.status()['run']['pages'] == 1
+    with index.connect() as db:
+        assert db.execute('SELECT COUNT(*) FROM receipts').fetchone()[0] == 1
+        assert db.execute('SELECT COUNT(*) FROM versions').fetchone()[0] == 1
+        task = db.execute("SELECT * FROM tasks WHERE kind='issues'").fetchone()
+        assert task['url'] == second and task['pages'] == 1
+
+
+@pytest.mark.parametrize('suffix,parameters', [
+    ('/issues/comments', dict(sort='created', direction='asc')),
+    ('/pulls/comments', dict(sort='created', direction='asc')),
+    ('/pulls', dict(state='all', sort='created', direction='asc')),
+    ('/pulls/1/files', {}), ('/pulls/1/commits', {}),
+])
+def test_after_cursor_is_not_enabled_on_other_index_endpoints(connected, suffix, parameters):
+    index, _ = connected
+    current = index._url(suffix, per_page=100, page=1, **parameters)
+    following = index._url(suffix, per_page=100, page=2, **parameters)
+    assert index._next_page(current, following, 42) is None
+    with pytest.raises(ValueError, match='GitHub'):
+        index._next_page(current, following + '&after=cursor', 42)
+
+
+@pytest.mark.parametrize('bad', [
+    'https://evil.test/repositories/42/issues',
+    'https://api.github.com/repositories/43/issues',
+    BASE.replace(REPO, 'owner/other') + '/issues',
+    'https://api.github.com/repositories/42/pulls',
+    'https://api.github.com/repositories/42/issues/comments',
+])
+def test_cursor_does_not_authorize_different_repository_or_endpoint(connected, bad):
+    index, builder = connected
+    first = index._url('/issues', per_page=100, page=1, state='all', sort='created', direction='asc')
+    next_url = bad + '?per_page=100&page=2&state=all&sort=created&direction=asc&after=cursor'
+    with pytest.raises(ValueError):
+        index.sync(reader=Reader({first: ([issue(1)], next_url, digest('wrong cursor target'))}),
+                   snapshot_builder=builder)
+    assert index.status()['counts'] == {} and index.status()['run']['pages'] == 0
+
+
 def test_commit_api_cap_is_reported_without_claiming_full_git_history(connected):
     index, builder = connected
     pull = issue(2, pull=True)

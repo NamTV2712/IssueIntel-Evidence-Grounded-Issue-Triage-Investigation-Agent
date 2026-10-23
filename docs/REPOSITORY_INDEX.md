@@ -48,7 +48,12 @@ không giả định nội dung đã lưu còn mới hay là opening version.
 Mỗi invocation kiểm lại public/global repository ID trước khi lấy trang tiếp.
 Rename/transfer/ID bị thay đổi sẽ dừng, cần kết nối tên mới rõ ràng; không âm thầm
 trộn hai lịch sử. Pagination chỉ theo cùng endpoint/filter, page tăng một; cho
-phép alias `/repositories/<id>` khi ID đã được kiểm. Không theo redirect.
+phép alias `/repositories/<id>` khi ID đã được kiểm. Riêng danh sách issues nhận
+thêm cursor `after` opaque do Link header trả về, giữ nguyên URL cho request và
+receipt tiếp theo; không tự dựng cursor hoặc đổi bộ lọc. Query trùng/blank,
+cursor thiếu tiến triển hoặc thay endpoint/identity bị từ chối trước page commit.
+Không theo redirect. GitHub mô tả các dạng page/cursor theo từng endpoint trong
+[hướng dẫn phân trang REST](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api).
 
 Các stream lấy cả trạng thái open/closed: issues (có cả PR), issue comments,
 review comments, pulls, rồi files/commits của từng PR. Trường `kind` phân biệt
