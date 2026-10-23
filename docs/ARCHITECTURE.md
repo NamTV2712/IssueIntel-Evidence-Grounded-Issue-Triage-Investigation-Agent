@@ -1170,4 +1170,62 @@ thật kiểm shifted excerpts, export, keyboard/mobile và owned follow-up mà 
 gọi model mới; native synthetic receipts giữ nguyên ở nguồn. Kiểm thử cục bộ
 gồm 73 core/integration, 74 shared Workbench/context/release/memory, 350 frontend
 và 17 Chromium E2E; các phạm vi có overlap, không cộng thành tổng độc lập.
-CI phát hành/đóng mục được theo dõi tại issue #12.
+Ba ca Chromium trực tiếp đã kiểm lại sau sửa validator. Mục 12 nghiệm thu tại
+`0c7b44c`; CI `39956853347` thành công cả hai job test/browser, issue #12 đã đóng.
+
+## Readiness và metadata dung lượng — mục 13
+
+`runtime.readiness.prerequisites` dùng chung cho `run.py --check` và
+`readiness_report`. Launcher load riêng helper stdlib từ source bằng importlib,
+vẫn chạy trên clean clone với Python `-I -S`, không cần pip/optional packages.
+Readiness không đọc `.env`, benchmark, saved pack hay receipt payload; chỉ trả
+key-presence booleans từ environment cùng stable reason codes. Config/price file
+có giới hạn 256 KB và kiểm từng ancestor trước read; RuntimeConfig/TypesafeConfig
+giữ model/authorization/dated price validation hiện có. Output cap phải chừa
+context cho input. Có cấu hình chưa là live authentication hoặc reservation:
+mọi provider có `budget_checked/live_verified: false`, 17 capability rows nêu
+điều kiện chung, chưa kiểm source/job đang chọn.
+
+Sync inspection không tạo GitHubSync/RepositoryIndex/BudgetLedger. Chỉ mở DB
+đã có bằng SQLite `mode=ro`, query_only, row-size limit và progress deadline
+0,4 giây, tối đa 50 kết nối. WAL được đọc cùng sidecar regular đã tồn tại;
+WAL-mode thiếu WAL/SHM trả unavailable để không tạo file hoặc dùng immutable
+làm mất live WAL. Corrupt/missing/unsafe trạng thái giữ unknown/missing. Cache
+presence chỉ là metadata, không chứng nhận index/report hợp lệ. Scheduler
+running đọc từ thread hiện có, không khởi động sync; App/HTTPS chưa được nghiệm
+thu chỉ nhờ environment đã khai báo.
+
+`runtime.storage.preview_storage` dùng lstat/scandir, không mở nội dung file,
+không tạo directory/DB hoặc xóa gì. Mặc định tối đa 25.000 entries, depth 40,
+3 giây cooperative giữa các thao tác filesystem; không hứa hard I/O deadline.
+Library chỉ hạ cận; HTTP không nhận cận/path. Kiểm ancestor, link/reparse,
+device boundary trước descend; lỗi/skip/cận giữ partial measurement và reason.
+Số byte là logical file lengths (hardlink names có thể đếm riêng), không phải
+allocated/reclaimable bytes. Volume free/total có trường riêng.
+
+Mọi đường dẫn được bảo vệ mặc định. `data/`, `artifacts/`, `.git`, cấu hình,
+source và môi trường không trở thành rác vì tên cache. Candidate chỉ là root
+tool caches `.pytest_cache/.ruff_cache/.mypy_cache` hoặc `__pycache__` ở root,
+src/tests, đã scan đủ và có shape/names được nhận. Receipt-like/unknown content,
+hardlink hoặc unsafe entry loại candidate. Preview không là quyền xóa và không
+có API thực thi cleanup. Traversal observation không phải snapshot transaction
+hoặc bảo đảm filesystem sẽ không đổi sau khi xem.
+
+Workbench dùng inspection lock riêng để không chạy hai inspection cùng lúc,
+không chiếm worker pipeline. API giữ session/Origin/Host guards. Panel UI lazy:
+mở/refresh mới GET readiness, storage POST cần bấm riêng, không startup scan.
+Generation/session guards bỏ response cũ; lỗi xóa kết quả cũ, không đổi report
+hoặc draft. UI có VI/EN, semantic theme tokens, logical sizes với unit dễ đọc
+và exact bytes, giới hạn render 200 rows nhưng nói rõ số bị ẩn. Browser preload
+nhiều asset dùng local TCP backlog 64 để tránh từ chối critical script trong
+burst; không mở remote bind. CI thêm Node module riêng cho readiness.
+
+Kiểm local đã đạt 80 backend/HTTP/clean-clone checks, 108 shared runtime/GitHub/
+Workbench/version regression, 28 HTTP/Workbench sau sửa backlog và 364 frontend
+(scopes overlap). Hai symlink ca
+skip vì quyền Windows; fake reparse checks và actual Windows junction đều đã
+kiểm. Toàn bộ 20 Chromium đã đạt, bao gồm 5 lượt reload kiểm burst asset, desktop/
+mobile, keyboard, draft/source preservation và lỗi xóa stale results. Ba ca trực
+tiếp kiểm lại sau sửa nhãn dịch đã đạt; default browser mode skip 20 ca. Visual
+QA Anh/sáng và Việt/tối ở 390px đã kiểm. Không có real provider call/dataset
+evaluation. CI phát hành/đóng mục được theo dõi tại issue #13.

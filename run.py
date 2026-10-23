@@ -1,38 +1,26 @@
 """Run a clean source checkout with Python + Git; no pip/venv/data bootstrap."""
 import argparse
+import importlib.util
 import json
 from pathlib import Path
-import shutil
-import sqlite3
-import subprocess
 import sys
 
 
 def check_runtime(root):
     root=Path(root).resolve()
-    problems=[]
-    if sys.version_info<(3,11):
-        problems.append('Python 3.11 or newer is required.')
-    if not (root/'src/issueintel/interfaces/web.py').is_file() or not (root/'configs/runtime.toml').is_file():
-        problems.append('Run this file from a complete IssueIntel source checkout.')
-    git=shutil.which('git')
-    if not git:
-        problems.append('Git is required. Install Git and restart the terminal.')
-    else:
-        try:
-            result=subprocess.run([git,'--version'],capture_output=True,timeout=10)
-            if result.returncode:
-                problems.append('Git could not start. Check the Git installation.')
-        except (OSError,subprocess.TimeoutExpired):
-            problems.append('Git could not start. Check the Git installation.')
-    try:
-        with sqlite3.connect(':memory:') as db:
-            db.execute('CREATE VIRTUAL TABLE check_fts USING fts5(text)')
-    except sqlite3.DatabaseError:
-        problems.append('This Python runtime needs SQLite with FTS5 support.')
-    return {'ready':not problems,'python':'.'.join(map(str,sys.version_info[:3])),
-            'git_available':git is not None,'required_python_packages':[],
-            'root':str(root),'problems':problems}
+    helper=Path(__file__).resolve().parent/'src/issueintel/runtime/readiness.py'
+    if not helper.is_file():
+        return {'ready':False,'python':'.'.join(map(str,sys.version_info[:3])),
+                'git_available':False,'required_python_packages':[],'root':str(root),
+                'problems':['Run this file from a complete IssueIntel source checkout.']}
+    # Load just the standard-library helper, including under Python -I -S.
+    spec=importlib.util.spec_from_file_location('issueintel_prerequisites',helper)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    report=module.prerequisites(root)
+    return {'ready':report['ready'],'python':report['python'],
+            'git_available':report['git_available'],'required_python_packages':[],
+            'root':str(root),'problems':[module.PREREQUISITE_MESSAGES[code] for code in report['problems']]}
 
 
 def main(argv=None, *, root=None):

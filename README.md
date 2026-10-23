@@ -22,6 +22,23 @@ python -m venv .venv
 
 Lõi dùng thư viện chuẩn Python. `data` để nhập Parquet; `dev` để kiểm thử; `llm` thêm tokenizer gốc cho các input lớn trên Groq. Không cần PostgreSQL, Docker, Torch hoặc GPU để chạy lõi.
 
+### Trạng thái hệ thống và dung lượng
+
+Mở panel **Trạng thái hệ thống và dung lượng / System readiness and storage**
+để kiểm Python/Git/FTS5, cấu hình provider/giá có ngày, sync local, cache và điều
+kiện dùng từng chức năng. Có key hoặc cấu hình hợp lệ chưa chứng minh key còn
+hiệu lực, có ngân sách cho call tiếp theo hoặc GitHub App/HTTPS đã nghiệm thu.
+Mở/làm mới chỉ đọc trạng thái local; không gọi model, tải dữ liệu hoặc khởi động
+đồng bộ. Các thao tác điều tra vẫn kiểm nguồn, consent và budget riêng.
+
+**Xem trước dung lượng và cache** là bước riêng, quét metadata có giới hạn và
+báo rõ nếu chỉ đo được một phần. Số byte là độ dài logic của file đã thấy,
+không phải số byte chắc chắn giải phóng được; dung lượng volume hiển thị riêng.
+Symlink, junction/reparse và ranh giới filesystem bị bỏ qua. Dữ liệu, artifact,
+receipt, checkpoint, Git cache, môi trường và source được giữ mặc định. Preview
+chỉ liệt kê một số cache công cụ/bytecode có dạng đã biết và đã kiểm đủ phạm vi;
+nội dung lạ hoặc hardlink làm mất điều kiện. Không có thao tác xóa trong app.
+
 ### Kiểm thử trình duyệt tổng hợp
 
 Development có extra `browser` tùy chọn, pin Playwright 1.64.1. Chạy trên Windows:

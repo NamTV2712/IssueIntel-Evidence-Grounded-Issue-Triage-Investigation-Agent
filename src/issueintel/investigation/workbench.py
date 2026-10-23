@@ -171,6 +171,7 @@ class Workbench:
         from .release_jobs import ReleaseJobs
         self.releases=ReleaseJobs(self)
         self.lock = threading.RLock()
+        self.inspection_lock = threading.Lock()
         self.pack_reads = threading.local()
         self.active = set()
         self.execution_leases = {}
@@ -327,6 +328,26 @@ class Workbench:
         plan=pack.get('workflow_plan') or {}
         if plan.get('schema')=='planned_investigation_v3' and plan.get('waiting') is not None:
             raise ValueError('Use the Planned continuation to preserve the waiting investigation budget')
+
+    def system_readiness(self):
+        from issueintel.runtime.readiness import readiness_report
+        if not self.inspection_lock.acquire(blocking=False):
+            raise ValueError('A local system inspection is already running')
+        try:
+            return readiness_report(self.root,sync_running=self.sync_thread is not None and self.sync_thread.is_alive())
+        finally:
+            self.inspection_lock.release()
+
+    def storage_preview(self,request):
+        if type(request) is not dict or request:
+            raise ValueError('Storage preview accepts an empty object, with no path or deletion options')
+        from issueintel.runtime.storage import preview_storage
+        if not self.inspection_lock.acquire(blocking=False):
+            raise ValueError('A local system inspection is already running')
+        try:
+            return preview_storage(self.root)
+        finally:
+            self.inspection_lock.release()
 
     def typesafe_status(self):
         from issueintel.runtime.typesafe import TypesafeConfig, TypesafeError

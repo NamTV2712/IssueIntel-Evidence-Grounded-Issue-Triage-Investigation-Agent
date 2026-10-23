@@ -21,6 +21,8 @@ STATIC['/preferences.js'] = ('preferences.js', 'text/javascript; charset=utf-8')
 STATIC['/repository.js'] = ('repository.js', 'text/javascript; charset=utf-8')
 STATIC['/versions.js'] = ('versions.js', 'text/javascript; charset=utf-8')
 STATIC['/versions.css'] = ('versions.css', 'text/css; charset=utf-8')
+STATIC['/readiness.js'] = ('readiness.js', 'text/javascript; charset=utf-8')
+STATIC['/readiness.css'] = ('readiness.css', 'text/css; charset=utf-8')
 STATIC['/evidence-graph.js'] = ('evidence-graph.js', 'text/javascript; charset=utf-8')
 STATIC['/evidence-graph.css'] = ('evidence-graph.css', 'text/css; charset=utf-8')
 STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
@@ -155,6 +157,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     if name == 'index.html':
                         raw = raw.replace(b'__SESSION_TOKEN__', token.encode())
                     self._send(200, raw, mime)
+                elif route == '/api/readiness':
+                    self._json(200, workbench.system_readiness())
                 elif route == '/api/catalog':
                     self._json(200, workbench.catalog())
                 elif route == '/api/typesafe/status':
@@ -339,6 +343,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                     request = json.loads(raw)
                 if route == '/api/investigations':
                     self._json(202, workbench.submit(request))
+                elif route == '/api/storage/preview':
+                    self._json(200, workbench.storage_preview(request))
                 elif route == '/api/batches/preview':
                     if type(request) is not dict or set(request) not in ({'manifest'}, {'manifest_json'}):
                         raise ValueError('A batch preview requires one manifest')
@@ -458,7 +464,12 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
             except RuntimeError:
                 self._json(429, {'error': 'Queue is full; wait for a current investigation'})
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    class LocalHTTPServer(ThreadingHTTPServer):
+        # A browser preloads many independent assets before its first script.
+        # Keep that local burst queued while request threads are scheduled.
+        request_queue_size = 64
+
+    server = LocalHTTPServer((host, port), Handler)
     server.daemon_threads = True
     server.workbench = workbench
     server.session_token = token
