@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -37,6 +38,9 @@ def main(argv=None) -> int:
     web = commands.add_parser("serve", help="Run the read-only local investigation workbench")
     web.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
     web.add_argument("--port", type=int, default=8787)
+    relay = commands.add_parser('webhook-relay',help='Run a webhook-only loopback receiver for an HTTPS gateway; never expose the Workbench UI')
+    relay.add_argument('--port',type=int,default=8788)
+    relay.add_argument('--workbench-port',type=int,default=8787)
     repository_sync = commands.add_parser("sync-repository", help="Index public GitHub code/issues/PRs locally; resume committed pages, no LLM")
     repository_sync.add_argument("--repo", required=True)
     repository_sync.add_argument("--revision", default="HEAD")
@@ -251,6 +255,10 @@ def main(argv=None) -> int:
         elif args.command == "serve":
             from issueintel.interfaces.web import serve
             serve(args.root, host=args.host, port=args.port)
+        elif args.command == 'webhook-relay':
+            from issueintel.integrations.webhook_relay import serve_relay
+            serve_relay(port=args.port,workbench_port=args.workbench_port,
+                        secret=os.environ.get('GITHUB_WEBHOOK_SECRET',''))
         elif args.command == "investigate":
             _investigate(args)
         elif args.command == "build-assets":

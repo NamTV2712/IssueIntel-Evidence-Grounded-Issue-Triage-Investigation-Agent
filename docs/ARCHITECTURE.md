@@ -1228,4 +1228,36 @@ kiểm. Toàn bộ 20 Chromium đã đạt, bao gồm 5 lượt reload kiểm bu
 mobile, keyboard, draft/source preservation và lỗi xóa stale results. Ba ca trực
 tiếp kiểm lại sau sửa nhãn dịch đã đạt; default browser mode skip 20 ca. Visual
 QA Anh/sáng và Việt/tối ở 390px đã kiểm. Không có real provider call/dataset
-evaluation. CI phát hành/đóng mục được theo dõi tại issue #13.
+evaluation. Mục 13 nghiệm thu tại `36de11f`; CI `39960756363` thành công cả hai
+job test/browser, issue #13 đã đóng.
+
+## Ingress webhook riêng và command admission — chuẩn bị mục 4
+
+`integrations.webhook_relay` là server stdlib riêng chỉ bind loopback, không
+construct Workbench/config/provider/store hoặc tự tạo tunnel. Chỉ exact POST
+`/api/github/webhook`, một envelope/body/header có cận và HMAC SHA256 hợp lệ mới
+được chuyển nguyên bytes tới exact route của cổng Workbench đã chọn. Đích luôn
+`127.0.0.1`, không redirect/discovery. Header caller chỉ giữ signature/event/
+delivery; Host/Content-Length/Content-Type được dựng lại, không mang Origin,
+Authorization, Cookie hoặc session token. Body/Location/job metadata của receiver
+không được trả ra. Unknown outcome giữ 502/504 và không tự thử lại.
+
+Semaphore nhận tối đa bốn socket trước khi tạo worker, backlog tám; tổng request
+tám giây và idle hai giây, response send có cận riêng. Request line/header/body
+giữ cận 2 KiB/16 KiB/2 MB; duplicate envelope headers, folded headers,
+Transfer-Encoding hoặc Expect bị từ chối. Deadline upstream cũng chặn response
+header/chunk trickle. Cổng relay và đích phải khác nhau, kể cả listen port 0.
+Launcher clean clone vẫn chạy `-I -S`; không cần package hoặc lưu local state.
+
+`GitHubSync.admit_command` bổ sung cổng trước command intent/submit. Payload,
+local config hoặc saved connection có App binding thì phải có local App/install
+authority, active connection và public global repository ID/installation khớp;
+nếu cấu hình cả App lẫn installation thì cả hai phải khớp. Issue-comment payload
+có thể không mang app_id; configured App vẫn kiểm với connected App đã lưu.
+Removal/suspend làm connection paused nên chặn cả redelivery. Manual signed
+webhook không có App binding vẫn theo hợp đồng cũ. Workbench canonical GUID trước
+intent để cách viết hoa/thường không tạo hai job. Inventory tối đa 10.000 entries
+giữ nguyên receipt tên cũ; nhiều case aliases bị từ chối để đối soát. Native HTTP integration giữ
+local Origin/session guard, kiểm redaction, dedup qua receiver recreation và gỡ
+installation. Bộ liên quan đạt 174 test local, không real provider/upstream write.
+Phần này chưa xác nhận App/HTTPS thật hoặc đổi publication token thành App auth.

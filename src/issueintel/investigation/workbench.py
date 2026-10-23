@@ -1689,15 +1689,29 @@ class Workbench:
     def receive_webhook(self, raw, *, signature, event, delivery, secret):
         from issueintel.integrations.repository_updates import authenticate
         payload = authenticate(raw, signature, delivery, secret)
+        delivery = delivery.lower()
         comment = payload.get('comment', {})
         if not (event == 'issue_comment' and isinstance(comment.get('body'), str)
                 and comment['body'].startswith('/issueintel investigate')):
             return self.github_sync.receive(raw, signature=signature, event=event, delivery=delivery, secret=secret)
         request = signed_command(raw, signature=signature, event=event, delivery=delivery, secret=secret)
+        self.github_sync.admit_command(payload)
         directory = self.directory/'github_deliveries'; directory.mkdir(exist_ok=True)
         path = directory/(delivery+'.json')
         fingerprint = hashlib.sha256(raw).hexdigest()
         with self.lock:
+            # Preserve older mixed-case GUID receipts on case-sensitive hosts.
+            # Conflicting aliases must not silently select a different job.
+            aliases = []
+            for count, candidate in enumerate(directory.iterdir(), 1):
+                if count > 10_000:
+                    raise ValueError('Command delivery inventory needs recovery')
+                if candidate.name.lower() == path.name:
+                    aliases.append(candidate)
+            if len(aliases) > 1:
+                raise ValueError('Command delivery identity has conflicting case aliases')
+            if aliases:
+                path = aliases[0]
             if path.exists():
                 previous = json.loads(path.read_bytes())
                 if previous['payload_sha256'] != fingerprint or not previous.get('job_id'):

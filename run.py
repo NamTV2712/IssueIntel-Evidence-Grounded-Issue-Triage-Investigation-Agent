@@ -25,12 +25,20 @@ def check_runtime(root):
 
 def main(argv=None, *, root=None):
     parser=argparse.ArgumentParser(description='Start IssueIntel locally with Python + Git. No dependency install is needed.')
-    parser.add_argument('--port',type=int,default=8787)
+    parser.add_argument('--port',type=int,default=None)
+    parser.add_argument('--webhook-relay',action='store_true',help='Receive only signed webhooks for a separate HTTPS gateway; no Workbench UI')
+    parser.add_argument('--workbench-port',type=int,default=None,help='Local Workbench target port for --webhook-relay (default 8787)')
     parser.add_argument('--check',action='store_true',help='Check prerequisites without starting the server or calling any API')
     args=parser.parse_args(argv)
     root=Path(root).resolve() if root is not None else Path(__file__).resolve().parent
-    if not 0<=args.port<=65535:
+    port=args.port if args.port is not None else 8788 if args.webhook_relay else 8787
+    if not 0<=port<=65535:
         parser.error('Choose a port from 0 to 65535')
+    if args.workbench_port is not None and not args.webhook_relay:
+        parser.error('--workbench-port requires --webhook-relay')
+    workbench_port=args.workbench_port if args.workbench_port is not None else 8787
+    if not 1<=workbench_port<=65535 or args.webhook_relay and port==workbench_port:
+        parser.error('Choose a different Workbench target port from 1 to 65535')
     report=check_runtime(root)
     if args.check:
         print(json.dumps(report,indent=2))
@@ -43,7 +51,9 @@ def main(argv=None, *, root=None):
     # The core is standard-library-only; optional tokenizer/Parquet extras stay optional.
     sys.path.insert(0,str(root/'src'))
     from issueintel.interfaces.cli import main as cli
-    return cli(['--root',str(root),'serve','--port',str(args.port)])
+    command=(['webhook-relay','--port',str(port),'--workbench-port',str(workbench_port)]
+             if args.webhook_relay else ['serve','--port',str(port)])
+    return cli(['--root',str(root),*command])
 
 
 if __name__=='__main__':

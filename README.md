@@ -404,8 +404,13 @@ chờ theo rate limit. Webhook HMAC cho repo/installation đã kết nối cập
 issue, PR, comment và snapshot nhánh đang theo dõi. Một scheduler local dùng
 chung worker/queue với investigation, không gọi model. App installation event
 có App ID/installation ID cấu hình trước sẽ tự kết nối các repo public được chọn.
-GitHub App/relay HTTPS ngoài máy vẫn cần thiết lập một lần; bản local không tự
-công khai workbench. Phần đồng bộ thủ công bên dưới vẫn dùng được độc lập.
+GitHub App/gateway HTTPS ngoài máy vẫn cần thiết lập một lần; bản local không tự
+công khai workbench. `python run.py --webhook-relay` chạy cổng loopback 8788 chỉ
+nhận `POST /api/github/webhook` có chữ ký, rồi chuyển tới Workbench loopback
+8787. Gateway chỉ nối vào relay; UI/session/API điều tra không được phục vụ qua
+cổng này. Cần `GITHUB_WEBHOOK_SECRET` local; lệnh không tự tạo tunnel hoặc cài App.
+Phần đồng bộ thủ công bên dưới vẫn dùng được độc lập. Nghiệm thu App/HTTPS thật
+vẫn chưa hoàn tất; kiểm repo public chỉ đọc không thay thế bước đó.
 
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel sync-repository --repo owner/repo --revision HEAD --max-requests 50

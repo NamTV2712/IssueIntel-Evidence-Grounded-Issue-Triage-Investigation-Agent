@@ -106,6 +106,65 @@ class GitHubSync:
         return sorted([c for c in self.connections() if not c['paused'] and c['next_attempt'] <= time.time()
                 and c['phase'] in {'initial','updates'}], key=lambda c:c.get('scheduled_at',0))
 
+    def admit_command(self, payload):
+        """Keep signed App commands inside the active installation grant.
+
+        A signature authenticates the delivery, not a still-active connection.
+        Plain manual signed webhooks retain their legacy admission only when
+        neither local configuration, payload nor saved connection is App-bound.
+        This check performs no acquisition, scheduling, provider call or write.
+        """
+        repository = payload.get('repository')
+        if not isinstance(repository, dict):
+            raise ValueError('Command repository identity is missing')
+        source = parse_github_reference(repository.get('full_name', ''))
+        if source.issue_number is not None or repository.get('private') is not False:
+            raise ValueError('Commands require a public repository')
+        name = source.repository.lower()
+        connection = self.connection(name)
+        if connection is not None and not isinstance(connection, dict):
+            raise ValueError('Command connection identity is invalid')
+        configured = {key: os.environ.get(key, '') for key in ('GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID')}
+        app_bound = (any(configured.values()) or 'installation' in payload or
+                     connection is not None and any(connection.get(key) is not None
+                                                    for key in ('app_id', 'installation_id')))
+        if not app_bound:
+            return
+        if not any(configured.values()):
+            raise ValueError('GitHub App command requires local App or installation configuration')
+        identities = {}
+        for key, value in configured.items():
+            if value:
+                if not value.isascii() or not value.isdigit() or len(value) > 20:
+                    raise ValueError('GitHub App command configuration is invalid')
+                identities[key] = _positive(int(value))
+        if (connection is None or connection.get('repository') != name
+                or connection.get('paused') is not False
+                or connection.get('phase') not in {'initial', 'updates', 'ready'}):
+            raise ValueError('GitHub App command repository is not actively connected')
+        identity = repository_identity(repository)
+        if identity['repository_id'] != _positive(connection.get('repository_id')):
+            raise ValueError('Command global repository ID differs from the connection')
+        installation = payload.get('installation')
+        if not isinstance(installation, dict):
+            raise ValueError('GitHub App command installation identity is missing')
+        installation_id = _positive(installation.get('id'))
+        if installation_id != _positive(connection.get('installation_id')):
+            raise ValueError('Command installation differs from the connected installation')
+        if ('GITHUB_INSTALLATION_ID' in identities
+                and installation_id != identities['GITHUB_INSTALLATION_ID']):
+            raise ValueError('Command installation differs from local configuration')
+        stored_app = connection.get('app_id')
+        if stored_app is not None:
+            _positive(stored_app)
+        if ('GITHUB_APP_ID' in identities
+                and (stored_app is None or stored_app != identities['GITHUB_APP_ID'])):
+            raise ValueError('Command App differs from the configured connection')
+        if 'app_id' in installation:
+            payload_app = _positive(installation['app_id'])
+            if stored_app is not None and payload_app != stored_app:
+                raise ValueError('Command App differs from the connected App')
+
     def receive(self, raw, *, signature, event, delivery, secret):
         payload = authenticate(raw, signature, delivery, secret)
         delivery = delivery.lower()
