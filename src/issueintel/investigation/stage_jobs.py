@@ -23,7 +23,7 @@ def job_policy_sha256():
            'investigation/dossier.py','investigation/planned_continuations.py','investigation/fork_origins.py',
            'investigation/memory_followups.py','investigation/check_followups.py','investigation/memory_selection.py',
            'investigation/product_memory.py','investigation/adaptive_clarifications.py','investigation/question_jobs.py',
-           'investigation/controller_accounting.py')
+           'investigation/controller_accounting.py','investigation/artifact_accounting.py')
     return digest({'core':core_policy(),**{name:sha256((package/name).read_bytes()).hexdigest() for name in names}})
 
 

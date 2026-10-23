@@ -150,6 +150,8 @@ class Workbench:
         self.claim_reviews=ClaimReviewJobs(self)
         from .issue_relation_jobs import IssueRelationJobs
         self.issue_relations=IssueRelationJobs(self)
+        from .investigation_usage_jobs import InvestigationUsageJobs
+        self.investigation_costs=InvestigationUsageJobs(self)
         from .check_observations import CheckObservationStore
         self.observation_journals=CheckObservationStore(self.directory/'plans.sqlite')
         from .check_followups import CheckFollowups
@@ -1412,6 +1414,17 @@ class Workbench:
 
     def usage(self, identifier):
         return self.job(identifier)['accounting']
+
+    def investigation_usage(self, identifier):
+        return self.investigation_costs.bundle(identifier)
+
+    def investigation_usage_export(self,identifier,format='json'):
+        if format not in {'json','md'}:raise ValueError('Choose JSON or Markdown accounting')
+        from .investigation_usage import render_markdown
+        bundle=self.investigation_usage(identifier)
+        text=(json.dumps(bundle,ensure_ascii=False,sort_keys=True,indent=2)+'\n'
+              if format=='json' else render_markdown(bundle))
+        return text.encode(),bundle['source']['selected_pack_sha256'],bundle['sha256']
 
     def plan(self,identifier,request=None):
         pack, raw, _ = self._load_pack(identifier)

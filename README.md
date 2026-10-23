@@ -282,6 +282,32 @@ Tab **Token và chi phí** và mục chi phí bên dưới tiến độ hiển t
 trước HTTP; lỗi/thiếu usage giữ cận trên. Có export JSON riêng; phiên cũ không
 có receipt hiện unknown. Đây là số liệu ghi nhận/giữ chỗ, không phải hóa đơn.
 
+Phần **Chi phí toàn chuỗi điều tra** ở mục 9 có hai phạm vi:
+**Phiên hiện tại** và **Toàn chuỗi điều tra**. Phạm vi thứ hai theo đúng liên kết
+cha/nguồn đã lưu, gồm các phiên tiếp nối/phục hồi và tác vụ câu hỏi, check plan,
+claim review hoặc đối chiếu issue gắn với nguồn đó. Mở một finalization có thể
+thấy 0 call mới trong phiên hiện tại và chi phí cũ của cha ở toàn chuỗi. Các
+phiên gốc độc lập, nhánh con khác, chi phí điều tra ứng viên được so sánh, lần tạo
+memory và tổng ledger toàn cục không tự được cộng vào.
+
+Groq và Typesafe giữ riêng phần chi phí đã biết, tổng trong phạm vi đã ghi, số
+reservation/cận còn giữ và trạng thái quyết toán usage. Receipt trùng cùng owner
+chỉ tính một lần; cùng reservation nhưng khác owner hoặc bytes là bất nhất,
+không chọn một bản để báo tổng. Đủ bản ghi vẫn có thể còn cận reserved/failed/
+missing-usage. Thiếu attempt tracking hoặc receipt giữ tổng unknown dù phần đã
+biết vẫn xem được. Thiếu proof tổ tiên/khám phá sidecar làm toàn chuỗi chưa đủ,
+không xóa số liệu của phiên hiện tại đã có đủ bản ghi riêng.
+
+Đọc/làm mới/xuất JSON hoặc Markdown chỉ chụp lại metadata/receipt local có giới
+hạn, không gọi model, Git, API key, giá mới hoặc provider ledger. API `/usage`
+cũ giữ `job_usage_v1`; `/investigation-usage` là projection riêng có snapshot và
+hash nguồn. Gói bàn giao thêm accounting của **từng phiên được chọn**; các bảng
+có thể dùng chung tổ tiên nên không cộng chúng thành tổng của cả ZIP. Hash kiểm
+bytes và binding cục bộ được gửi, không chứng minh không có call/file bị thiếu
+hoặc số tiền trên hóa đơn provider. Bộ kiểm lõi, collector/runner, bàn giao,
+hồi quy rộng và browser QA đã đạt với dữ liệu tổng hợp. CI phát hành và quyết
+định nghiệm thu mục 9 được theo dõi trong `docs/PRODUCT.md` và issue #9.
+
 Mục **Đối chiếu phiên bản code** dưới báo cáo product nhận commit/tag khác, đọc
 snapshot và lưu riêng thay đổi code cùng hash nguồn/đích. Diff ưu tiên file trong
 evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. Có thể thêm

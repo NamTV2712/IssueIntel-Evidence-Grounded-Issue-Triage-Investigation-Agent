@@ -46,7 +46,7 @@ def policy_sha256():
     package=Path(__file__).resolve().parents[1]
     names=('investigation/issue_relation_jobs.py','investigation/workbench.py','investigation/question_jobs.py',
         'investigation/comparison.py','investigation/resume.py','investigation/providers.py',
-        'runtime/config.py','runtime/budget.py')
+        'runtime/config.py','runtime/budget.py','investigation/artifact_accounting.py')
     return digest({'contract':contract.policy_sha256(),
         **{name:sha256((package/name).read_bytes()).hexdigest() for name in names}})
 

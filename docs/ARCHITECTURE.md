@@ -935,6 +935,107 @@ receipt cuối cùng trước crash. API/lịch sử/UI đọc lại không gọ
 charged-or-reserved khác hóa đơn provider; failed/missing usage giữ cận, breach
 báo riêng. Report chi phí không thay pack/benchmark receipts hoặc quyền chi.
 
+### Accounting toàn chuỗi — mục 9
+
+`investigation.usage.job_usage()` và API `/usage` tiếp tục trả `job_usage_v1`
+theo đúng một job. Projection mới không viết lại contract cũ hoặc chuyển quyền
+sở hữu receipt khi một stage/checkpoint/decision được dùng lại.
+
+`investigation.investigation_usage_jobs.InvestigationUsageJobs` thu thập một
+`investigation_usage_snapshot_v1` chỉ đọc. Bắt đầu từ job đang xem, collector đi
+ngược các edge có kiểu: follow-up/clarification/check-followup/memory-followup/
+context, Planned continuation, stage recovery, verifier resume hoặc finalization.
+Các source-bound artifact `adaptive_questions`, `check_plan`, `claim_review` và
+`issue_relation` được gắn vào chính các tổ tiên đó qua exact source pack và
+durable intent. Không gom theo tên issue/dossier để cộng các lần điều tra gốc
+độc lập, không đi sang nhánh con khác hoặc tính chi phí điều tra phía ứng viên
+của một comparison. Memory selection không kéo theo chi phí tạo memory; chi phí
+những call thực sự gửi memory trong lineage vẫn thuộc job gọi. Global ledger
+không được mở để suy phần chênh lệch.
+
+Collector kiểm request/job authority, raw pack hoặc checkpoint hashes và intent
+SQLite bằng kết nối read-only. Original root phải khớp canonical request, không
+được giấu provenance của một phiên con rồi tự khai là root để bỏ chi phí cha.
+Thiếu authority giữ gap và tổng chưa đầy đủ, dù receipt riêng còn đọc được.
+Một capture có tối đa 128 owner, 256 edge, 16
+bước ancestry, 4.096 job metadata để khám phá sidecar, 16 MB mỗi file và 64 MB
+được đọc; tối đa ba lần chụp khi bytes/listing/query đã quan sát thay đổi. Nguồn
+thiếu hoặc cận scope giữ gap thay vì suy ra không có chi phí. Một số nguồn đang
+thay đổi liên tục có thể bị từ chối đọc sau cận này. Snapshot xuất ra chỉ có
+metadata accounting, job/request/pack digests, typed edge/proof digests và receipt
+public; không chép request, prompt, issue/code input, API key hoặc database.
+
+`investigation.investigation_usage.build(snapshot)` là lớp thuần dữ liệu dùng
+chung cho API/export/handoff, trả `investigation_usage_v1`. `source` giữ selected
+job, pack SHA khi có và snapshot SHA; `snapshot` giữ đúng một capture, không chụp
+lần hai để ghép response. `owners` có metadata và tổng riêng từng owner; `current`
+chỉ gồm job đang xem, `lineage` gồm các owner đã khóa. Pure validator kiểm đồ thị
+có hướng child → parent, không chu trình, tối đa một parent, chỉ cho sidecar bám
+vào ancestry của selection; một investigation sibling hoặc root độc lập dù nối
+được trong đồ thị vẫn bị từ chối.
+
+Tổng Groq và Typesafe dùng integer micro-USD. Mỗi receipt có digest của captured
+bytes; Groq kiểm kiểu/bounds/status/date, Typesafe dùng native
+`runtime.typesafe.validate_receipt()` kể cả trạng thái `reserved`. Đây là kiểm
+accounting riêng, không gọi admission recovery và không nới cổng phục hồi đang
+chặn Jev receipt còn reserved. Dedup dùng `(provider, reservation_id)` và owner
+bất biến. Hai bản giống hệt của cùng owner chỉ tính một lần; đổi owner hoặc
+receipt bytes tạo conflict, loại reservation đó khỏi known subtotal và giữ tổng
+unknown, không ưu tiên bản settled hoặc bản mới hơn.
+
+Controller attempts khóa actual owner, context, stage và decision slot duy nhất.
+Mỗi Typesafe receipt đã capture phải thuộc đúng owner và một slot đã ghi;
+hai reservation không được chiếm cùng slot. Slot không khớp hoặc bị lặp tạo
+`attempt_inventory_invalid`: receipt hợp lệ còn góp known subtotal, còn attempt
+count và complete total giữ unknown. Không suy đủ inventory chỉ vì số receipt
+bằng số attempt.
+
+Mỗi provider có `known_micro_usd_charged_or_reserved`,
+`complete_micro_usd_charged_or_reserved`, `inventory_complete` và
+`all_usage_settled`, cùng counts cho attempts/reservations/duplicates/retained
+bounds/conflicts/anomalies. Complete total là null khi thiếu tracking/count,
+receipt, có native validation failure, breach hoặc source/accounting gap liên
+quan. Một inventory đầy đủ vẫn có thể chứa reserved/failed/missing-usage bounds
+và chưa settled. Legacy receipt có thể góp known subtotal, nhưng không tự suy
+attempt count bằng số receipt để tuyên bố inventory đầy đủ.
+
+`LINEAGE_ONLY_GAPS` tách missing ancestor/source-pack/sidecar-discovery proof và
+cận scope khỏi lỗi accounting của chính owner: chúng làm lineage chưa đủ, còn
+current/owner giữ tổng riêng nếu attempts và receipts của nó đủ. Missing attempt,
+receipt, ownership/native validation hoặc tracking của owner vẫn làm current
+unknown. Tất cả gap còn trong bundle; không xóa phần chưa biết để có tổng bằng 0.
+
+`artifact_accounting.ArtifactCalls` bổ sung
+`source_artifact_attempt_v1`, `artifact_attempts` và `artifact_receipt_owners`
+cho câu hỏi/check-plan/claim-review mới. Mỗi call ghi slot trước provider, khóa
+source job/pack/projection và owner; receipt callback lưu reservation trước HTTP
+và terminal state sau call kể cả nguồn đã đổi trong flight. Lỗi không cấp retry
+mới hoặc xóa attempt không có receipt; max call vẫn 1/2/2. Journal này cho
+collector phân biệt 0 call đã ghi với attempt không có receipt. Legacy không có
+journal giữ attempt count unknown, không migration hay gọi lại model. Journal đã
+khởi tạo, kể cả còn rỗng, không được reset khi runner vào lại để cấp thêm attempt.
+Runner/collector đã có kiểm thử tổng hợp; toàn mốc vẫn đang nghiệm thu.
+
+Workbench cung cấp `investigation_usage()` và `investigation_usage_export()`;
+GET `investigation-usage`, `.json`, `.md` dùng cùng bundle. Downloads khóa
+`X-IssueIntel-Accounting-SHA256` và thêm `X-IssueIntel-Source-Pack-SHA256` khi có
+pack binding. UI chỉ hiển thị tổng từ projection, không cộng lại ledger/receipts;
+đổi ngôn ngữ/theme không gọi model. Đọc/làm mới không đọc config, dated-price
+file, Git hoặc network và không cấp quyền chi tiêu mới.
+
+Handoff xuất `accounting/<requested-job>/snapshot.json`, `usage.json`, `usage.md`
+cho từng requested run. Đây là các scope độc lập có thể trùng ancestor, không
+phải các hạng mục cộng được thành tổng ZIP. Standalone verifier dùng một bản
+trusted stdlib-only freeze của native receipt/core rules, không import/execute
+Python từ archive. `validate_run_bindings()` đối chiếu mọi owner chung với
+included runs về mode/status/provider/request SHA và pack SHA khi run có binding;
+captured child edge phải khớp parent của included row. Failed run chỉ có metadata
+không chứng minh raw pack chưa từng tồn tại, nên thiếu binding không tự phủ nhận
+hash đã capture. Edge thiếu có gap vẫn xuất như unknown. Raw job/proof bodies
+không có trong accounting snapshot: việc replay chỉ chứng minh included-byte
+consistency và các binding được khai báo, không xác thực tác giả, chứng minh
+không thiếu file/call hoặc xác nhận hóa đơn provider.
+
 Reservation token/cost trước HTTP được ghi trong SQLite transaction `BEGIN IMMEDIATE`, chống các call đồng thời vượt tổng khi có cap. Tác giả đã cho phép bỏ token/USD cap cho công việc dựng lại cần thiết; explicit flags phải khớp author decision, không suy ra unlimited từ cấu hình thiếu. Usage hợp lệ mới giảm charge từ cận trên; call lỗi/usage thiếu giữ cận. Usage vượt bound hoặc bất nhất khóa ledger để review. Ledger không chứa prompt/secret. Giá có ngày và nguồn, decimal/round-up, giá cũ quá 30 ngày chặn.
 
 Authorization không đi qua redirect; chỉ endpoint Groq cố định. Không retry ngầm, built-in tool hoặc vòng server không kiểm soát. CI chỉ dùng synthetic fixture/mocked transport. PostgreSQL DSN cũ trong .env không được dùng. Artifact/data/secrets đều ignored; demo và review chỉ dùng cục bộ.

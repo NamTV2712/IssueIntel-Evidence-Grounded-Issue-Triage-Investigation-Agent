@@ -32,6 +32,8 @@ STATIC['/claim-review.js'] = ('claim-review.js', 'text/javascript; charset=utf-8
 STATIC['/claim-review.css'] = ('claim-review.css', 'text/css; charset=utf-8')
 STATIC['/issue-relations.js'] = ('issue-relations.js','text/javascript; charset=utf-8')
 STATIC['/issue-relations.css'] = ('issue-relations.css','text/css; charset=utf-8')
+STATIC['/investigation-usage.js'] = ('investigation-usage.js','text/javascript; charset=utf-8')
+STATIC['/investigation-usage.css'] = ('investigation-usage.css','text/css; charset=utf-8')
 STATIC['/source-context.js'] = ('source-context.js', 'text/javascript; charset=utf-8')
 STATIC['/clarifications.js'] = ('clarifications.js', 'text/javascript; charset=utf-8')
 STATIC['/adaptive-questions.js'] = ('adaptive-questions.js', 'text/javascript; charset=utf-8')
@@ -60,8 +62,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None, source_pack_sha256=None, issue_relation_sha256=None):
-            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256, source_pack_sha256, issue_relation_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None, source_pack_sha256=None, issue_relation_sha256=None, accounting_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256, source_pack_sha256, issue_relation_sha256, accounting_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -89,6 +91,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Source-Pack-SHA256',source_pack_sha256)
             if issue_relation_sha256 is not None:
                 self.send_header('X-IssueIntel-Issue-Relation-SHA256',issue_relation_sha256)
+            if accounting_sha256 is not None:
+                self.send_header('X-IssueIntel-Accounting-SHA256',accounting_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -224,6 +228,13 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.evidence_graph(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'usage':
                         self._json(200, workbench.usage(parts[0]))
+                    elif len(parts)==2 and parts[1]=='investigation-usage':
+                        self._json(200,workbench.investigation_usage(parts[0]))
+                    elif len(parts)==2 and parts[1] in {'investigation-usage.json','investigation-usage.md'}:
+                        format='json' if parts[1].endswith('.json') else 'md'
+                        raw,source_sha,accounting_sha=workbench.investigation_usage_export(parts[0],format)
+                        self._send(200,raw,'application/json; charset=utf-8' if format=='json' else 'text/markdown; charset=utf-8',
+                            download=parts[1],source_pack_sha256=source_sha,accounting_sha256=accounting_sha)
                     elif len(parts) == 2 and parts[1] == 'resume':
                         self._json(200, workbench.resume_preview(parts[0]))
                     elif len(parts)==2 and parts[1]=='stage-recovery':

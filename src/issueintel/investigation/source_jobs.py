@@ -12,6 +12,7 @@ import uuid
 from issueintel.runtime.config import RuntimeConfig
 from issueintel.runtime.io import digest, write_json
 from .question_jobs import replay_snapshot
+from .artifact_accounting import ArtifactCalls,initialize_artifact_accounting,validate_artifact_accounting
 
 
 class SourceJobs:
@@ -116,10 +117,14 @@ class SourceJobs:
 
     def bundle(self, identifier):
         raw = self._raw(identifier)
-        request = json.loads(self.host._job_path(identifier).read_bytes())['request']
+        saved=json.loads(self.host._job_path(identifier).read_bytes());request=saved['request']
         self._intent(request, identifier)
         _, source = self.source(request['source_job_id'], request['source_pack_sha256'])
-        return self.validate(json.loads(raw), source)
+        bundle=self.validate(json.loads(raw), source)
+        count=validate_artifact_accounting(saved,source)
+        if count is not None and count!=bundle['provenance']['attempts']:
+            raise ValueError('Source artifact output differs from its owned provider attempts')
+        return bundle
 
     def export(self, identifier, format='json'):
         if format not in {'json', 'md'}:
@@ -133,14 +138,18 @@ class SourceJobs:
     def _run(self, row):
         host = self.host
         try:
+            initialize_artifact_accounting(host,row)
             host._check_cancelled(row['id'])
             saved = json.loads(host._job_path(row['id']).read_bytes())
             if (saved['request'] != row['request'] or saved['mode'] != self.mode
                     or saved['provider'] != 'groq' or saved['depth'] != self.depth):
+                if saved.get('id')==row['id']:
+                    row.clear();row.update(saved)
                 raise ValueError('Source review job authority changed')
             self._intent(saved['request'], row['id'])
-            host._save(row, status='running', stage='prepare_'+self.mode)
+            host._save(row,status='running',stage='prepare_'+self.mode)
             pack, source = self.source(row['request']['source_job_id'], row['request']['source_pack_sha256'])
+            calls=ArtifactCalls(host,row,source)
             replay_snapshot(pack)
             host._check_cancelled(row['id'])
             config = RuntimeConfig.load(host.root)
@@ -153,14 +162,11 @@ class SourceJobs:
             if provider.model != config.model:
                 raise ValueError('Source review generation model changed')
             if hasattr(provider, 'on_receipt'):
-                def capture(receipt):
-                    row.setdefault('usage_receipts', {})[receipt['reservation_id']] = dict(receipt, stage=self.mode)
-                    host._save(row, usage_tracking=True, usage_receipts=row['usage_receipts'])
-                provider.on_receipt = capture
-                host._save(row, usage_tracking=True, usage_receipts={})
+                provider.on_receipt=calls.capture
 
             def admit_call():
                 host._check_cancelled(row['id'])
+                calls.fresh()
                 saved = json.loads(host._job_path(row['id']).read_bytes())
                 if (saved['request'] != row['request'] or saved['mode'] != self.mode
                         or saved['provider'] != 'groq' or saved['depth'] != self.depth):
@@ -171,15 +177,15 @@ class SourceJobs:
                     raise ValueError('Source review source changed during generation')
 
             def complete(messages, max_output_tokens):
-                admit_call()
+                admit_call();calls.begin()
                 answer = provider(messages, max_output_tokens)
-                host._check_cancelled(row['id'])
+                admit_call()
                 return answer
             if hasattr(provider, 'complete_structured'):
                 def structured(messages, *, max_output_tokens, schema):
-                    admit_call()
+                    admit_call();calls.begin()
                     answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
-                    host._check_cancelled(row['id'])
+                    admit_call()
                     return answer
                 complete.complete_structured = structured
             host._save(row, stage='generate_'+self.mode)

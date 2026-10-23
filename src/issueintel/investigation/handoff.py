@@ -46,6 +46,9 @@ def _viewer(selection):
         body.append('</article>')
     for key in ('plans','observations','claim_reviews','issue_relations','transitions','timeline','hypothesis_links','warnings'):
         body.append('<details><summary>'+esc(key)+'</summary><pre>'+esc(_json(selection.get(key,[])).decode())+'</pre></details>')
+    for accounting in selection.get('accounting',[]):
+        from .investigation_usage import render_markdown as accounting_markdown
+        body.append('<article><h2>Captured investigation costs / Chi phí điều tra · '+esc(accounting['job_id'])+'</h2><pre>'+esc(accounting_markdown(accounting['bundle']))+'</pre></article>')
     body.append('<p>Selection SHA256: <small>'+esc(selection['sha256'])+'</small></p></html>')
     return ''.join(body).encode()
 
@@ -73,9 +76,19 @@ class Handoffs:
             if parent and parent not in included:included.add(parent);pending.append(parent)
             if len(included)>40:raise ValueError('Handoff ancestry exceeds the bound')
         chosen=[deepcopy(row) for row in dossier['runs'] if row['job_id'] in included]
+        accounting=[]
+        from .investigation_usage import validate_run_bindings
+        for job_id in sorted(request['job_ids']):
+            bundle=self.host.investigation_usage(job_id)
+            validate_run_bindings(bundle,{key:runs[key] for key in included})
+            expected=(runs[job_id]['binding'] or {}).get('pack_sha256')
+            if (bundle['source']['selected_job_id']!=job_id
+                    or expected is not None and bundle['source']['selected_pack_sha256']!=expected):
+                raise ValueError('Accounting source changed during handoff')
+            accounting.append({'job_id':job_id,'bundle':bundle})
         source=dict(dossier['source'],dossier_sha256=dossier['sha256'])
         selection=_sealed({'schema':'issueintel_handoff_selection_v1','source':source,'issue':dossier['issue'],
-            'requested_job_ids':sorted(request['job_ids']),'runs':chosen,
+            'requested_job_ids':sorted(request['job_ids']),'runs':chosen,'accounting':accounting,
             'plans':[r for r in dossier['plans'] if r['source_job_id'] in included],
             'claim_reviews':[r for r in dossier['claim_reviews'] if r['source_job_id'] in included],
             'issue_relations':[r for r in dossier.get('issue_relations',[]) if r['source_job_id'] in included],
@@ -90,6 +103,7 @@ class Handoffs:
                 'Only selected runs and required ancestors are included; this is not the full source dossier.',
                 'Source replay was performed locally at export. Offline verification checks included bytes and declared bindings, not original Git or remote provenance.',
                 'Issue comparisons include frozen candidate issue inputs, which may belong to an issue outside the selected dossier; their projections, quotes and assessment gates are checked, not full candidate Git/ancestry or provider execution.',
+                'Accounting is a separate captured lineage projection for each requested run. Shared ancestor costs can occur in more than one projection; these are not additive ZIP-wide totals. Missing calls and provider invoices are not independently verified.',
                 'User content, repository paths, code excerpts and observations are private until explicitly shared by the author.'],
             'model_calls':0,'evaluation_performed':False})
         files={};kinds={}
@@ -99,6 +113,12 @@ class Handoffs:
         add('handoff.json',_json(selection),'selected_history')
         add('index.html',_viewer(selection),'offline_viewer')
         add('verify.py',Path(portable_verify.__file__).read_bytes(),'standalone_verifier')
+        for accounting in selection['accounting']:
+            from .investigation_usage import render_markdown as accounting_markdown
+            prefix='accounting/'+accounting['job_id']+'/'
+            add(prefix+'snapshot.json',_json(accounting['bundle']['snapshot']),'captured_accounting_sources')
+            add(prefix+'usage.json',_json(accounting['bundle']),'investigation_usage')
+            add(prefix+'usage.md',accounting_markdown(accounting['bundle']).encode(),'investigation_usage_markdown')
         for relation in selection['issue_relations']:
             from .issue_relations import render_markdown as relation_markdown
             relation_id=relation['relation_job_id'];bundle=relation['bundle']
@@ -163,7 +183,8 @@ class Handoffs:
             '   Or inspect verify.py, then run it with Python 3.11+: python verify.py bundle.zip --expected-sha256 SHA\n'
             '3. Open index.html locally after extracting with your usual trusted archive tool. No server or API is needed.\n'
             '4. Report JSON/Markdown and original source packs are under runs/. Selected journals/plans are in handoff.json.\n'
-            '5. Issue-pair comparisons and their frozen candidate inputs are under relations/ when selected.\n\n'
+            '5. Issue-pair comparisons and their frozen candidate inputs are under relations/ when selected.\n'
+            '6. Per-requested-run captured lineage costs are under accounting/. They are not additive across runs and are not provider invoices.\n\n'
             'The archive has private issue text, code, paths and observations. Review before sharing.\n'
             'Hashes check consistency, not authorship or semantic truth. The HTML page does not run verification.\n'
             'User reports/model judgments are unverified; this is not a benchmark evaluation or proof of a fix.\n')

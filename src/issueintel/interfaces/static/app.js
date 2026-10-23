@@ -89,6 +89,7 @@ async function submit(event) {
 async function runJob(request,existingJob=null) {
   window.IssueIntelClaimReview?.cancel();
   window.IssueIntelIssueRelations?.cancel();
+  window.IssueIntelInvestigationUsage?.cancel();
   if($('run-button').disabled)return;
   window.IssueIntelStageRecovery?.show(null);
   window.IssueIntelFinalization?.show(null);
@@ -121,6 +122,7 @@ async function runJob(request,existingJob=null) {
 async function openJob(id) {
   window.IssueIntelClaimReview?.cancel();
   window.IssueIntelIssueRelations?.cancel();
+  window.IssueIntelInvestigationUsage?.cancel();
   const generation=++viewGeneration;
   window.IssueIntelDossier?.cancel();
   window.IssueIntelFinalization?.show(null);
@@ -193,6 +195,9 @@ function showStageArtifacts(row) {
 function showUsage(row){
   usageView=row;
   $('usage-panel').hidden=false;
+  window.IssueIntelInvestigationUsage?.render($('investigation-usage-status'),row.id,{
+    packSha:row.id===currentJob?reportView?.source?.pack_sha256:null,
+    revision:row.status+':'+(row.accounting?.sha256||'')});
   window.IssueIntelUsage.render($('usage-content'),row.accounting,row);
 }
 function savedTypesafeUsage(){
@@ -222,6 +227,7 @@ function renderTab() {
   window.IssueIntelMemory?.cancel();
   window.IssueIntelClaimReview?.cancel();
   window.IssueIntelIssueRelations?.cancel();
+  window.IssueIntelInvestigationUsage?.cancel($('tab-content'));
   document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tab===activeTab));
   const content=$('tab-content');content.replaceChildren();window.IssueIntelEvidenceGraph?.cancel();window.IssueIntelHypothesisReview?.cancel();window.IssueIntelCheckJournal?.cancel();window.IssueIntelProductChecks?.cancel();if(!pack)return;
   if(activeTab==='overview')window.IssueIntelReport?.render(content,reportView,currentJob,{
@@ -339,7 +345,10 @@ function renderTab() {
     content.append(node('pre',JSON.stringify({stop_reason:pack.stop_reason,trace:pack.trace,refinement:pack.refinement,workflow_plan:pack.workflow_plan,controller_decisions:pack.controller_decisions,stage_checkpoints:pack.stage_checkpoints,resumed_from:pack.resumed_from,finalized_from:pack.finalized_from,context_selection:pack.context_selection,leakage_audit:pack.leakage_audit},null,2)));
   }
   if(activeTab==='graph')window.IssueIntelEvidenceGraph.render(content,currentJob);
-  if(activeTab==='usage')window.IssueIntelUsage.render(content,usageInfo,{id:currentJob,...savedTypesafeUsage()});
+  if(activeTab==='usage'){
+    const chain=node('div');content.append(chain);window.IssueIntelInvestigationUsage?.render(chain,currentJob,{packSha:reportView?.source?.pack_sha256});
+    const legacy=node('details');legacy.append(node('summary',t('Receipt riêng của phiên hiện tại')));const receipts=node('div');window.IssueIntelUsage.render(receipts,usageInfo,{id:currentJob,...savedTypesafeUsage()});legacy.append(receipts);content.append(legacy);
+  }
   if(activeTab==='github') {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
     content.append(node('p',t("Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue."),'notice'),button);
@@ -365,7 +374,7 @@ async function history() {
   try {jobRows=await api('/api/jobs');renderHistory();}catch(error){message(error.message,true);}
 }
 function renderHistory() {
-  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):row.mode==='finalization'?t("Kết xuất từ checkpoint"):row.mode==='stage_resume'?t('Phục hồi điều tra'):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.disabled=['queued','running'].includes(row.status);el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
+  const rows=jobRows;comparisonChoices(rows);$('history-list').replaceChildren(...rows.map(row=>{const el=node('button',undefined,'history-row');el.append(node('strong',row.case_id || (row.mode==='example'?t("Ví dụ tổng hợp"):row.mode==='main_dev'?t("Main Dev"):row.mode==='finalization'?t("Kết xuất từ checkpoint"):row.mode==='stage_resume'?t('Phục hồi điều tra'):t("Issue của bạn"))),node('span',t(row.status)),node('small',new Date(row.created_at).toLocaleString(window.IssueIntelUI.locale())));el.onclick=()=>row.status==='completed'?openJob(row.id).catch(error=>message(error.message,true)):(++viewGeneration,showStageArtifacts(row),showUsage(row));return el;}));if(!rows.length)$('history-list').append(node('p',t("Chưa có lần điều tra nào."),'muted'));
 }
 function comparisonChoices(rows) {
   const completed=rows.filter(row=>row.status==='completed');

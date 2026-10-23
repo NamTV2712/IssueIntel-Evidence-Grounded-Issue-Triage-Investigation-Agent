@@ -11,6 +11,7 @@ from issueintel.runtime.io import digest, write_json
 from .comparison import compare_packs
 from .pipeline import validate_prepared_evidence
 from .adaptive_clarifications import build_source, generate_questions, validate_bundle
+from .artifact_accounting import ArtifactCalls,initialize_artifact_accounting,validate_artifact_accounting
 
 
 def replay_snapshot(pack):
@@ -97,7 +98,7 @@ class QuestionJobs:
 
     def bundle(self,identifier,*,expected_source=None):
         raw=self._raw(identifier)
-        request=json.loads(self.host._job_path(identifier).read_bytes())['request']
+        saved=json.loads(self.host._job_path(identifier).read_bytes());request=saved['request']
         if (set(request)!={'source_job_id','source_pack_sha256','confirmation','mode','provider','depth'}
                 or request['mode']!='adaptive_questions' or request['provider']!='groq' or request['depth']!='questions'
                 or request['confirmation']!='generate_questions_with_api_cost'):
@@ -113,6 +114,8 @@ class QuestionJobs:
                 (request['source_job_id'],request['source_pack_sha256'])).fetchone()
         finally:db.close()
         if intent!=(identifier,):raise ValueError('Question generation intent changed')
+        count=validate_artifact_accounting(saved,expected_source)
+        if count is not None and count!=1:raise ValueError('Question output differs from its owned provider attempt')
         return validate_bundle(json.loads(raw),expected_source)
 
     def read_bytes(self,identifier):
@@ -122,6 +125,7 @@ class QuestionJobs:
     def _run(self,row):
         host=self.host
         try:
+            initialize_artifact_accounting(host,row)
             host._check_cancelled(row['id'])
             db=self._db()
             try:
@@ -133,6 +137,7 @@ class QuestionJobs:
             if intent!=(row['id'],):raise ValueError('Missing durable question generation intent')
             host._save(row,status='running',stage='prepare_questions')
             pack,source=self.source(row['request']['source_job_id'],row['request']['source_pack_sha256'])
+            calls=ArtifactCalls(host,row,source)
             replay_snapshot(pack)
             host._check_cancelled(row['id'])
             config=RuntimeConfig.load(host.root)
@@ -143,23 +148,29 @@ class QuestionJobs:
             provider=host.provider_factory(config,call_context=context)
             if provider.model!=config.model:raise ValueError('Question generation model changed')
             if hasattr(provider,'on_receipt'):
-                def capture(receipt):
-                    row.setdefault('usage_receipts',{})[receipt['reservation_id']]=dict(receipt,stage='adaptive_questions')
-                    host._save(row,usage_tracking=True,usage_receipts=row['usage_receipts'])
-                provider.on_receipt=capture
-                host._save(row,usage_tracking=True,usage_receipts={})
+                provider.on_receipt=calls.capture
+            def admit_call():
+                host._check_cancelled(row['id']);calls.fresh()
+                db=sqlite3.connect((host.directory/'adaptive_questions.sqlite').as_uri()+'?mode=ro',uri=True,timeout=30)
+                try:
+                    saved=db.execute('SELECT target_job FROM intents WHERE source_job=? AND source_sha=?',
+                        (row['request']['source_job_id'],row['request']['source_pack_sha256'])).fetchone()
+                finally:db.close()
+                if saved!=(row['id'],):raise ValueError('Question generation intent changed')
+                _,current=self.source(row['request']['source_job_id'],row['request']['source_pack_sha256'])
+                if digest(current)!=digest(source):raise ValueError('Question source changed during generation')
             def complete(messages,max_output_tokens):
-                host._check_cancelled(row['id']);answer=provider(messages,max_output_tokens)
-                host._check_cancelled(row['id']);return answer
+                admit_call();calls.begin();answer=provider(messages,max_output_tokens)
+                admit_call();return answer
             if hasattr(provider,'complete_structured'):
                 def structured(messages,*,max_output_tokens,schema):
-                    host._check_cancelled(row['id'])
+                    admit_call();calls.begin()
                     answer=provider.complete_structured(messages,max_output_tokens=max_output_tokens,schema=schema)
-                    host._check_cancelled(row['id']);return answer
+                    admit_call();return answer
                 complete.complete_structured=structured
             host._save(row,stage='adaptive_questions')
             bundle=generate_questions(source,complete,model=provider.model,max_output_tokens=min(config.max_output_tokens,8192))
-            host._check_cancelled(row['id'])
+            admit_call()
             path=host.directory/'question_runs'/row['id']/'questions.json'
             if path.exists():raise ValueError('Question artifacts must not be overwritten')
             write_json(path,bundle)
