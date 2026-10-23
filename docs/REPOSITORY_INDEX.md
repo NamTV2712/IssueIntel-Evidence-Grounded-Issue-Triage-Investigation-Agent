@@ -80,6 +80,16 @@ thời điểm. PR commits API giới hạn 250, files 3.000: chạm ngưỡng s
 `run.api_caps`, kể cả khi API không trả next link. Các record lỗi/không truy cập
 được giữ scan pending. Không bỏ qua lỗi để báo complete.
 
+Thử đọc thật ngày 24/10/2026 trên `pypa/sampleproject` với source `21fd8d4` đã
+hoàn tất tám đợt từ checkpoint cũ, giữ snapshot commit `621e4974ca25ce531773def586ba3ed8e736b3fc`:
+12 file code/config/docs admitted, 97 issue, 141 PR, 563 issue comment, 126 review
+comment, 370 PR-file và 520 PR-commit records; pending/unavailable bằng 0.
+Điều tra offline issue #225 dùng bốn code và bốn context excerpts; mở lại pack/
+Markdown kiểm hash được với network/config/store constructors bị chặn. Đây là
+kiểm tích hợp đọc/truy xuất trên một repo nhỏ, không chứng minh chất lượng model,
+toàn bộ lịch sử GitHub hoặc nghiệm thu GitHub App. Dữ liệu/receipt/báo cáo giữ local;
+connection thử đã pause và không có thao tác ghi lên repo đích.
+
 Refresh hiện **quét đối soát toàn bộ**, upsert theo identity, giữ version cũ;
 chưa có tối ưu incremental theo webhook. Record không xuất hiện lại vẫn giữ
 trong local history: không coi sự vắng mặt là proof đã xóa. Search trả

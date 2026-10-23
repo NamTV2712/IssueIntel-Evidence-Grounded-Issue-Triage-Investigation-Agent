@@ -623,6 +623,24 @@ URL/ID từ response. Nguồn đã đối chiếu ngày 14/10/2026:
 [Create issue comment](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
 và [Webhook validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).
 
+Ngày 24/10/2026, theo lựa chọn thử đọc repo public của tài khoản khác, đã chạy
+product smoke trên `pypa/sampleproject`, issue #225, nguồn `21fd8d4`. Scan tiếp
+tục checkpoint/snapshot cũ qua tám đợt: 97 issue, 141 PR, 563 issue comment,
+126 review comment, 370 PR-file record và 520 PR-commit record; không còn task/
+update pending hoặc unavailable record. Hai số PR-file/commit là record theo PR,
+không phải số file/commit duy nhất hoặc toàn bộ lịch sử Git. Snapshot commit
+`621e4974ca25ce531773def586ba3ed8e736b3fc` có 12 file admitted, không skipped file.
+Điều tra Quick offline hoàn tất với bốn code excerpts từ `pyproject.toml` và
+bốn repository-context excerpts có receipt. Pack/report mở lại qua read adapter,
+hash/citation consistency và snapshot-index binding đạt khi deny network/config/
+store constructors; không cần gọi model. Connection thử được pause sau khi xong.
+Không ghi lên repo đích, không mở benchmark/Holdout/Live và không đánh giá chất
+lượng chẩn đoán. Đã sửa lỗi Link issues có `after` cursor với red regression;
+74 index checks và 178 GitHub/context checks đạt, phạm vi có overlap.
+Ingress `0a40087` có cả hai CI job test/browser thành công tại run `40035125021`.
+Smoke chỉ đọc này không đóng mục 4: installation/HTTPS/events/approved comment
+thật, restart và mất quyền trên dịch vụ thật vẫn cần nghiệm thu riêng.
+
 ## Hồ sơ xuyên suốt issue (D01 — F05/F07/F14)
 
 `GET /api/jobs/<id>/dossier` và `.../dossier.json` dựng hồ sơ từ những product
