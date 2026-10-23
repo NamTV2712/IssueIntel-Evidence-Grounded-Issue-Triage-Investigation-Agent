@@ -10,7 +10,7 @@ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/issueintel/interf
 function boot(handler=()=>[],language='vi'){
   const controls=new Map(), events=new Map(), calls=[];
   class Element{
-    constructor(tag='div'){this.tag=tag;this.children=[];this.value='';this.textContent='';this.hidden=false;}
+    constructor(tag='div'){this.tag=tag;this.children=[];this.value='';this.textContent='';this.hidden=false;this.dataset={};}
     append(...children){this.children.push(...children);}
     replaceChildren(...children){this.children=children;}
     set innerHTML(_){throw Error('Source HTML must remain inert');}
@@ -19,7 +19,7 @@ function boot(handler=()=>[],language='vi'){
   const document={getElementById:get,createElement:tag=>new Element(tag),addEventListener:(name,fn)=>events.set(name,fn)};
   vm.runInNewContext(source,{document,window:{IssueIntelUI:{t:(key,values={})=>(localeContext.window.IssueIntelMessages[key]?.[language]||key).replace(/\{(\w+)\}/g,(_,k)=>values[k])}},
     api:async(route,body)=>{calls.push([route,body]);return handler(route,body);},setTimeout});
-  const change=(id,available=true)=>events.get('issueintel:packchange')({detail:{job_id:id,available}});
+  const change=(id,available=true,intake=null,pack=null)=>events.get('issueintel:packchange')({detail:{job_id:id,available,intake,pack}});
   const text=e=>e.textContent+' '+e.children.map(text).join(' ');
   return {get,calls,change,text,events,settle:()=>new Promise(resolve=>setImmediate(resolve))};
 }
@@ -144,4 +144,83 @@ test('English saved Git results translate relationship, reason and publication l
   assert.match(rendered,/No ancestry path exists in the fully checked history/);
   assert.match(rendered,/published releases and whether the issue is fixed remain unverified/);
   assert.doesNotMatch(rendered,/Quan hệ lịch sử|no_ancestor_path/);
+});
+
+function excerptReport(id,sha){
+  const output=report(id);output.source.pack_sha256=sha;
+  output.before.snapshot_sha256='d'.repeat(64);output.after.snapshot_sha256='e'.repeat(64);
+  const text='<script>synthetic_source()</script>\nreturn None';
+  const quote={path:'parser.py',locator:'parser.py:1-2',start_line:1,end_line:2,text,
+    sha256:require('node:crypto').createHash('sha256').update(text).digest('hex'),revision:output.before.commit_sha,
+    file_sha256:'2'.repeat(64),raw_sha256:'3'.repeat(64),blob_sha:'4'.repeat(40)};
+  output.evidence_impact={schema:'product_evidence_impact_v1',sha256:'5'.repeat(64),source:{...output.source},
+    query_sha256:'6'.repeat(64),before:{...output.before},after:{...output.after},
+    fix_status:'unverified',evaluation_performed:false,model_calls:0,target_text_inventory_included:false,
+    verification_basis:'declared_captured_local_search',limitations:['Declared local search; not a verified fix.'],
+    limits:{max_evidence:128,max_excerpt_utf8:65536,max_scan_files:10000,max_scan_utf8:25000000,
+      max_scan_lines:1000000,max_match_checks:2000000,max_matches:8,max_witness_utf8:2097152},
+    entries:[{evidence_id:'e-source',status:'unchanged',reason:'same_locator_exact_text',before:quote,
+      hypotheses:{support_ids:['h-source'],counter_ids:[]},after:{path_status:'admitted',same_path_file:null,
+        original_slot:{...quote,revision:output.after.commit_sha},matches:[],skipped_reason:null,
+        search:{performed:false,complete:false}}}],
+    counts:{unchanged:1,moved:0,changed:0,missing:0,unavailable:0,ambiguous:0},
+    coverage:{reported:1,source_code_evidence_total:1,source_noncode_omitted:0,after_admitted_files:1,
+      after_skipped_files:0,searches_complete:0,searches_limited:0}};
+  return output;
+}
+
+test('owned follow-up uses explicit version eligibility and reviewed pack identity',async()=>{
+  const sha='a'.repeat(64),output=excerptReport('owned-followup',sha);
+  const app=boot(route=>route==='/api/versions'?{id:'comparison'}:route==='/api/jobs/comparison'?{status:'completed'}:
+    route.endsWith('versions.json')?output:[],'en');
+  app.change('owned-followup',false,{versions_available:true,source_pack_sha256:sha},{snapshot:{commit_sha:'a'.repeat(40)}});
+  await app.settle();assert.equal(app.get('versions-panel').hidden,false);
+  app.get('versions-revision').value='target';await app.get('versions-form').onsubmit({preventDefault(){}});
+  const request=app.calls.find(call=>call[0]==='/api/versions')[1];
+  assert.equal(request.source_pack_sha256,sha);
+  const text=app.text(app.get('versions-result'));
+  assert.match(text,/Which cited excerpts are affected/);assert.match(text,/Original cited excerpt/);
+  assert.match(text,/<script>synthetic_source\(\)<\/script>/);assert.match(text,/h-source/);
+  assert.match(text,/not been independently replayed/);
+});
+
+test('explicit version denial cannot be bypassed by unrelated product eligibility',async()=>{
+  const app=boot();app.change('denied',true,{versions_available:false,check_journal_available:true});
+  await app.settle();assert.equal(app.get('versions-panel').hidden,true);assert.equal(app.calls.length,0);
+});
+
+test('same job with a different pack cannot receive a late saved excerpt report',async()=>{
+  const sha='a'.repeat(64);let release;
+  const app=boot(route=>route.endsWith('/versions')?[{id:'saved',status:'completed'}]:
+    route.endsWith('versions.json')?new Promise(resolve=>{release=resolve;}):[]);
+  app.change('same-job',true,{versions_available:true,source_pack_sha256:sha});await app.settle();
+  const reading=app.get('versions-history').children[0].onclick();await app.settle();
+  app.change('same-job',true,{versions_available:true,source_pack_sha256:'b'.repeat(64)});
+  release(excerptReport('same-job',sha));await reading;
+  assert.equal(app.text(app.get('versions-result')).trim(),'');
+});
+
+test('wrong source pack in a comparison response is refused before rendering',async()=>{
+  const app=boot(route=>route==='/api/versions'?{id:'comparison'}:route==='/api/jobs/comparison'?{status:'completed'}:
+    route.endsWith('versions.json')?excerptReport('source','b'.repeat(64)):[]);
+  app.change('source',true,{versions_available:true,source_pack_sha256:'a'.repeat(64)});await app.settle();
+  app.get('versions-revision').value='target';await app.get('versions-form').onsubmit({preventDefault(){}});
+  assert.equal(app.text(app.get('versions-result')).trim(),'');
+  assert.match(app.get('versions-message').textContent,/chưa hoàn tất/);
+});
+
+test('returning to the exact source can cancel its pending comparison without cancelling another source',async()=>{
+  let finish;
+  const app=boot(route=>route==='/api/versions'?{id:'comparison'}:route==='/api/jobs/comparison'?
+    new Promise(resolve=>{finish=resolve;}):[]);
+  const intake={versions_available:true,source_pack_sha256:'a'.repeat(64)};
+  app.change('first',true,intake);await app.settle();app.get('versions-revision').value='target';
+  const pending=app.get('versions-form').onsubmit({preventDefault(){}});await app.settle();
+  app.change('second',true,intake);assert.equal(app.get('versions-cancel').hidden,true);
+  await app.get('versions-cancel').onclick();assert.ok(!app.calls.some(call=>call[0].endsWith('/cancel')));
+  app.change('first',true,intake);assert.equal(app.get('versions-cancel').hidden,false);
+  assert.equal(app.get('versions-cancel').disabled,false);
+  await app.get('versions-cancel').onclick();
+  assert.equal(app.calls.filter(call=>call[0]==='/api/jobs/comparison/cancel').length,1);
+  finish({status:'cancelled'});await pending;
 });

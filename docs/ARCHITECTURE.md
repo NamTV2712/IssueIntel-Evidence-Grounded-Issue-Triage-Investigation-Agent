@@ -1123,4 +1123,51 @@ Source cục bộ đạt 26 test backend/HTTP integration cuối, 22 HTTP route 
 trước các sửa isolation/race cuối đã được kiểm lại trong bộ 26 test. Các phạm vi
 này có overlap, không cộng thành một tổng test độc lập. Fixture Chromium dùng
 chung qua `tests/browser/conftest.py`; default optional mode skip 14 ca thành công.
-UI đã kiểm thực tế Anh/sáng và Việt/tối ở 390px. CI/đóng mục theo issue #11.
+UI đã kiểm thực tế Anh/sáng và Việt/tối ở 390px. Mục 11 nghiệm thu tại
+`34552c1`; CI `39922088313` thành công cả hai job test/browser, issue #11 đã đóng.
+
+## Đối chiếu code excerpts — mục 12
+
+`investigation.evidence_impact` dựng và kiểm `product_evidence_impact_v1` từ
+source pack cùng hai snapshot đã replay. Không Git/provider/evaluation trong
+module thuần này. Original text, full source/target commit và snapshot SHA,
+locator/file/raw/blob/excerpt hashes, support/counter hypothesis IDs được giữ.
+Snapshot có giới hạn đọc; chỉ code evidence đi vào comparison, non-code được
+đếm riêng. Pack/report/citation gốc không sửa và không mang causal validity sang
+revision đích.
+
+Khớp cùng tọa độ là `unchanged`. Nếu khác, KMP tìm đúng chuỗi LF lines trên các
+text file admitted: một vị trí là `moved`, nhiều witness là `ambiguous`; không
+thấy thì `changed` khi original path admitted, `missing` khi path vắng khỏi
+admitted scope. Skipped path/incomplete search giữ `unavailable`; không chọn vị
+trí đầu để vượt ambiguity. `moved` chỉ là exact text observation, không Git rename
+hoặc semantic mapping. Cận mỗi search là 10.000 file, 25 MB UTF-8, một triệu dòng,
+hai triệu line comparisons; tối đa 128 excerpts, 8 match witnesses/excerpt,
+2 MiB target witness text toàn artifact, JSON tối đa 12 MiB. Các cận chỉ được
+hạ, không nâng bằng request. CRLF được normalize theo LF source contract; raw
+hash vẫn phân biệt bytes. Scope/scan/count/truncation và reason được lưu rõ.
+
+Artifact không copy full target text inventory. Negative/unique-match coverage
+là captured local declarations, không thể dùng hash để chứng minh absence hoặc
+xác thực tác giả. Validator vẫn tái tính trạng thái/counts, kiểm exact source
+text/refs, target spans/hashes/revisions, type/bounds và consistency xuyên entries:
+path missing/skipped không có admitted witness, file metadata và inventory đủ
+chứa các witness đã khai báo. Kiểm saved artifact không tái quét target Git.
+
+Workbench `_version_source` dùng shared owned-product ancestry cho cả original,
+follow-up và stage recovery; chỉ cấp flag cho versions, không nới context/release.
+Reviewed source pack SHA được kiểm trước queue, chạy và công bố. Before snapshot
+replay trước target fetch; chỉ remote input gốc có quyền acquire ref đã chọn,
+target SHA được pin trước khi kiểm reference. Export JSON/Markdown có hai header
+source pack/impact SHA; saved read không load config/Git/provider. Request/row
+marker phân biệt new impact bắt buộc với report legacy không có impact.
+
+UI giữ job/pack/commit binding và generation guards cho history/result/export;
+đổi nguồn không nhận response cũ, cancel chỉ tới comparison của đúng nguồn.
+Filter/counts, quote cards hai cột hoặc một cột trên mobile, bản dịch Việt/Anh,
+semantic theme tokens và scope details dùng module versions hiện có. Chromium
+thật kiểm shifted excerpts, export, keyboard/mobile và owned follow-up mà không
+gọi model mới; native synthetic receipts giữ nguyên ở nguồn. Kiểm thử cục bộ
+gồm 73 core/integration, 74 shared Workbench/context/release/memory, 350 frontend
+và 17 Chromium E2E; các phạm vi có overlap, không cộng thành tổng độc lập.
+CI phát hành/đóng mục được theo dõi tại issue #12.

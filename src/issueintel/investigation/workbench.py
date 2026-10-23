@@ -757,21 +757,33 @@ class Workbench:
         return self.releases.result_bytes(identifier)
 
     def submit_versions(self, request):
-        from issueintel.investigation.versions import product_version_source
         from issueintel.repository.acquire import _validate_revision
-        if (not isinstance(request, dict) or set(request)-{'job_id','revision','reference_revision'}
+        if (not isinstance(request, dict) or set(request)-{'job_id','revision','reference_revision','source_pack_sha256'}
                 or not {'job_id','revision'} <= set(request)):
             raise ValueError('Choose a product investigation and target revision')
         revision = _validate_revision(request['revision'])
         reference = _validate_revision(request['reference_revision']) if 'reference_revision' in request else None
-        pack, raw, _ = self._load_pack(request['job_id'])
-        product_version_source(pack)  # Reject benchmark/follow-up before Git or queue.
+        if 'source_pack_sha256' in request and (type(request['source_pack_sha256']) is not str
+                or re.fullmatch('[a-f0-9]{64}',request['source_pack_sha256']) is None):
+            raise ValueError('Review the exact source pack before comparing revisions')
+        pack, raw, _ = self._version_source(request['job_id'],request.get('source_pack_sha256'))
         return self._enqueue({'mode':'version_comparison', 'provider':'none', 'depth':'versions',
                               'source_job_id':request['job_id'], 'source_pack_sha256':hashlib.sha256(raw).hexdigest(),
+                              'evidence_impact_schema':'product_evidence_impact_v1',
                               'revision':revision, **({'reference_revision':reference} if reference is not None else {})}, self._run_versions)
 
+    def _version_source(self,identifier,expected=None):
+        """Share authenticated product ancestry without widening other APIs."""
+        from .versions import product_version_source
+        with self._pack_read_scope():
+            pack,raw,_=self.memory._source(identifier,expected)
+            product_version_source(pack,owned_product=True)
+            origin,_=self.dossiers._origin(identifier,authenticate=True)
+            original=json.loads(self._job_path(origin).read_bytes())['request']
+        return pack,raw,original
+
     def versions_history(self, identifier):
-        self._load_pack(identifier)
+        self._version_source(identifier)
         rows = []
         for path in sorted(self.jobs.glob('*.json'), key=lambda p:p.stat().st_mtime, reverse=True):
             row = json.loads(path.read_bytes())
@@ -819,32 +831,42 @@ class Workbench:
                     or (reference is not None and (reference['requested_revision']!=request['reference_revision']
                         or reference['commit_sha']!=row['reference_commit']))):
                 raise ValueError('Version ancestry source or reference binding changed')
+        impact=result.get('evidence_impact')
+        request=json.loads(self._job_path(identifier).read_bytes())['request']
+        if impact is not None or row.get('impact_schema') or request.get('evidence_impact_schema'):
+            from .evidence_impact import SCHEMA,validate_impact
+            if (not isinstance(impact,dict) or row.get('impact_schema')!=SCHEMA
+                    or request.get('evidence_impact_schema')!=SCHEMA or impact.get('sha256')!=row.get('impact_sha256')
+                    or result['source']!={'job_id':request['source_job_id'],'pack_sha256':request['source_pack_sha256']}
+                    or result['before']!={key:source_pack['snapshot'][key] for key in ('commit_sha','snapshot_sha256')}
+                    or result['after']['commit_sha']!=row['target_commit']
+                    or impact.get('before')!=result['before'] or impact.get('after')!=result['after']
+                    or result.get('sha256')!=digest({key:value for key,value in result.items() if key!='sha256'})):
+                raise ValueError('Evidence comparison source or target binding changed')
+            self._version_source(request['source_job_id'],request['source_pack_sha256'])
+            validate_impact(impact,pack=source_pack,source_job_id=request['source_job_id'],
+                            source_pack_sha256=request['source_pack_sha256'])
         return raw
 
     def _run_versions(self, row):
-        from issueintel.investigation.versions import compare_versions, product_version_source
+        from issueintel.investigation.versions import compare_versions
+        from issueintel.investigation.evidence_impact import build_impact
         from issueintel.investigation.reachability import inspect_reachability
         from issueintel.repository.snapshot import build_snapshot
         try:
             self._check_cancelled(row['id'])
             self._save(row, status='running', stage='compare_versions')
             request = row['request']
-            pack, raw, _ = self._load_pack(request['source_job_id'])
-            product_version_source(pack)
+            pack, raw, source_request = self._version_source(request['source_job_id'],request['source_pack_sha256'])
             if hashlib.sha256(raw).hexdigest() != request['source_pack_sha256']:
                 raise ValueError('Source pack changed while queued')
             local = Path(pack['snapshot']['repository'])
             before = build_snapshot(local, pack['snapshot']['commit_sha'])
-            compare_versions(pack, before, before)  # Replay source bytes before any target fetch.
+            compare_versions(pack, before, before,owned_product=True)  # Replay source bytes before any target fetch.
             self._check_cancelled(row['id'])
             # Only the original explicitly remote input may fetch a named ref.
-            source_request = json.loads(self._job_path(request['source_job_id']).read_bytes())['request']
-            for _ in range(10):
-                if source_request['mode'] not in {'resume','context'}:break
-                parent_key='source_job_id' if source_request['mode']=='resume' else 'parent_job_id'
-                source_request=json.loads(self._job_path(source_request[parent_key]).read_bytes())['request']
-            else:raise ValueError('Product request ancestry exceeds its bound')
-            remote = source_request['mode'] == 'github' or (source_request['mode'] == 'local' and not Path(source_request['repository']).is_dir())
+            remote = (source_request['mode'] == 'github' or source_request['mode'] == 'local'
+                      and Path(source_request['repository']).resolve()!=local.resolve())
             if remote:
                 acquired = acquire_repository(pack['case']['repository'], request['revision'], self.root/'data/repos')
                 if acquired.path.resolve() != local.resolve():
@@ -854,7 +876,9 @@ class Workbench:
                 revision = request['revision']
             self._check_cancelled(row['id'])
             after = build_snapshot(local, revision)
-            result = compare_versions(pack, before, after)
+            result = compare_versions(pack, before, after,owned_product=True)
+            result['evidence_impact']=build_impact(pack,before,after,source_job_id=request['source_job_id'],
+                                                 source_pack_sha256=request['source_pack_sha256'])
             self._check_cancelled(row['id'])
             reference=request.get('reference_revision')
             if remote and reference is not None:
@@ -875,11 +899,13 @@ class Workbench:
             result.pop('sha256')
             result['sha256'] = digest(result)
             self._check_cancelled(row['id'])
+            self._version_source(request['source_job_id'],request['source_pack_sha256'])
             path = self.directory/'runs'/row['id']/'versions.json'
             write_json(path, result)
             self._save(row, status='completed', stage='completed',
                        source_job_id=request['source_job_id'], target_commit=after.commit_sha,
                        reachability_schema=ancestry['schema'],
+                       impact_schema=result['evidence_impact']['schema'],impact_sha256=result['evidence_impact']['sha256'],
                        reference_commit=ancestry['reference']['commit_sha'] if ancestry['reference'] else None,
                        result={'versions.json':{'path':path.relative_to(self.root).as_posix(),
                                                'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}})
@@ -1481,10 +1507,16 @@ class Workbench:
         except (ValueError,KeyError,TypeError,OSError):
             available=False
             journal_available=False
+        try:
+            self._version_source(identifier,hashlib.sha256(raw).hexdigest())
+            versions_available=True
+        except (ValueError,KeyError,TypeError,AttributeError,OSError):
+            versions_available=False
         return dict(self._inspect_query(pack['case']['problem_statement'],cue_text),
                     source_pack_sha256=hashlib.sha256(raw).hexdigest(), job_id=identifier,
                     clarifications_available=available,
                     check_journal_available=journal_available,
+                    versions_available=versions_available,
                     clarifications=self._questions_for_pack(pack) if available else None)
 
     def evidence_graph(self, identifier):

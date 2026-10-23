@@ -3,7 +3,14 @@
   'use strict';
   const get=id=>document.getElementById(id), t=window.IssueIntelUI.t;
   const el=(tag,text,cls)=>{const item=document.createElement(tag);if(text!==undefined)item.textContent=text;if(cls)item.className=cls;return item;};
-  let selected=null, result=null, rows=[], running=null, notice=null;
+  let selected=null, scope=null, result=null, resultJob=null, rows=[], running=null, notice=null;
+  let generation=0,resultVersion=0,historyVersion=0,impactFilter='all';
+  const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+  const commit=value=>typeof value==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value);
+  const statuses=['unchanged','moved','changed','missing','unavailable','ambiguous'];
+  const impactLabels={unchanged:'Đoạn giữ nguyên',moved:'Đoạn khớp ở vị trí khác',changed:'Đoạn nguồn thay đổi',missing:'Không thấy trong phạm vi đã đọc',unavailable:'Chưa đối chiếu đủ',ambiguous:'Nhiều vị trí khớp'};
+  const current=(source,version)=>scope===source&&generation===version&&source?.available===true;
+  const sameSource=(left,right)=>left&&right&&left.job===right.job&&left.sha===right.sha&&left.commit===right.commit;
   const ancestryLabels={
     same_commit:'Nguồn và đích là cùng commit.',
     source_ancestor:'Commit nguồn là tổ tiên của commit đích.',
@@ -50,22 +57,93 @@
     }
     area.append(section);
   }
+  function validQuote(value,revision){return value&&typeof value.path==='string'&&typeof value.locator==='string'&&typeof value.text==='string'
+    &&Number.isInteger(value.start_line)&&value.start_line>0&&Number.isInteger(value.end_line)&&value.end_line>=value.start_line
+    &&value.revision===revision&&hash(value.sha256)&&hash(value.file_sha256)&&hash(value.raw_sha256)&&commit(value.blob_sha);}
+  function validImpact(value,report,source=scope){
+    try{
+      if(value?.schema!=='product_evidence_impact_v1'||!hash(value.sha256)||value.source?.job_id!==source?.job
+        ||value.source.pack_sha256!==report.source.pack_sha256||!hash(value.source.pack_sha256)
+        ||(source.sha&&value.source.pack_sha256!==source.sha)||!hash(value.query_sha256)
+        ||!['before','after'].every(side=>value[side]?.commit_sha===report[side].commit_sha&&value[side].snapshot_sha256===report[side].snapshot_sha256&&hash(value[side].snapshot_sha256))
+        ||value.fix_status!=='unverified'||value.evaluation_performed!==false||value.model_calls!==0||value.target_text_inventory_included!==false
+        ||value.verification_basis!=='declared_captured_local_search'||!Array.isArray(value.entries)||value.entries.length>256
+        ||!Array.isArray(value.limitations)||!value.limitations.every(line=>typeof line==='string')||!value.limits||typeof value.limits!=='object')return false;
+      const counts=Object.fromEntries(statuses.map(status=>[status,0])),seen=new Set();
+      for(const row of value.entries){if(typeof row.evidence_id!=='string'||seen.has(row.evidence_id)||!statuses.includes(row.status)||typeof row.reason!=='string'
+        ||!validQuote(row.before,value.before.commit_sha)||!Array.isArray(row.hypotheses?.support_ids)||!Array.isArray(row.hypotheses.counter_ids)
+        ||![...row.hypotheses.support_ids,...row.hypotheses.counter_ids].every(id=>typeof id==='string')
+        ||!['admitted','missing','skipped'].includes(row.after?.path_status)||!Array.isArray(row.after.matches)||row.after.matches.length>64
+        ||!row.after.matches.every(quote=>validQuote(quote,value.after.commit_sha)&&quote.text===row.before.text&&quote.sha256===row.before.sha256)
+        ||!(row.after.original_slot===null||validQuote(row.after.original_slot,value.after.commit_sha))
+        ||typeof row.after.search?.performed!=='boolean'||typeof row.after.search.complete!=='boolean')return false;
+        seen.add(row.evidence_id);counts[row.status]++;}
+      return statuses.every(status=>value.counts?.[status]===counts[status])&&value.coverage?.reported===value.entries.length
+        &&['source_code_evidence_total','source_noncode_omitted','after_admitted_files','after_skipped_files','searches_complete','searches_limited'].every(key=>Number.isInteger(value.coverage[key])&&value.coverage[key]>=0);
+    }catch(_){return false;}
+  }
+  function validResult(value,source=scope){
+    if(!value||value.source?.job_id!==source?.job||(source.sha&&value.source.pack_sha256!==source.sha)
+      ||!commit(value.before?.commit_sha)||!commit(value.after?.commit_sha)||(source.commit&&value.before.commit_sha!==source.commit)
+      ||!Array.isArray(value.files)||value.files.length>200||!value.counts||typeof value.counts!=='object')return false;
+    return value.evidence_impact===undefined||validImpact(value.evidence_impact,value,source);
+  }
+  function quoteCard(quote,label){const card=el('section',undefined,'impact-quote');card.append(el('h5',t(label)),el('p',quote.locator,'locator'),el('pre',quote.text),
+    el('p',t('Commit: ')+quote.revision,'hash-note'),el('p','Excerpt SHA256 '+quote.sha256,'hash-note'));
+    const hashes=el('details');hashes.append(el('summary',t('Hash file và Git blob')),el('p','File SHA256 '+quote.file_sha256,'hash-note'),el('p','Raw SHA256 '+quote.raw_sha256,'hash-note'),el('p','Git blob '+quote.blob_sha,'hash-note'));card.append(hashes);return card;}
+  function renderImpact(area,value){
+    const section=el('section',undefined,'evidence-impact');section.id='evidence-impact-summary';
+    section.append(el('h3',t('Thay đổi ảnh hưởng bằng chứng nào?')),el('p',t('Đối chiếu đoạn trích đã dẫn, không chuyển citation cũ sang commit mới và không xác nhận bản sửa.'),'notice'));
+    const counts=el('dl',undefined,'impact-counts');for(const status of statuses){const cell=el('div');cell.append(el('dt',t(impactLabels[status])),el('dd',String(value.counts[status])));counts.append(cell);}section.append(counts);
+    const coverage=value.coverage;section.append(el('p',t('Đã đối chiếu {reported}/{total} đoạn code; bỏ ngoài {noncode} nguồn không phải code.',{reported:coverage.reported,total:coverage.source_code_evidence_total,noncode:coverage.source_noncode_omitted}),'notice'),
+      el('p',t('Đích: {admitted} file đã đọc, {skipped} file ngoài phạm vi; {complete} lượt tìm đủ phạm vi, {limited} lượt bị giới hạn.',{admitted:coverage.after_admitted_files,skipped:coverage.after_skipped_files,complete:coverage.searches_complete,limited:coverage.searches_limited}),'notice'),
+      el('p',t('Không thấy hoặc chỉ một vị trí khớp chỉ áp dụng cho phạm vi đã đọc. Chưa replay độc lập toàn bộ repository đích.'),'notice'));
+    const filterLabel=el('label',t('Lọc trạng thái đoạn trích')),filter=el('select');filter.id='evidence-impact-filter';filterLabel.htmlFor=filter.id;
+    for(const status of ['all',...statuses]){const option=el('option',status==='all'?t('Mọi đoạn trích'):t(impactLabels[status]));option.value=status;filter.append(option);}filter.value=impactFilter;
+    const rendered=result,version=generation;filter.onchange=()=>{if(result!==rendered||version!==generation)return;if(!['all',...statuses].includes(filter.value))return;impactFilter=filter.value;render();document.getElementById('evidence-impact-filter')?.focus?.();};section.append(filterLabel,filter);
+    const items=el('div',undefined,'impact-items');items.id='evidence-impact-items';const visible=value.entries.filter(row=>impactFilter==='all'||row.status===impactFilter);
+    if(!visible.length)items.append(el('p',t('Không có đoạn trích thuộc bộ lọc này.'),'notice'));
+    for(const row of visible){const entry=el('details',undefined,'impact-entry');entry.dataset.evidenceImpactId=row.evidence_id;entry.dataset.evidenceImpactStatus=row.status;
+      entry.append(el('summary',row.evidence_id+' · '+t(impactLabels[row.status])+' · '+row.before.locator));
+      entry.append(el('p',t('Giả thuyết dùng nguồn hỗ trợ: ')+(row.hypotheses.support_ids.join(', ')||t('Không có')),'notice'),el('p',t('Giả thuyết dùng nguồn phản bác: ')+(row.hypotheses.counter_ids.join(', ')||t('Không có')),'notice'));
+      const quotes=el('div',undefined,'impact-quotes');quotes.append(quoteCard(row.before,'Đoạn nguồn đã dẫn'));
+      const target=el('section',undefined,'impact-target');
+      if(row.after.original_slot)target.append(quoteCard(row.after.original_slot,'Đoạn tại tọa độ cũ ở đích; chưa phải ánh xạ ngữ nghĩa'));
+      for(const match of row.after.matches)target.append(quoteCard(match,'Vị trí khớp chính xác ở đích'));
+      if(!row.after.original_slot&&!row.after.matches.length)target.append(el('p',t('Chưa có đoạn đích đủ điều kiện để hiển thị.'),'notice'));
+      if(row.after.skipped_reason)target.append(el('p',t('Nguồn đích ngoài phạm vi: ')+row.after.skipped_reason,'notice'));quotes.append(target);entry.append(quotes);
+      const details=el('details',undefined,'impact-search');details.append(el('summary',t('Phạm vi tìm và giới hạn')),el('pre',JSON.stringify({reason:row.reason,path_status:row.after.path_status,same_path_file:row.after.same_path_file,search:row.after.search},null,2)));entry.append(details);items.append(entry);}
+    section.append(items);const limits=el('details');limits.append(el('summary',t('Giới hạn và nguồn đối chiếu')),el('pre',JSON.stringify({source:value.source,limits:value.limits,limitations:value.limitations,sha256:value.sha256},null,2)));section.append(limits);area.append(section);
+  }
+  async function exportImpact(format){
+    const source=scope,version=generation,saved=result,job=resultJob;if(!job||!saved?.evidence_impact||!validImpact(saved.evidence_impact,saved,source))return;
+    const matches=()=>current(source,version)&&result===saved&&resultJob===job;
+    try{const response=await fetch('/api/jobs/'+job+'/evidence-impact.'+format,{headers:{'X-IssueIntel-Token':document.querySelector('meta[name="issueintel-session"]').content}});
+      if(!response.ok||response.headers.get('X-IssueIntel-Source-Pack-SHA256')!==saved.source.pack_sha256||response.headers.get('X-IssueIntel-Evidence-Impact-SHA256')!==saved.evidence_impact.sha256)throw Error('Changed impact export');
+      let body;if(format==='json'){const value=await response.json();if(value.sha256!==saved.evidence_impact.sha256||!validImpact(value,saved,source))throw Error('Changed impact body');body=new Blob([JSON.stringify(value,null,2)],{type:'application/json'});}else body=await response.blob();
+      if(!matches())return;const url=URL.createObjectURL(body),link=el('a');link.href=url;link.download='issueintel-'+job+'-evidence-impact.'+format;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(_){if(matches()){notice='Chưa xuất được đối chiếu đoạn trích đúng nguồn; mở lại bản đã lưu để kiểm tra.';render();}}
+  }
   function render(){
     get('versions-message').textContent=notice?t(notice):'';
-    get('versions-submit').disabled=!!running;
-    get('versions-cancel').hidden=!running;
+    get('versions-submit').disabled=!!running||!scope?.available;
+    get('versions-cancel').hidden=!running||!sameSource(running.source,scope);
+    get('versions-cancel').disabled=!running?.id||!sameSource(running.source,scope);
     const area=get('versions-result');area.replaceChildren();
-    if(result?.source.job_id===selected){
+    if(result&&validResult(result)){
       area.append(el('p',t('Thay đổi code chưa chứng minh lỗi đã được sửa. Không chạy code/test hoặc gọi LLM.'),'notice'),
         el('p','Before '+result.before.commit_sha,'hash-note'),el('p','After '+result.after.commit_sha,'hash-note'));
       renderReachability(area,result.git_reachability);
       const counts=el('dl',undefined,'repository-counts');
       for(const [status,count] of Object.entries(result.counts)){const cell=el('div');cell.append(el('dt',t(status)),el('dd',String(count)));counts.append(cell);}area.append(counts);
       area.append(el('p',t('Ngoài phạm vi: {before} file nguồn, {after} file đích. Bỏ bớt {omitted} mục do giới hạn hiển thị.',{before:result.before_skipped,after:result.after_skipped,omitted:result.files_omitted}),'notice'));
-      const download=el('button',t('Xuất đối chiếu JSON'));download.type='button';download.onclick=()=>{
-        const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));
+      const saved=result,version=generation,download=el('button',t('Xuất đối chiếu JSON'));download.type='button';download.onclick=()=>{
+        if(result!==saved||version!==generation||!validResult(saved))return;
+        const url=URL.createObjectURL(new Blob([JSON.stringify(saved,null,2)],{type:'application/json'}));
         const link=el('a');link.href=url;link.download='issueintel-versions.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       };area.append(download);
+      if(result.evidence_impact){const exports=el('div',undefined,'impact-actions');for(const format of ['json','md']){const button=el('button',t(format==='json'?'Xuất tác động bằng chứng JSON':'Xuất tác động bằng chứng Markdown'));button.id='evidence-impact-'+format;button.type='button';button.onclick=()=>{if(saved===result&&version===generation)return exportImpact(format);};exports.append(button);}area.append(exports);renderImpact(area,result.evidence_impact);}
+      else area.append(el('p',t('Bản đối chiếu cũ chỉ có diff file; chưa có kết quả đối chiếu từng đoạn trích.'),'notice'));
       for(const file of result.files){
         const card=el('details',undefined,'evidence-card');card.append(el('summary',file.path+' · '+t(file.status)+(file.in_source_evidence?' · '+t('Trong bằng chứng nguồn'):'')));
         for(const side of ['before','after'])if(file[side])card.append(el('p',side+' · SHA256 '+file[side].sha256,'hash-note'));
@@ -79,46 +157,50 @@
     for(const row of rows){
       const button=el('button',t('Mở đối chiếu: {id} · {status}',{id:row.id,status:t(row.status)}),'history-row');button.type='button';
       button.disabled=row.status!=='completed';button.onclick=async()=>{
-        const source=selected;
-        try{const report=await api('/api/jobs/'+row.id+'/versions.json');if(source===selected){result=report;notice=null;render();}}
-        catch(_){if(source===selected){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}}
+        const source=scope,version=generation,read=++resultVersion;
+        try{const report=await api('/api/jobs/'+row.id+'/versions.json');if(current(source,version)&&read===resultVersion){if(!validResult(report,source))throw Error('Changed version source');result=report;resultJob=row.id;impactFilter='all';notice=null;render();}}
+        catch(_){if(current(source,version)&&read===resultVersion){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}}
       };history.append(button);
     }
   }
-  async function loadHistory(source){
-    try{const found=await api('/api/jobs/'+source+'/versions');if(source===selected){rows=found;render();}}
-    catch(_){if(source===selected){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}}
+  async function loadHistory(source,version=generation){const read=++historyVersion;
+    try{const found=await api('/api/jobs/'+source.job+'/versions');if(current(source,version)&&read===historyVersion){if(!Array.isArray(found)||found.length>20)throw Error('Invalid version history');rows=found;render();}}
+    catch(_){if(current(source,version)&&read===historyVersion){notice='Không đọc được đối chiếu; kiểm tra nguồn và hash.';render();}}
   }
   document.addEventListener('issueintel:packchange',event=>{
-    get('versions-panel').hidden=!event.detail.available;
-    if(selected===event.detail.job_id)return;
-    selected=event.detail.job_id;result=null;rows=[];notice=null;get('versions-reference').value='';render();
-    if(event.detail.available)loadHistory(selected);
+    const detail=event.detail,available=typeof detail.intake?.versions_available==='boolean'?detail.intake.versions_available:detail.available===true;
+    const sha=hash(detail.intake?.source_pack_sha256)?detail.intake.source_pack_sha256:null;
+    get('versions-panel').hidden=!available;
+    if(selected===detail.job_id&&scope?.sha===sha&&scope.available===available)return;
+    generation++;resultVersion++;selected=detail.job_id;scope={job:selected,sha,available,commit:detail.pack?.snapshot?.commit_sha||null};
+    result=null;resultJob=null;rows=[];notice=null;impactFilter='all';get('versions-reference').value='';render();
+    if(available)loadHistory(scope);
   });
   document.addEventListener('issueintel:languagechange',render);
   get('versions-form').onsubmit=async event=>{
-    event.preventDefault();if(running || !selected)return;
-    const source=selected, revision=get('versions-revision').value.trim(), reference=get('versions-reference').value.trim();
-    const request={job_id:source,revision};if(reference)request.reference_revision=reference;
-    running='starting';notice='Đang đọc hai snapshot; không gọi LLM.';render();
+    event.preventDefault();if(running || !scope?.available)return;
+    const source=scope,version=generation,read=++resultVersion,revision=get('versions-revision').value.trim(), reference=get('versions-reference').value.trim();
+    const request={job_id:source.job,revision};if(source.sha)request.source_pack_sha256=source.sha;if(reference)request.reference_revision=reference;
+    const operation={source,id:null};running=operation;notice='Đang đọc hai snapshot; không gọi LLM.';render();
     try{
-      const job=await api('/api/versions',request);running=job.id;
-      if(source===selected)render();
+      const job=await api('/api/versions',request);if(typeof job?.id!=='string')throw Error('Invalid version job');operation.id=job.id;
+      if(current(source,version))render();
       for(;;){
         const state=await api('/api/jobs/'+job.id);
         if(['completed','failed','cancelled','interrupted'].includes(state.status)){
           if(state.status==='completed'){
             const report=await api('/api/jobs/'+job.id+'/versions.json');
-            if(source===selected){result=report;notice='Đã lưu đối chiếu phiên bản; tình trạng bản sửa chưa xác minh.';}
-          }else if(source===selected)notice='Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.';
+            if(current(source,version)&&read===resultVersion){if(!validResult(report,source))throw Error('Changed version source');result=report;resultJob=job.id;impactFilter='all';notice='Đã lưu đối chiếu phiên bản; tình trạng bản sửa chưa xác minh.';}
+          }else if(current(source,version)&&read===resultVersion)notice='Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.';
           break;
         }
         await new Promise(resolve=>setTimeout(resolve,1000));
       }
-    }catch(_){if(source===selected)notice='Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.';}
-    finally{running=null;render();await loadHistory(selected);}
+    }catch(_){if(current(source,version)&&read===resultVersion)notice='Đối chiếu chưa hoàn tất; kiểm tra revision và dữ liệu nguồn.';}
+    finally{if(running===operation)running=null;render();if(scope?.available)await loadHistory(scope);}
   };
   get('versions-cancel').onclick=async()=>{
-    if(running && running!=='starting')try{await api('/api/jobs/'+running+'/cancel',{});}catch(_){}
+    if(running?.id&&sameSource(running.source,scope))try{await api('/api/jobs/'+running.id+'/cancel',{});}catch(_){}
   };
+  window.IssueIntelEvidenceImpact=Object.freeze({validImpact,validResult});
 })();

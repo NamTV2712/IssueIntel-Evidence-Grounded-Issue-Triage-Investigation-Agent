@@ -9,10 +9,13 @@ from .comparison import compare_packs
 from .pipeline import validate_prepared_evidence
 
 
-def product_version_source(pack):
+def product_version_source(pack, *, owned_product=False):
+    if type(owned_product) is not bool:
+        raise ValueError('Choose an explicit product version authority')
     case = pack['case']
-    if (case.get('split') or case['case_id'].startswith(('verified:', 'live:', 'main_dev:', 'main_test:'))
-            or pack.get('followup') or pack['snapshot']['protocol'] != 'benchmark_base'):
+    if (any(key in case for key in ('split','instance_id'))
+            or case['case_id'].startswith(('verified:', 'live:', 'main_dev:', 'main_test:'))
+            or pack.get('followup') and not owned_product or pack['snapshot']['protocol'] != 'benchmark_base'):
         raise ValueError('Version inspection requires an original product investigation, outside benchmark splits')
     # Replay citations/context without transferring their validity to another commit.
     compare_packs(pack, pack)
@@ -42,9 +45,9 @@ def _diff(old, new, path):
             'truncated': truncated, 'reason': 'diff_output_limit' if truncated else None}
 
 
-def compare_versions(pack, before, after):
+def compare_versions(pack, before, after, *, owned_product=False):
     """Compare admitted snapshot files; skipped sources remain unavailable."""
-    case = product_version_source(pack)
+    case = product_version_source(pack,owned_product=owned_product)
     before.verify(); after.verify()
     if (before.to_dict()['repository'] != after.to_dict()['repository']
             or after.protocol != 'benchmark_base' or after.cutoff is not None

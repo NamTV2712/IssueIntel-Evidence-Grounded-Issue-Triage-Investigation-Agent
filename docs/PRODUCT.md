@@ -121,9 +121,10 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
 - `POST /api/jobs/{id}/check-journal`: `{expected_sha256, observation}` gồm `check_id`, `outcome`, `conditions`, `expected_result`, `observed_result`, `interpretation`, `tested_commit_sha` nullable và `supersedes` nullable. `not_run` cần lý do, cấm observed result/tested SHA; các outcome khác cần điều kiện, mong đợi và quan sát. Đính chính cùng check còn active, tối đa 100 event; xung đột trả input error, tải lại để giữ bản nháp và xem phiên bản mới.
 - `POST /api/investigations`: tạo job với `mode`, `provider`, `depth` và input.
 - `POST /api/comparisons`: `before_id`, `after_id` của hai job đã hoàn tất cùng issue/repository; kiểm hash cả hai export, không gọi model.
-- `POST /api/versions`: `job_id`, `revision`, tùy chọn `reference_revision`; job đối chiếu code và ancestry dùng chung queue/worker, không model hoặc thực thi code/test.
+- `POST /api/versions`: `job_id`, `revision`, tùy chọn `reference_revision` và `source_pack_sha256`; UI gửi exact pack SHA đã xem, caller cũ thiếu SHA được server khóa nguồn hiện tại trước queue. Job đối chiếu code/excerpt và ancestry dùng chung queue/worker, không model hoặc thực thi code/test.
 - `GET /api/jobs/<source>/versions`: tối đa 20 lượt đối chiếu của báo cáo nguồn.
 - `GET /api/jobs/<comparison>/versions.json`: export riêng có hash và binding về pack nguồn.
+- `GET /api/jobs/<comparison>/evidence-impact.json` hoặc `.md`: đối chiếu excerpt đã lưu, hai header `X-IssueIntel-Source-Pack-SHA256` và `X-IssueIntel-Evidence-Impact-SHA256`; legacy không có excerpt comparison trả 404, không tự đọc Git/tạo kết quả mới.
 - `POST /api/releases`: `job_id`, `tag` và `reference_commit` full SHA; kiểm đúng một release của nguồn GitHub product, không gọi model/tải Git history.
 - `GET /api/jobs/<source>/releases`: tối đa 20 lượt kiểm release đã lưu, kể cả lỗi/hủy.
 - `GET /api/jobs/<check>/releases.json`: export quan sát có receipt và binding về source pack/query/snapshot; replay không network/model.
@@ -176,6 +177,19 @@ Phần kiểm ancestry chỉ đọc local, không lazy-fetch. Git có cận 5 gi
 60 giây tổng và 2 MiB output/lệnh. Export giữ inventory/ref hash lúc kiểm;
 mở lại không chạy Git hoặc làm tag hiện tại thay đổi kết quả đã lưu. Báo cáo cũ
 thiếu mục này vẫn mở được và không được suy thêm quan hệ ancestry.
+
+Mục 12 thêm `product_evidence_impact_v1` cho code excerpts, gắn source job/pack,
+query và hai commit/snapshot. Sáu trạng thái `unchanged/moved/changed/missing/
+unavailable/ambiguous` có quy tắc tái tính từ captured observations. Khớp nguyên
+văn được giữ cùng locator/hash; `moved` không phải Git rename hoặc ánh xạ ngữ
+nghĩa. Không thấy chỉ áp dụng admitted scope; file skip/tìm vượt cận giữ unknown,
+nhiều vị trí không chọn vị trí đầu. Export không chứa full target text inventory:
+completeness/absence là khai báo quan sát local, không phải proof replay độc lập.
+Validator kiểm kiểu JSON, source text/IDs/hypothesis refs, span/hash, counts,
+cận tìm và tính nhất quán path/file/inventory; rehash không hợp thức hóa metadata
+tự mâu thuẫn. UI có filter, nguồn/đích riêng, giới hạn và JSON/Markdown; report
+và citation gốc giữ nguyên. Nguồn product qua shared ancestry authority cho cả
+follow-up/recovery; không nới quyền context/release hoặc benchmark/strict.
 
 Mọi job/pack và repository ví dụ ở ignored `artifacts/demo/`. Không commit data,
 token, review bundle hoặc kết quả thật. CI dùng fixture tổng hợp. Evaluation,
@@ -965,8 +979,8 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 | 8 | P1 | Resume generation/retrieval/Planned rounds, fault injection bảo đảm reuse đúng stage/receipts và không implicit retry. | Đã nghiệm thu tại `ecd1233`: original Workbench/durable CLI Quick/Deep/Planned rules và Jev, answer continuations, năm loại fork và chuỗi stage-resume; journal/lease, source/policy guards, explicit consent, lineage/handoff và tương thích verifier/export cũ. Attempt/receipt giữ owner và budget xuyên phiên; 207 test hồi quy backend, 272 frontend và kiểm bàn giao/JSON type cuối đã đạt. CI toàn repo thành công; issue #8 đã đóng |
 | 9 | P1 | Cost toàn lineage, phân biệt current/whole-chain, dedup receipt IDs, unknown và retained bounds riêng từng provider. | Đã nghiệm thu tại `300164a`: bounded read-only snapshot, native receipt replay, typed ancestor/source-bound artifact scope, immutable receipt ownership, API/UI và accounting bàn giao từng requested run. Source cuối đạt 174 test (102 core/43 collector/29 handoff), hồi quy rộng 416 và frontend 310; browser QA/ZIP độc lập và CI toàn repo đạt; issue #9 đã đóng |
 | 10 | P1 | Browser E2E tổng hợp: create/follow-up/handoff/recovery, stale/navigation/draft/keyboard/mobile, không API thật. | Đã nghiệm thu tại `6c761e7`: optional Playwright/Chromium, real UI/HTTP/pipeline với native synthetic receipts, outbound guards và CI job riêng; exact-bound draft isolation/pending state, stale view status và keyboard/mobile. 9 browser/326 frontend test, default skip và independent review đạt; cả hai CI job thành công; issue #10 đã đóng |
-| 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Đã triển khai; chờ CI phát hành: original product manifest/frozen server preview, fixed child IDs, shared pipeline/queue concurrency 1, partial success, durable pause/cancel/explicit continue và UI Việt/Anh. Contract 107, backend/integration cuối 26, HTTP 22, frontend 345 và toàn bộ 14 Chromium test đạt; hồi quy shared runner 114 đạt, fixes cuối có deterministic tests. Chưa đóng issue #11 |
-| 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Chưa triển khai |
+| 11 | P2 | Product batch manifest/preview/status/cancel/partial success/restart idempotency qua pipeline chung, bounded concurrency. | Đã nghiệm thu tại `34552c1`: original product manifest/frozen server preview, fixed child IDs, shared pipeline/queue concurrency 1, partial success, durable pause/cancel/explicit continue và UI Việt/Anh. Contract 107, backend/integration cuối 26, HTTP 22, frontend 345 và toàn bộ 14 Chromium test đạt; hồi quy shared runner 114 đạt, fixes cuối có deterministic tests. Cả hai CI job tại run `39922088313` thành công; issue #11 đã đóng |
+| 12 | P2 | Đối chiếu cited spans hai commits: unchanged/changed/missing/unresolved; không đồng nhất containment/release/fix proof. | Đã triển khai; chờ CI phát hành: source-bound excerpts, sáu trạng thái, bounded exact-line search, captured witnesses/scope/limits, validator, API/export và UI Việt/Anh sáng/tối. Original/follow-up/recovery sources giữ authority; legacy vẫn đọc được. Đạt 73 core/integration, 74 shared regression, 350 frontend và 17 Chromium (các phạm vi có overlap); chưa đóng issue #12 |
 | 13 | P2 | Readiness trong app, disk usage và cleanup preview chỉ cho dữ liệu rebuildable; bảo vệ source/receipts và junction boundaries. | Chưa triển khai |
 | V01 | Validation | Diagnostic accepted Main Dev: pinned comparative retrieval/graph/history/verifier/counter-search, localization/grounding/cost/latency. Giữ pilot và gold boundaries. | Chưa nghiệm thu; tái dùng diagnostic hợp lệ khi phù hợp |
 | V02 | Validation | Đo usefulness của câu hỏi/checks theo rubric; phân biệt model/user reports/human review và giới hạn nhãn. | Chưa nghiệm thu |

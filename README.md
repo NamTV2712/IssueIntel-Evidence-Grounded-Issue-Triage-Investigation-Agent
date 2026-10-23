@@ -342,8 +342,25 @@ evidence; file bị skip giữ ngoài phạm vi, không báo nhầm đã xóa. C
 **Commit tham chiếu** để kiểm phiên bản đích có chứa commit đó không và xem tag
 Git local chứa nó. Quan hệ thiếu lịch sử giữ unknown; không tự tải thêm lịch sử
 hoặc toàn bộ tag. Tag local chưa chứng minh bản phát hành đã công bố hay lỗi đã
-sửa. Không gọi model/chạy test. Main Dev/strict và follow-up không dùng luồng này;
-bản báo cáo gốc giữ nguyên.
+sửa. Không gọi model/chạy test. Main Dev/strict không dùng luồng này; phiên con
+product và phiên stage recovery dùng được sau khi server kiểm đầy đủ nguồn gốc.
+Bản báo cáo gốc giữ nguyên.
+
+**Thay đổi ảnh hưởng bằng chứng nào?** đối chiếu từng đoạn code đã được dẫn:
+còn nguyên tại vị trí cũ, khớp ở vị trí khác, thay đổi, không thấy trong phạm vi
+đã đọc, chưa đủ điều kiện đối chiếu hoặc có nhiều vị trí khớp. Mỗi mục giữ đoạn
+nguồn, tọa độ/commit/hash hai phía và ID giả thuyết đã dẫn nguồn đó; không chuyển
+citation hay kết luận của giả thuyết sang commit mới. Chọn bộ lọc trạng thái để
+xem đoạn liên quan, rồi xuất riêng JSON/Markdown. Báo cáo cũ chỉ có diff file
+vẫn mở được và không được suy thêm kết quả đối chiếu excerpt.
+
+“Khớp ở vị trí khác” là khớp nguyên văn theo dòng trong phạm vi text đã đọc,
+chưa chứng minh Git rename hoặc cùng ý nghĩa. File bị skip hoặc tìm kiếm vượt
+cận giữ chưa đủ điều kiện; nhiều vị trí không tự chọn vị trí đầu. Số file/dòng/
+byte, cận tìm và phạm vi bỏ ngoài được giữ trong export. Việc không thấy hoặc
+chỉ có một vị trí khớp là quan sát local đã ghi: export không chứa toàn bộ text
+repository đích để kiểm độc lập tính đầy đủ/không tồn tại. Mở/export bản đã lưu
+không đọc lại Git, cấu hình API hoặc gọi model. Đối chiếu không xác nhận lỗi đã sửa.
 
 Với điều tra GitHub product, mục **Kiểm tra GitHub Release** nhận một tag và
 full SHA của commit tham chiếu. Nó đọc metadata công khai, resolve tag (kể cả tag
@@ -429,8 +446,8 @@ soát từ danh sách đã lưu, không tự gửi lại hoặc đổi key. Sau 
 thái không tự chạy tiếp; chủ động **Tiếp tục mục chưa chạy**, duyệt lại Groq nếu
 có. Kết quả đã xong vẫn mở được mà không gọi model. Manifest/nguồn chụp lưu private
 trong ignored artifacts; mẫu mới không cấp quyền chi tiêu Jev hoặc evaluation.
-Mục 11 đã triển khai và qua kiểm thử tổng hợp cục bộ; CI phát hành và quyết định
-nghiệm thu được theo dõi ở `docs/PRODUCT.md` và issue #11.
+Mục 11 đã nghiệm thu tại `34552c1`, cả hai job CI test/browser thành công;
+issue #11 đã đóng. Chi tiết kiểm thử ở `docs/PRODUCT.md`.
 
 ## Memory repository lưu trên máy
 

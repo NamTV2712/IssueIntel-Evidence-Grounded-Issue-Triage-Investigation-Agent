@@ -197,8 +197,6 @@ def test_remote_reference_fetch_does_not_retarget_comparison(versions,monkeypatc
     repo=Path(pack['snapshot']['repository']);reference=pack['snapshot']['commit_sha']
     (repo/'release.txt').write_text('Synthetic target\n',encoding='utf-8')
     target=commit(repo)
-    original=json.loads(wb._job_path(source).read_bytes());original['request']['mode']='github'
-    wb._save(original)
     calls=[]
     def acquire(repository,revision,directory):
         calls.append(revision)
@@ -206,6 +204,15 @@ def test_remote_reference_fetch_does_not_retarget_comparison(versions,monkeypatc
         (repo/'.git'/'FETCH_HEAD').write_text(resolved+'\n',encoding='ascii')
         return SimpleNamespace(path=repo,commit_sha=resolved)
     monkeypatch.setattr('issueintel.investigation.workbench.acquire_repository',acquire)
+    url='https://github.com/synthetic/repository/issues/12'
+    monkeypatch.setattr('issueintel.investigation.workbench.fetch_github_issue',lambda _: {
+        'url':url,'repository':'synthetic/repository','problem_statement':pack['case']['problem_statement'],
+        'created_at':'2026-01-01T00:00:00Z'})
+    # Use an authenticated original GitHub request; changing the mode of an
+    # already completed example would no longer establish remote authority.
+    remote_source=completed(wb,wb.submit({'mode':'github','issue_url':url,'revision':reference})['id'])
+    assert remote_source['status']=='completed',remote_source
+    source=remote_source['id'];calls.clear()
     child=completed(wb,wb.submit_versions({'job_id':source,'revision':'target-ref','reference_revision':'fix-ref'})['id'])
     assert child['status']=='completed',child
     report=json.loads(wb.versions_bytes(child['id']))

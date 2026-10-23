@@ -20,6 +20,7 @@ STATIC['/locales.js'] = ('locales.js', 'text/javascript; charset=utf-8')
 STATIC['/preferences.js'] = ('preferences.js', 'text/javascript; charset=utf-8')
 STATIC['/repository.js'] = ('repository.js', 'text/javascript; charset=utf-8')
 STATIC['/versions.js'] = ('versions.js', 'text/javascript; charset=utf-8')
+STATIC['/versions.css'] = ('versions.css', 'text/css; charset=utf-8')
 STATIC['/evidence-graph.js'] = ('evidence-graph.js', 'text/javascript; charset=utf-8')
 STATIC['/evidence-graph.css'] = ('evidence-graph.css', 'text/css; charset=utf-8')
 STATIC['/usage.js'] = ('usage.js', 'text/javascript; charset=utf-8')
@@ -65,8 +66,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
         def log_message(self, *args):
             pass  # Request paths and source content are not written to logs.
 
-        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None, source_pack_sha256=None, issue_relation_sha256=None, accounting_sha256=None):
-            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256, source_pack_sha256, issue_relation_sha256, accounting_sha256):
+        def _send(self, status, raw, mime='application/json; charset=utf-8', *, download=None, report_sha256=None, journal_sha256=None, check_plan_sha256=None, observations_sha256=None, dossier_sha256=None, claim_review_sha256=None, source_pack_sha256=None, issue_relation_sha256=None, accounting_sha256=None, evidence_impact_sha256=None):
+            for checksum in (report_sha256, journal_sha256, check_plan_sha256, observations_sha256, dossier_sha256, claim_review_sha256, source_pack_sha256, issue_relation_sha256, accounting_sha256, evidence_impact_sha256):
                 if checksum is not None and (not isinstance(checksum,str) or len(checksum)!=64 or any(char not in '0123456789abcdef' for char in checksum)):
                     raise ValueError('Invalid export source binding')
             self.send_response(status)
@@ -96,6 +97,8 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                 self.send_header('X-IssueIntel-Issue-Relation-SHA256',issue_relation_sha256)
             if accounting_sha256 is not None:
                 self.send_header('X-IssueIntel-Accounting-SHA256',accounting_sha256)
+            if evidence_impact_sha256 is not None:
+                self.send_header('X-IssueIntel-Evidence-Impact-SHA256',evidence_impact_sha256)
             self.end_headers()
             self.wfile.write(raw)
 
@@ -258,6 +261,20 @@ def make_server(root, *, host='127.0.0.1', port=8787, workbench=None):
                         self._json(200, workbench.versions_history(parts[0]))
                     elif len(parts) == 2 and parts[1] == 'versions.json':
                         self._send(200, workbench.versions_bytes(parts[0]), download='versions.json')
+                    elif len(parts) == 2 and parts[1] in {'evidence-impact.json', 'evidence-impact.md'}:
+                        from issueintel.investigation.evidence_impact import validate_impact, render_markdown
+                        report = json.loads(workbench.versions_bytes(parts[0]))
+                        if report.get('evidence_impact') is None:
+                            raise FileNotFoundError('No excerpt comparison in this legacy report')
+                        impact = validate_impact(report['evidence_impact'], source_job_id=report['source']['job_id'],
+                                                 source_pack_sha256=report['source']['pack_sha256'])
+                        as_json = parts[1].endswith('.json')
+                        text = (json.dumps(impact, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)+'\n'
+                                if as_json else render_markdown(impact))
+                        self._send(200, text.encode('utf-8'),
+                                   'application/json; charset=utf-8' if as_json else 'text/markdown; charset=utf-8',
+                                   download=parts[1], source_pack_sha256=impact['source']['pack_sha256'],
+                                   evidence_impact_sha256=impact['sha256'])
                     elif len(parts) == 2 and parts[1] in {'pack.json', 'report.md'}:
                         raw = workbench.result_bytes(parts[0], parts[1])
                         self._send(200, raw, 'application/json; charset=utf-8' if parts[1] == 'pack.json' else 'text/markdown; charset=utf-8', download=parts[1])
