@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import math
+import ssl
 from hashlib import sha256
 import re
 from urllib.error import HTTPError, URLError
@@ -10,6 +11,45 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from issueintel.runtime.budget import BudgetDenied
 from issueintel.runtime.config import RuntimeConfig
+
+
+_ERROR_CODES = {'json_validate_failed', 'tool_use_failed', 'incomplete_json_output',
+                'rate_limit_exceeded', 'invalid_api_key', 'invalid_request_error',
+                'model_decommissioned', 'context_length_exceeded', 'model_not_found',
+                'insufficient_quota', 'redirect_forbidden', 'response_size_limit'}
+_TRANSPORT_TYPES = {'HTTPError', 'URLError', 'TimeoutError', 'ConnectionResetError',
+                    'ConnectionAbortedError', 'ConnectionRefusedError', 'BrokenPipeError',
+                    'SSLError', 'SSLCertVerificationError', 'RemoteDisconnected',
+                    'IncompleteRead', 'BadStatusLine', 'JSONDecodeError', 'UnicodeDecodeError',
+                    'OSError', 'RuntimeError', 'TypeError', 'ValueError', 'ProviderError',
+                    'gaierror', 'other'}
+_FAILURE_PHASES = {'request', 'response_read', 'response_json'}
+
+
+def _transport_diagnostics(error, phase, *, status=None, byte_count=None, content_type='unknown'):
+    """Allowlisted facts only: exception messages/reasons may contain secrets."""
+    name = type(error).__name__
+    result = {'failure_phase': phase,
+              'transport_error_type': name if name in _TRANSPORT_TYPES else 'other'}
+    if type(status) is int and 100 <= status <= 599:
+        result['response_status'] = status
+    if type(byte_count) is int and 0 <= byte_count <= 4_000_001:
+        result['response_byte_count'] = byte_count
+    if content_type in {'json', 'html', 'text', 'other', 'unknown'}:
+        result['response_content_type'] = content_type
+    reason = error.reason if isinstance(error, URLError) else error
+    reason_name = type(reason).__name__
+    if reason_name in _TRANSPORT_TYPES:
+        result['transport_reason_type'] = reason_name
+    if isinstance(reason, OSError):
+        number = reason.errno
+        if type(number) is int and -2**31 <= number < 2**31:
+            result['transport_errno'] = number
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        number = reason.verify_code
+        if type(number) is int and 0 <= number < 2**31:
+            result['ssl_verify_code'] = number
+    return result
 
 
 class ProviderError(RuntimeError):
@@ -30,12 +70,8 @@ def failure_metadata(error):
     """Persist diagnostic categories, never upstream messages or source text."""
     row = {'error_type': type(error).__name__}
     if isinstance(error, ProviderError):
-        codes = {'json_validate_failed', 'tool_use_failed', 'incomplete_json_output',
-                 'rate_limit_exceeded', 'invalid_api_key', 'invalid_request_error',
-                 'model_decommissioned', 'context_length_exceeded', 'model_not_found',
-                 'insufficient_quota'}
         row.update(http_status=error.status if type(error.status) is int and 100 <= error.status <= 599 else None,
-                   provider_code=error.code if isinstance(error.code,str) and error.code in codes else 'unknown',
+                   provider_code=error.code if isinstance(error.code,str) and error.code in _ERROR_CODES else 'unknown',
                    terminal_output_error=output_rejected(error))
         delay = error.retry_after
         row['retry_after_seconds'] = delay if type(delay) in (int, float) and 0 <= delay <= 86400 and math.isfinite(delay) else None
@@ -43,6 +79,22 @@ def failure_metadata(error):
             if type(error.diagnostics.get(key)) is bool:row[key]=error.diagnostics[key]
         checksum=error.diagnostics.get('failed_generation_sha256')
         if isinstance(checksum,str) and re.fullmatch('[a-f0-9]{64}',checksum):row['failed_generation_sha256']=checksum
+        for key in ('transport_error_type', 'transport_reason_type'):
+            value = error.diagnostics.get(key)
+            if isinstance(value, str) and value in _TRANSPORT_TYPES:
+                row[key] = value
+        phase = error.diagnostics.get('failure_phase')
+        if isinstance(phase, str) and phase in _FAILURE_PHASES:
+            row['failure_phase'] = phase
+        content_type = error.diagnostics.get('response_content_type')
+        if isinstance(content_type, str) and content_type in {'json', 'html', 'text', 'other', 'unknown'}:
+            row['response_content_type'] = content_type
+        for key, minimum, maximum in (('response_status', 100, 599),
+                ('response_byte_count', 0, 4_000_001), ('transport_errno', -2**31, 2**31-1),
+                ('ssl_verify_code', 0, 2**31-1)):
+            value = error.diagnostics.get(key)
+            if type(value) is int and minimum <= value <= maximum:
+                row[key] = value
     return row
 
 
@@ -62,7 +114,7 @@ def _output_diagnostics(info):
 
 class _NoCredentialRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
-        raise ProviderError("Provider redirects are forbidden")
+        raise ProviderError("Provider redirects are forbidden", code='redirect_forbidden')
 
 
 def _open_provider(request, timeout):
@@ -141,28 +193,41 @@ class GroqProvider:
         request = Request("https://api.groq.com/openai/v1/chat/completions", json.dumps(body).encode("utf-8"),
             {"Content-Type": "application/json", "Authorization": f"Bearer {key}",
              "User-Agent": "IssueIntel/0.1 (+local research)"}, method="POST")
+        phase, response_status, response_size, content_type = 'request', None, None, 'unknown'
         try:
             with self.transport(request, timeout=60) as response:
+                phase = 'response_read'
+                response_status = getattr(response, 'status', None)
+                headers = getattr(response, "headers", {}) or {}
+                media_type = headers.get('content-type', '').split(';', 1)[0].strip().lower()
+                content_type = ('json' if media_type in {'application/json', 'application/problem+json'} else
+                    'html' if media_type == 'text/html' else 'text' if media_type == 'text/plain' else
+                    'other' if media_type else 'unknown')
                 payload = response.read(4_000_001)
-                headers = getattr(response, "headers", {})
+                response_size = len(payload)
                 self.last_rate_limits = {name:headers.get(name) for name in
                     ("x-ratelimit-limit-requests", "x-ratelimit-limit-tokens", "x-ratelimit-remaining-requests", "x-ratelimit-remaining-tokens", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens") if headers.get(name) is not None}
             if len(payload) > 4_000_000:
-                raise ProviderError("Provider response exceeded size limit")
+                raise ProviderError("Provider response exceeded size limit", code='response_size_limit')
+            phase = 'response_json'
             result = json.loads(payload)
+            if not isinstance(result, dict):
+                raise ValueError('Provider response envelope must be an object')
         except Exception as error:
             ledger.reconcile(reservation, price, None, failed=True)
             self._publish_receipt(ledger, reservation)
             # Do not expose response bodies, request headers, key or source text.
-            status = error.code if isinstance(error, HTTPError) else type(error).__name__
-            error_code = None
-            diagnostics = None
+            status = error.code if isinstance(error, HTTPError) else (
+                type(error).__name__ if type(error).__name__ in _TRANSPORT_TYPES else 'other')
+            error_code = error.code if isinstance(error, ProviderError) and error.code in _ERROR_CODES else None
+            diagnostics = _transport_diagnostics(error, phase, status=response_status,
+                byte_count=response_size, content_type=content_type)
             if isinstance(error,HTTPError):
                 try:
                     info = json.loads(error.read(64000)).get("error", {})
-                    diagnostics = _output_diagnostics(info)
+                    diagnostics.update(_output_diagnostics(info))
                     value = info.get("code") or info.get("type")
-                    if isinstance(value,str) and len(value) < 100 and all(character.isalnum() or character in "_-" for character in value):
+                    if isinstance(value,str) and value in _ERROR_CODES:
                         error_code = value
                 except (ValueError,TypeError,AttributeError):
                     pass

@@ -135,3 +135,10 @@ Raw inputs, outputs, receipts và báo cáo nằm trong ignored
 `artifacts/experiments/component_ablation/`; không commit chúng. CI dùng fixture
 tổng hợp để kiểm contract, admission, lỗi và reuse, không dùng dataset private
 hoặc gọi model thật.
+
+Pilot cục bộ đầu tiên ngày 24/10/2026 dừng ở call generation đầu vì lỗi provider
+không có HTTP status trong metadata cũ. Chưa nhánh nào hoàn tất, không đọc gold
+và không tạo inference seal. Reservation giữ cận USD 0.002857 với usage chưa rõ;
+GET danh sách model sau đó trả 200 không chứng minh POST đã thành công. Hồ sơ lỗi
+được giữ nguyên, không tự thử lại, thay ca hoặc báo kết quả chất lượng. Chẩn đoán
+transport mới chỉ áp dụng cho call sau, không bổ sung dữ kiện đoán vào receipt cũ.

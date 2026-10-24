@@ -1054,6 +1054,16 @@ Reservation token/cost trước HTTP được ghi trong SQLite transaction `BEGI
 
 Authorization không đi qua redirect; chỉ endpoint Groq cố định. Không retry ngầm, built-in tool hoặc vòng server không kiểm soát. CI chỉ dùng synthetic fixture/mocked transport. PostgreSQL DSN cũ trong .env không được dùng. Artifact/data/secrets đều ignored; demo và review chỉ dùng cục bộ.
 
+Groq transport failures lưu `failure_phase` (request/response_read/response_json),
+loại exception/reason trong allowlist, errno hoặc mã kiểm certificate dạng số.
+Nếu đã nhận response, chẩn đoán có thể giữ status, số byte và nhóm MIME cố định;
+không lưu exception message, reason text, certificate, response body hoặc header
+tùy ý. API error code lạ cũng không được phản chiếu vào lỗi hiển thị. JSON envelope
+không phải object bị từ chối trước khi đọc usage. Nhánh lỗi vẫn giữ reservation
+`failed_bound` và receipt owner, không tự retry hay coi transport lỗi là quyền
+schema repair. Metadata cũ thiếu các trường mới tiếp tục đọc được; không sửa lại
+receipt hoặc suy đoán nguyên nhân cho những call cũ không đủ chẩn đoán.
+
 ## Kiểm thử trình duyệt tổng hợp — mục 10
 
 `tests/browser` dùng Playwright Python 1.64.1 qua extra development `browser`.
