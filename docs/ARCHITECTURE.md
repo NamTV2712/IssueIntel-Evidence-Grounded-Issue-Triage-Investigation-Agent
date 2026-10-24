@@ -14,6 +14,17 @@ mô tả cổng pilot, stage exceptions, failure/resume và giới hạn nhãn.
 
 ## Pipeline chung
 
+`evaluation.usefulness_pairs` thêm paired review v2 thuần dữ liệu cạnh v1:
+baseline intake/native report checks được tái dựng đúng nguồn, provenance derivation
+tách origin LLM, missing fields giữ nguyên. Native question/check validators
+không đổi. `usefulness_pair_files` freeze raw copies, random orientation/order
+một lần, offline escaped HTML/JSON/CSV và manifest; reopen dựng lại từ nguồn đã
+khóa. Append-only import/correction dùng lock/caps và reviewer provenance chung.
+Scorer mở mapping theo case/kind, giữ status/missing/uncertain riêng; case cluster
+không bằng số cards hoặc reviewers. Ba CLI dispatch trước dotenv/provider; không
+Git, benchmark hay tự gán nhãn. [USEFULNESS_REVIEW.md](USEFULNESS_REVIEW.md) ghi rõ
+schema, cận và giới hạn của model-assessed usefulness.
+
 `benchmarks.component_ablation` khóa thiết kế V01 accepted Main Dev gốc;
 `component_ablation_run` điều phối stage/call theo registration và authorization
 riêng, dùng chính `investigation.pipeline.investigate`. Policy thực nghiệm chỉ

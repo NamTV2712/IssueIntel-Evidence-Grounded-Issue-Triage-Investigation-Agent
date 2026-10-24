@@ -31,6 +31,18 @@ def main(argv=None) -> int:
     usefulness_score = commands.add_parser('usefulness-score', help='Describe saved ratings and missing/failure denominators; not efficacy acceptance')
     usefulness_score.add_argument('--review', type=Path, required=True)
     usefulness_score.add_argument('--output', type=Path)
+    pair_build = commands.add_parser('usefulness-pair-build', help='Freeze paired product proposal reviews with exact deterministic baselines; no API or dataset')
+    pair_build.add_argument('--selection', type=Path, required=True)
+    pair_build.add_argument('--output', type=Path, required=True)
+    pair_import = commands.add_parser('usefulness-pair-import', help='Retain declared A/B ratings with reviewer provenance and append-only corrections')
+    pair_import.add_argument('--review', type=Path, required=True)
+    pair_import.add_argument('--ratings', type=Path, required=True)
+    pair_import.add_argument('--reviewer', type=Path, required=True)
+    pair_import.add_argument('--supersedes')
+    pair_import.add_argument('--correction-reason', default='')
+    pair_score = commands.add_parser('usefulness-pair-score', help='Describe paired ratings and case clusters; not causal usefulness acceptance')
+    pair_score.add_argument('--review', type=Path, required=True)
+    pair_score.add_argument('--output', type=Path)
     component_register = commands.add_parser('component-register', help='Pin a proposed accepted Main Dev component comparison; no provider calls or gold')
     component_register.add_argument('--protocol', type=Path)
     component_register.add_argument('--history', type=Path)
@@ -198,6 +210,21 @@ def main(argv=None) -> int:
             return 0
         except (ValueError, RuntimeError, OSError, KeyError, TypeError, BudgetDenied):
             print('IssueIntel: component registration, source proof, authorization or sealed output is invalid; no automatic retry', file=sys.stderr)
+            return 2
+    if args.command.startswith('usefulness-pair-'):
+        try:
+            from issueintel.evaluation.usefulness_pair_files import build_pair_files, import_pair_ratings, score_pair_files
+            if args.command == 'usefulness-pair-build':
+                result = build_pair_files(args.root, args.selection, args.output)
+            elif args.command == 'usefulness-pair-import':
+                result = import_pair_ratings(args.root, args.review, args.ratings, args.reviewer,
+                    supersedes=args.supersedes, correction_reason=args.correction_reason)
+            else:
+                result = score_pair_files(args.root, args.review, args.output)
+            print(json.dumps(result, ensure_ascii=True, allow_nan=False, indent=2))
+            return 0
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+            print('IssueIntel: paired review sources, ratings, hashes or protected paths are invalid', file=sys.stderr)
             return 2
     if args.command.startswith('usefulness-'):
         try:

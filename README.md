@@ -87,6 +87,14 @@ Chỉ thư mục `reviewer/` có nội dung ẩn tên phương pháp; `organizer
 và nguồn private. Nhãn nhập không tự thành kiểm người độc lập hoặc bằng chứng
 cải thiện chất lượng. Không tự tạo nhãn hoặc chấm khi chưa có reviewer.
 
+Review cặp dùng `usefulness-pair-build`, `usefulness-pair-import` và
+`usefulness-pair-score`: so intake questions/checks đã có với bộ đề xuất mới trên
+cùng pack và evidence, đóng băng thứ tự A/B một lần. Baseline giữ nguyên nội dung
+nguồn; trường chưa có để trống, không giả provenance LLM hoặc sinh giả kết quả.
+[Giao thức review cặp](docs/USEFULNESS_REVIEW.md) mô tả selection v2, CSV và giới
+hạn diễn giải. Các lệnh v1 vẫn giữ nguyên contract; đây chưa phải phép đo lợi
+ích thực tế cho lập trình viên.
+
 ## Workbench chạy local
 
 ```powershell
