@@ -31,6 +31,21 @@ def main(argv=None) -> int:
     usefulness_score = commands.add_parser('usefulness-score', help='Describe saved ratings and missing/failure denominators; not efficacy acceptance')
     usefulness_score.add_argument('--review', type=Path, required=True)
     usefulness_score.add_argument('--output', type=Path)
+    component_register = commands.add_parser('component-register', help='Pin a proposed accepted Main Dev component comparison; no provider calls or gold')
+    component_register.add_argument('--protocol', type=Path)
+    component_register.add_argument('--history', type=Path)
+    component_history = commands.add_parser('component-history', help='Prepare prior opening candidates from cached accepted Main Dev proofs; no network, model or gold')
+    component_history.add_argument('--output', type=Path, required=True)
+    for component_command in ('component-preflight', 'component-inspect'):
+        component = commands.add_parser(component_command, help='Replay a registered component comparison without credentials, model calls or gold')
+        component.add_argument('--experiment', required=True)
+    component_run = commands.add_parser('component-run', help='Run an explicitly authorized strict Main Dev component pilot or matrix; no gold')
+    component_run.add_argument('--experiment', required=True)
+    component_run.add_argument('--authorization', type=Path, required=True)
+    component_run.add_argument('--limit', type=int, choices=(1, 25), default=1)
+    component_score = commands.add_parser('component-score', help='Separately score a complete sealed Main Dev comparison after explicit gold authorization')
+    component_score.add_argument('--experiment', required=True)
+    component_score.add_argument('--authorization', type=Path, required=True)
     memory_capture=commands.add_parser('memory-capture',help='Retain source-bound architecture or unverified prior hypotheses locally; no model')
     memory_capture.add_argument('--pack',type=Path,required=True)
     memory_capture.add_argument('--kind',choices=('architecture','lesson'),default='architecture')
@@ -176,6 +191,14 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('component-'):
+        try:
+            result = _component_experiment(args)
+            print(json.dumps(result, ensure_ascii=True, allow_nan=False, indent=2))
+            return 0
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError, BudgetDenied):
+            print('IssueIntel: component registration, source proof, authorization or sealed output is invalid; no automatic retry', file=sys.stderr)
+            return 2
     if args.command.startswith('usefulness-'):
         try:
             from issueintel.evaluation.usefulness_files import build_files, import_ratings, score_files
@@ -358,6 +381,34 @@ def main(argv=None) -> int:
     except (ValueError, RuntimeError, OSError, PermissionError) as error:
         print(f"IssueIntel: {error}", file=sys.stderr)
         return 2
+
+
+def _component_experiment(args):
+    """Keep source preparation/scoring free of environment and provider setup."""
+    from issueintel.benchmarks.component_ablation import (
+        inspect_component_ablation, load_registration, preflight_component_ablation,
+        register_component_ablation, verify_run_authorization,
+    )
+    if args.command == 'component-history':
+        from issueintel.benchmarks.component_history import prepare_component_history
+        return prepare_component_history(args.root, args.output)
+    if args.command == 'component-register':
+        return register_component_ablation(args.root, args.protocol, history_path=args.history)
+    if args.command == 'component-preflight':
+        return preflight_component_ablation(args.root, args.experiment)
+    if args.command == 'component-inspect':
+        from issueintel.benchmarks.component_ablation_run import inspect_component_run
+        return {**inspect_component_ablation(args.root, args.experiment),
+                'inference': inspect_component_run(args.root, args.experiment)}
+    if args.command == 'component-score':
+        from issueintel.benchmarks.component_ablation_score import score_component_ablation
+        return score_component_ablation(args.root, args.experiment, args.authorization)
+    # Invalid registration or authorization must fail before credentials are read.
+    spec, _ = load_registration(args.root, args.experiment)
+    verify_run_authorization(args.root, spec, args.authorization, requested_cases=args.limit)
+    load_local_env(args.root / '.env')
+    from issueintel.benchmarks.component_ablation_run import run_component_ablation
+    return run_component_ablation(args.root, args.experiment, args.authorization, limit=args.limit)
 
 
 def _product_workbench(root):

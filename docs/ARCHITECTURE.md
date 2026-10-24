@@ -14,6 +14,19 @@ mô tả cổng pilot, stage exceptions, failure/resume và giới hạn nhãn.
 
 ## Pipeline chung
 
+`benchmarks.component_ablation` khóa thiết kế V01 accepted Main Dev gốc;
+`component_ablation_run` điều phối stage/call theo registration và authorization
+riêng, dùng chính `investigation.pipeline.investigate`. Policy thực nghiệm chỉ
+nhận strict `issue_time` + `main_dev`, không nhận product context, Planned hoặc
+product recovery. `retrieval.ablation_policy` chọn cận retrieval/graph, verifier
+và falsification search; `verified_history` replay prior GitHub opening proofs
+trước cutoff, không tải hoặc suy body lịch sử. Stage hook giữ full annotation
+bytes để verifier bật/tắt chia sẻ generation; native pipeline vẫn kiểm nguồn và
+payload đã replay. Runner không import gold; `component_ablation_score` mở gold
+Main Dev riêng sau full inference seal và đúng quyền scoring. No-call CLI dispatch
+trước dotenv/provider. [COMPONENT_EVALUATION.md](COMPONENT_EVALUATION.md) mô tả
+conditional contrasts, receipt ownership, mẫu số và giới hạn chất lượng.
+
 `investigation.claim_review` cung cấp `product_claim_review_v1`, source projection
 riêng `claim_review_source_v1` và rubric `claim_sufficiency_v1`. Các trường raw
 model reviews được giữ riêng với assessment tái tính; validator tái dựng để chặn

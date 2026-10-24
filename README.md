@@ -58,6 +58,16 @@ CI có job browser riêng. Chỉ khi test lỗi mới lưu screenshot/trace dư�
 `artifacts/browser-tests/`. Cài browser/Playwright dành riêng cho kiểm thử; chạy
 sản phẩm vẫn dùng lõi Python chuẩn và không cần Node hoặc Chromium.
 
+## So sánh thành phần trên Main Dev
+
+Các lệnh `component-register`, `component-preflight` và `component-inspect`
+khóa/replay thiết kế so sánh lexical/symbol, graph, lịch sử có proof, verifier
+và counter-search trên đúng 25 accepted Main Dev gốc. Chúng không đọc `.env`,
+gọi model hoặc mở gold. `component-run` cần ủy quyền khớp đăng ký và pilot một
+ca trước matrix; `component-score` chấm riêng sau inference seal đầy đủ.
+Xem [giao thức và giới hạn diễn giải](docs/COMPONENT_EVALUATION.md).
+Đây là công cụ V01; chưa phải bằng chứng chất lượng đã được nghiệm thu.
+
 ## Review câu hỏi và bước kiểm tra ngoại tuyến
 
 Ba lệnh `usefulness-build`, `usefulness-import`, `usefulness-score` chuẩn bị và

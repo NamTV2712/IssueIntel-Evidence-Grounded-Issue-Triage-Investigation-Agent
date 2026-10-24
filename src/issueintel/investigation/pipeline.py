@@ -14,6 +14,7 @@ from issueintel.repository.snapshot import source_lines
 from issueintel.repository.graph import build_graph
 from issueintel.retrieval import retrieve_evidence
 from issueintel.retrieval.focused import expand_for_hypotheses, POLICY as FOCUSED_POLICY
+from issueintel.retrieval.focused import COUNTER_POLICY
 from issueintel.runtime.io import digest, write_json
 from .controller import Action, DecisionState, RuleController
 from .verifier import verify_hypotheses, validate_critique
@@ -54,8 +55,27 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 query_receipt=None, prepared_evidence=None, refinement_rounds=0, on_stage=None,
                 repository_context=None, resumable=False, planned_workflow=False,
                 planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None,
-                recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None,recovery_origin=None,recovery_fork=None,recovery_controller=None) -> dict:
+                recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None,recovery_origin=None,recovery_fork=None,recovery_controller=None,
+                experiment_policy=None, historical_sources=None, experiment_stage_executor=None) -> dict:
     case = public_case(case)
+    history_audit = None
+    if experiment_policy is not None:
+        from issueintel.retrieval.ablation_policy import validate_policy
+        experiment_policy = validate_policy(experiment_policy)
+        if (protocol != 'issue_time' or case.get('split') != 'main_dev'
+                or repository_context is not None or planned_workflow or resumable or recoverable
+                or prepared_evidence is not None or controller is not None
+                or planned_parent is not None or planned_continuation is not None
+                or type(independent_critic) is not bool or independent_critic != experiment_policy['independent_critic']
+                or type(refinement_rounds) is not int or refinement_rounds != int(experiment_policy['counter_search'])
+                or type(top_k) is not int or top_k != experiment_policy['top_k']
+                or type(max_output_tokens) is not int or max_output_tokens != experiment_policy['max_output_tokens']):
+            raise ValueError('Controlled experiment must retain its exact strict Main Dev recipe')
+        if experiment_stage_executor is not None and not callable(experiment_stage_executor):
+            raise ValueError('Controlled experiment stage executor must be callable')
+    elif historical_sources is not None or experiment_stage_executor is not None:
+        raise ValueError('Historical sources and stage executor require an explicit controlled experiment policy')
+    focused_policy = COUNTER_POLICY if experiment_policy is not None and experiment_policy['counter_search'] else FOCUSED_POLICY
     recovery_commit=None
     if type(recoverable) is not bool or not recoverable and (recovery_records is not None or prior_provider_calls is not None or on_recovery_attempt is not None or recovery_origin is not None or recovery_fork is not None or recovery_controller is not None):
         raise ValueError('Stage recovery must be explicitly selected')
@@ -172,6 +192,15 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             and isinstance(urls, list) and urls and all(isinstance(url, str) and urlparse(url).scheme == "https" for url in urls))
         if not query_verified:
             raise ValueError("Original-query receipt is not bound to this snapshot/case/text")
+    if experiment_policy is not None:
+        if not query_verified:
+            raise ValueError('Controlled experiment requires an original-query receipt')
+        from issueintel.retrieval.verified_history import verified_history_evidence
+        history_records, history_audit = verified_history_evidence(
+            [] if historical_sources is None else historical_sources, case,
+            enabled=experiment_policy['history_mode'] == 'verified_issue_openings',
+            target_source_urls=query_receipt['source_urls'])
+        context_records.extend(history_records)
     graph = graph or build_graph(snapshot)
     if graph.snapshot_sha256 != snapshot.snapshot_sha256 or graph.commit_sha != snapshot.commit_sha:
         raise ValueError("Graph differs from selected snapshot")
@@ -197,7 +226,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             emit(stage,record)
     def stage_value(stage,inputs,produce):
         if tape is not None:return tape.run(stage,inputs,produce)
-        payload=produce();checkpoint(stage,payload);return payload
+        payload=(experiment_stage_executor(stage,deepcopy(inputs),produce)
+                 if experiment_stage_executor is not None else produce())
+        checkpoint(stage,payload);return payload
     if recoverable:
         continuation=None
         if recovery_origin is not None:
@@ -220,6 +251,14 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     elif tape is not None:
         evidence=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),'top_k':top_k},
             lambda:{'evidence':retrieve_evidence(statement,snapshot,graph,top_k=top_k)})['evidence']
+    elif experiment_policy is not None:
+        initial=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
+            'snapshot_sha256':snapshot.snapshot_sha256,'top_k':top_k,'graph_expand':experiment_policy['graph_expand']},
+            lambda:{'evidence':retrieve_evidence(statement,snapshot,graph,top_k=top_k,expand=experiment_policy['graph_expand'])})
+        if (not isinstance(initial,dict) or set(initial)!={'evidence'} or not isinstance(initial['evidence'],list)
+                or len(initial['evidence'])>12 or any(not isinstance(row,dict) or row.get('kind')!='code' for row in initial['evidence'])):
+            raise ValueError('Experimental initial retrieval changed its bounded source contract')
+        evidence=deepcopy(initial['evidence'])
     else:
         evidence=retrieve_evidence(statement,snapshot,graph,top_k=top_k)
     intake = inspect_issue(statement)
@@ -238,7 +277,42 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             **({"receipt": query_receipt} if query_verified else {})}})
     if tape is not None:
         validate_prepared_evidence(case,[row for row in evidence if row['kind']!='repository_context'],snapshot)
+    if experiment_policy is not None:
+        from issueintel.retrieval.focused import _replay
+        validate_prepared_evidence(case,[row for row in evidence if row['kind'] in {'issue','code'}],snapshot)
+        for record in evidence:
+            if record['kind']=='code':_replay(record,snapshot,{file.path:file for file in snapshot.files})
     controller = controller or RuleController()
+    if experiment_policy is not None and complete_json is not None:
+        # Freeze the selected recipe locally. Registration/version/spending
+        # authority remains the harness's responsibility, not a policy hash.
+        original_complete = complete_json
+        selected_policy = deepcopy(experiment_policy)
+        def experiment_guard():
+            from issueintel.retrieval.ablation_policy import validate_policy
+            if validate_policy(experiment_policy) != selected_policy:
+                raise ValueError('Controlled experiment policy changed before a model call')
+            snapshot.verify()
+        def experiment_complete(messages, max_output_tokens):
+            experiment_guard()
+            answer = original_complete(messages, max_output_tokens)
+            experiment_guard()
+            return answer
+        if hasattr(original_complete, 'complete_structured'):
+            def experiment_structured(messages, *, max_output_tokens, schema):
+                experiment_guard()
+                answer = original_complete.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
+                experiment_guard()
+                return answer
+            experiment_complete.complete_structured = experiment_structured
+        if hasattr(original_complete, 'complete_json'):
+            def experiment_json(messages, *, max_output_tokens):
+                experiment_guard()
+                answer = original_complete.complete_json(messages, max_output_tokens=max_output_tokens)
+                experiment_guard()
+                return answer
+            experiment_complete.complete_json = experiment_json
+        complete_json = experiment_complete
     if waiting_policy_hash is not None and complete_json is not None:
         original_complete=complete_json
         def policy_guard():
@@ -270,8 +344,12 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     if repository_context is not None:
         trace.append({'stage':'repository_context','sources':len(context_records),
                       'sha256':repository_context['sha256'],'historical_verified':False})
+    if experiment_policy is not None:
+        trace.append({'stage': 'controlled_experiment', 'policy_sha256': experiment_policy['sha256'],
+                      'registration_sha256': experiment_policy['registration_sha256'],
+                      'arm_id': experiment_policy['arm_id'], 'historical_source_audit_sha256': history_audit['sha256']})
     annotation, verification = None, None
-    refinement = {'policy':FOCUSED_POLICY,'requested_rounds':refinement_rounds,
+    refinement = {'policy':focused_policy,'requested_rounds':refinement_rounds,
                   'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
     workflow_plan=None
     def generate(stage,**extra):
@@ -291,17 +369,25 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             'excluded_query_sha256s':sorted(used_queries)},lambda:{**extra,**produce()})
         if set(payload)!={'search','added_evidence'}|set(extra) or any(payload[k]!=v for k,v in extra.items()):
             raise ValueError('Recovered retrieval stage fields changed')
-        if tape is not None:
+        if tape is not None or experiment_policy is not None:
             if any(row['kind']!='code' for row in payload['added_evidence']):
                 raise ValueError('Recovered retrieval must contain code excerpts only')
             validate_prepared_evidence(case,[row for row in evidence if row['kind']=='issue']+payload['added_evidence'],snapshot)
+            if experiment_policy is not None:
+                from issueintel.retrieval.focused import _replay
+                if (len(payload['added_evidence'])>6 or payload['search'].get('policy')!=focused_policy
+                        or payload['search'].get('added_ids')!=[row['id'] for row in payload['added_evidence']]
+                        or payload['search'].get('counter_evidence_confirmed') is not False):
+                    raise ValueError('Experimental focused retrieval changed its bounded source contract')
+                for record in payload['added_evidence']:
+                    _replay(record,snapshot,{file.path:file for file in snapshot.files})
         return payload['added_evidence'],payload['search']
     def verify_stage(critic):
         payload=stage_value('verification',{'annotation_sha256':digest(annotation),'evidence_sha256':digest(evidence),
             'independent_critic':critic is not None},lambda:{'verification':verify_hypotheses(annotation,evidence,critic,max_output_tokens=max_output_tokens)})
         if set(payload)!={'verification'}:raise ValueError('Recovered verification stage fields changed')
         value=payload['verification']
-        if tape is not None:
+        if tape is not None or experiment_policy is not None:
             structural=verify_hypotheses(annotation,evidence)
             if (value.get('reports')!=structural['reports'] or value.get('independent_human') is not False
                     or (critic is not None)!=(value.get('kind')=='llm_separate_pass')):
@@ -337,6 +423,10 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if repository_context is not None:
             pack['repository_context']=deepcopy(repository_context)
             pack['leakage_audit']['limitations'].append('Current repository history may include later edits; it is product context, not strict historical proof.')
+        if experiment_policy is not None:
+            pack['experiment_policy'] = deepcopy(experiment_policy)
+            pack['historical_source_audit'] = deepcopy(history_audit)
+            pack['leakage_audit']['limitations'].append('Prior history covers selected independently bound opening texts only; source authenticity remains a trusted acquisition boundary.')
         if refinement_rounds:
             pack['refinement'] = refinement
         if workflow_plan is not None:
@@ -347,7 +437,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
         if checkpoints:
             pack['stage_checkpoints'] = checkpoints
         pack["run_id"] = digest({"case": case, "snapshot": snapshot.snapshot_sha256, "provider": provider, "model": model, "evidence": [e["id"] for e in evidence], "annotation": annotation,
-                                 **({'refinement_policy':FOCUSED_POLICY} if refinement_rounds else {}),
+                                 **({'refinement_policy':focused_policy} if refinement_rounds else {}),
+                                 **({'experiment_policy_sha256':experiment_policy['sha256'],
+                                     'historical_selection_sha256':history_audit['selection_sha256']} if experiment_policy is not None else {}),
                                  **({'repository_context':repository_context['sha256']} if repository_context is not None else {})})[:24]
         if workflow_plan is not None:
             pack['run_id']=planned_run_id(case,snapshot.snapshot_sha256,evidence,annotation,
@@ -472,12 +564,13 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                           'rounds_remaining':1})
             if action==Action.RETRIEVE:
                 def focused_search():
-                    found,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph)
+                    found,search=expand_for_hypotheses(annotation['hypotheses'],evidence,snapshot,graph,
+                        **({'query_mode':'falsification_only'} if experiment_policy is not None else {}))
                     return {'added_evidence':found,'search':search}
                 added,search=retrieve_stage('focused_retrieval',focused_search)
                 refinement.update(retrieval_rounds=1,seed_annotation=deepcopy(annotation),search=search,
                                   stop_reason=search['stop_reason'])
-                trace.append({'stage':'focused_retrieval','policy':FOCUSED_POLICY,
+                trace.append({'stage':'focused_retrieval','policy':focused_policy,
                               'query_count':len(search['queries']),'added_ids':search['added_ids'],
                               'stop_reason':search['stop_reason'],'rounds_remaining':0})
                 if added:

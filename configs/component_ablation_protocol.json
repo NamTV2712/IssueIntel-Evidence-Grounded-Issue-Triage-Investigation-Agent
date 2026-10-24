@@ -1,0 +1,107 @@
+{
+  "schema": "component_ablation_protocol_v1",
+  "scope": "accepted_original_main_dev_component_ablation_v1",
+  "execution_authorized": false,
+  "selected_case_count": 25,
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "reasoning_effort": "medium",
+  "max_output_tokens": 2048,
+  "selection": "first_25_round_robin_repository_then_case_id_among_accepted_original_main_dev_no_outcome_filter",
+  "arm_order": "rotate_registered_arm_order_by_case_index_modulo_five",
+  "trials_per_case_arm": 1,
+  "arms": [
+    {
+      "arm_id": "lexical_symbol",
+      "graph": false,
+      "history": false,
+      "verifier": false,
+      "counter_search": false
+    },
+    {
+      "arm_id": "plus_graph",
+      "graph": true,
+      "history": false,
+      "verifier": false,
+      "counter_search": false
+    },
+    {
+      "arm_id": "plus_history",
+      "graph": true,
+      "history": true,
+      "verifier": false,
+      "counter_search": false
+    },
+    {
+      "arm_id": "plus_verifier",
+      "graph": true,
+      "history": true,
+      "verifier": true,
+      "counter_search": false
+    },
+    {
+      "arm_id": "plus_counter_search",
+      "graph": true,
+      "history": true,
+      "verifier": true,
+      "counter_search": true
+    }
+  ],
+  "retrieval": {
+    "total_initial_code_excerpt_cap": 12,
+    "lexical_only_seed_cap": 12,
+    "graph_arm_seed_cap": 8,
+    "graph_neighbour_cap": 4,
+    "excerpt_character_cap": 1600,
+    "graph_built_for_all_arms": true,
+    "comparison": "retrieval_allocation_under_equal_excerpt_caps_not_isolated_graph_effect"
+  },
+  "history": {
+    "mode": "verified_issue_openings",
+    "max_candidates_per_case": 20,
+    "max_source_bytes": 524288,
+    "max_case_bytes": 2097152,
+    "max_input_file_bytes": 52428800,
+    "max_included_sources": 4,
+    "max_excerpt_characters": 1200,
+    "selection": "explicit_frozen_candidate_order_first_eligible",
+    "availability": "independent_opening_event_and_issue_creation_strictly_before_target_cutoff",
+    "missing_sources": "retain_case_report_coverage_zero_history_contrast_uninformative"
+  },
+  "limits": {
+    "max_provider_calls_per_arm": 5,
+    "max_provider_calls_total": 625,
+    "generation_passes": 2,
+    "repair_slots_per_generation": 1,
+    "verifier_passes": 1,
+    "counter_search_rounds": 1,
+    "counter_queries": 3,
+    "counter_added_code_excerpts": 6
+  },
+  "primary_metrics": [
+    "retrieval_file_recall_at_5_all_selected",
+    "completion_coverage",
+    "charged_or_reserved_tokens_and_cost",
+    "provider_and_pipeline_latency"
+  ],
+  "secondary_metrics": [
+    "retrieval_file_precision_at_5",
+    "retrieval_file_mrr",
+    "retrieval_all_patch_files_at_5",
+    "citation_integrity",
+    "model_cited_counter_coverage",
+    "history_source_coverage",
+    "retrieval_file_recall_at_18_all_selected",
+    "counter_added_code_file_count",
+    "counter_added_gold_file_hits"
+  ],
+  "gold_policy": "separate_explicitly_authorized_scoring_only_after_complete_inference_seal",
+  "semantic_quality": "unreviewed_not_human_or_causal_validation",
+  "prior_dev_exposure": "may_reuse_previously_inspected_development_cases_not_an_independent_sample",
+  "interpretation": "descriptive_conditional_increments_not_production_or_external_agent_performance",
+  "holdout_access_authorized": false,
+  "live_access_authorized": false,
+  "new_freeze_authorized": false,
+  "bulk_annotation_restart_authorized": false,
+  "jev_spending_authorized": false
+}
