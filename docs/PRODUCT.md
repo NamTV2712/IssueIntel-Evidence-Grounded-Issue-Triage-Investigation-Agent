@@ -1024,6 +1024,15 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 Thứ tự ưu tiên: 1 → 2 → 3 → 5 → 6 → 8. Mục 4 chạy khi có cấu hình
 thật; các mục còn lại và diagnostic được triển khai/nghiệm thu theo dependencies.
 
+V01 có thêm [common grounding assessment](COMPONENT_GROUNDING.md) sau full
+125-cell effective inference seal: fresh judge chung, canonical public inputs,
+exact source/phase authority, một call mỗi input độc nhất và mapping đủ năm arm.
+Journal/receipt ownership, closed-return compatibility và inventory allowlist
+ngăn che attempt hoặc tính lỗi thành review thành công. Report giữ selected 25,
+paired reviewed subsets, case aliases và unique cost/timing; nhãn vẫn tự động,
+semantic accuracy/causal/human unverified. Tooling/test không thay phép đo thật;
+V01 quality gate vẫn mở.
+
 ## Review usefulness ngoại tuyến — chuẩn bị V02
 
 `usefulness-build --selection ... --output ...` nhận JSON có đúng các trường

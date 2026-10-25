@@ -74,6 +74,12 @@ khóa adapter mới và chạy inference từ checkout gốc còn nguyên. Các 
 receipt và chi phí lỗi cũ vẫn được giữ; không tự retry hoặc bỏ qua cổng pilot.
 Xem [điều kiện phục hồi và cách dùng](docs/COMPONENT_EVALUATION.md#continuation-riêng-cho-pilot-lỗi-transport).
 
+`component-grounding-preview/run/inspect/score` thêm phép chấm model chung sau
+full inference seal: fresh critic cho mọi projected input độc nhất, giữ mapping
+năm arm và receipt owner. [Giao thức grounding](docs/COMPONENT_GROUNDING.md)
+phân biệt automatic assessment với citation integrity và kiểm người; không mở
+gold hoặc thay đổi pack inference. Chưa có kết quả quality từ tooling này.
+
 ## Review câu hỏi và bước kiểm tra ngoại tuyến
 
 Ba lệnh `usefulness-build`, `usefulness-import`, `usefulness-score` chuẩn bị và

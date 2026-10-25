@@ -70,6 +70,16 @@ def main(argv=None) -> int:
     continuation_score = commands.add_parser('component-continuation-score', help='Separately score a complete sealed continuation with matching Main Dev gold permission')
     continuation_score.add_argument('--plan', required=True)
     continuation_score.add_argument('--authorization', type=Path, required=True)
+    for grounding_mode in ('preview', 'run', 'inspect', 'score'):
+        grounding = commands.add_parser('component-grounding-' + grounding_mode,
+            help='Common gold-free model assessment of a fully sealed component comparison')
+        if grounding_mode == 'preview':
+            grounding.add_argument('--parent-plan', required=True)
+        else:
+            grounding.add_argument('--study', required=True)
+        if grounding_mode == 'run':
+            grounding.add_argument('--authorization', type=Path, required=True)
+            grounding.add_argument('--limit', type=int, choices=(1, 25), default=1)
     memory_capture=commands.add_parser('memory-capture',help='Retain source-bound architecture or unverified prior hypotheses locally; no model')
     memory_capture.add_argument('--pack',type=Path,required=True)
     memory_capture.add_argument('--kind',choices=('architecture','lesson'),default='architecture')
@@ -215,6 +225,12 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('component-grounding-'):
+        try:
+            return _component_grounding(args)
+        except (ValueError, RuntimeError, OSError):
+            print('IssueIntel: grounding adapter or frozen runtime is unavailable', file=sys.stderr)
+            return 2
     if args.command.startswith('component-continuation-'):
         try:
             return _component_continuation(args)
@@ -430,9 +446,6 @@ def main(argv=None) -> int:
 
 def _component_continuation(args):
     """Load new orchestration separately from the experiment's frozen inference."""
-    driver = Path(__file__).resolve().parents[1] / 'benchmarks/component_continuation_run.py'
-    if not driver.is_file():
-        raise ValueError('Continuation adapter is unavailable')
     mode = args.command.removeprefix('component-continuation-')
     parameters = ['--root', str(args.root), '--mode', mode]
     if mode == 'preview':
@@ -443,6 +456,22 @@ def _component_continuation(args):
         parameters += ['--authorization', str(args.authorization)]
     if mode == 'run':
         parameters += ['--limit', str(args.limit)]
+    return _run_component_adapter(args.root, 'component_continuation_run.py', parameters)
+
+
+def _component_grounding(args):
+    mode = args.command.removeprefix('component-grounding-')
+    parameters = ['--root', str(args.root), '--mode', mode]
+    parameters += ['--parent-plan', args.parent_plan] if mode == 'preview' else ['--study', args.study]
+    if mode == 'run':
+        parameters += ['--authorization', str(args.authorization), '--limit', str(args.limit)]
+    return _run_component_adapter(args.root, 'component_grounding.py', parameters)
+
+
+def _run_component_adapter(root, filename, parameters):
+    driver = Path(__file__).resolve().parents[1] / 'benchmarks' / filename
+    if not driver.is_file():
+        raise ValueError('Component adapter is unavailable')
     # Arguments remain separate from constant bootstrap code. -I excludes caller
     # PYTHONPATH/current-directory imports; only the frozen package root is added.
     # The adapter loads exact sibling files without exposing their whole folder
@@ -455,7 +484,7 @@ def _component_continuation(args):
         'runpy.run_path(str(driver),run_name="__main__")'
     )
     return subprocess.run([sys.executable, '-I', '-c', bootstrap,
-                           str(args.root), str(driver), *parameters], check=False).returncode
+                           str(root), str(driver), *parameters], check=False).returncode
 
 
 def _component_experiment(args):

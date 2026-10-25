@@ -1314,6 +1314,19 @@ khôi phục một native stage chưa commit. Full 125-cell effective seal và q
 gold riêng là điều kiện trước Main Dev scoring. Xem contract và phạm vi ở
 [COMPONENT_EVALUATION.md](COMPONENT_EVALUATION.md#continuation-riêng-cho-pilot-lỗi-transport).
 
+## Common grounding — tooling V01
+
+`benchmarks.component_grounding` nhận full 125-cell effective seal, khóa exact
+native public projection/critic requests và dedup inputs giống nhau thành một
+owned unit. Runtime/source isolation dùng cùng frozen checkout như continuation;
+không sửa ba adapter cũ. Mỗi unit replay case proof của mọi mapped case, giữ
+fresh judge riêng với in-treatment critic và không nhập restricted gold.
+Pilot/matrix authorization, one-call journal/receipt, exact inventory namespace,
+wire/native validation và full study seal bảo vệ no-retry/cost accounting.
+Scorer giữ denominator 25, aliases/case clusters, reviewed subset và shared timing
+riêng với tổng unique units. [COMPONENT_GROUNDING.md](COMPONENT_GROUNDING.md)
+mô tả scope và giới hạn: automatic model assessment, không accuracy/human truth.
+
 ## Review usefulness offline — tooling V02
 
 `evaluation.usefulness` là module thuần cho selection/native source replay,
