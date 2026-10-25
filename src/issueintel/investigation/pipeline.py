@@ -56,7 +56,22 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 repository_context=None, resumable=False, planned_workflow=False,
                 planner_policy='bounded_planner_v1', planned_parent=None, planned_continuation=None,
                 recoverable=False, recovery_records=None, prior_provider_calls=None,on_recovery_attempt=None,recovery_origin=None,recovery_fork=None,recovery_controller=None,
-                experiment_policy=None, historical_sources=None, experiment_stage_executor=None) -> dict:
+                experiment_policy=None, historical_sources=None, experiment_stage_executor=None,
+                product_study_policy=None, product_study_stage_executor=None) -> dict:
+    if product_study_policy is not None or product_study_stage_executor is not None:
+        from .product_study import validate_invocation
+        product_study_policy = validate_invocation(case, product_study_policy, product_study_stage_executor,
+            protocol=protocol, complete_json=complete_json, provider=provider, model=model,
+            top_k=top_k, independent_critic=independent_critic, max_output_tokens=max_output_tokens,
+            refinement_rounds=refinement_rounds, planned_workflow=planned_workflow,
+            planner_policy=planner_policy, controller=controller, incompatible={
+                'resumable':resumable,'recoverable':recoverable,'recovery_records':recovery_records,
+                'prior_provider_calls':prior_provider_calls,'on_recovery_attempt':on_recovery_attempt,
+                'recovery_origin':recovery_origin,'recovery_fork':recovery_fork,'recovery_controller':recovery_controller,
+                'prepared_evidence':prepared_evidence,'repository_context':repository_context,
+                'planned_parent':planned_parent,'planned_continuation':planned_continuation,
+                'experiment_policy':experiment_policy,'historical_sources':historical_sources,
+                'experiment_stage_executor':experiment_stage_executor,'query_receipt':query_receipt,'availability':availability})
     case = public_case(case)
     history_audit = None
     if experiment_policy is not None:
@@ -204,6 +219,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     graph = graph or build_graph(snapshot)
     if graph.snapshot_sha256 != snapshot.snapshot_sha256 or graph.commit_sha != snapshot.commit_sha:
         raise ValueError("Graph differs from selected snapshot")
+    if product_study_policy is not None:
+        from .product_study import validate_context as validate_study_context
+        validate_study_context(product_study_policy,case,snapshot,graph)
     if planned_parent is not None:
         descriptor=snapshot.to_dict()
         descriptor['files']=[{key:value for key,value in file.to_dict().items() if key!='text'} for file in snapshot.files]
@@ -226,6 +244,11 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             emit(stage,record)
     def stage_value(stage,inputs,produce):
         if tape is not None:return tape.run(stage,inputs,produce)
+        if product_study_policy is not None:
+            from .product_study import run_stage
+            payload=run_stage(product_study_policy,stage,inputs,produce,product_study_stage_executor,
+                case=case,snapshot=snapshot,graph=graph)
+            checkpoint(stage,payload);return payload
         payload=(experiment_stage_executor(stage,deepcopy(inputs),produce)
                  if experiment_stage_executor is not None else produce())
         checkpoint(stage,payload);return payload
@@ -251,6 +274,11 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
     elif tape is not None:
         evidence=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),'top_k':top_k},
             lambda:{'evidence':retrieve_evidence(statement,snapshot,graph,top_k=top_k)})['evidence']
+    elif product_study_policy is not None:
+        initial=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
+            'snapshot_sha256':snapshot.snapshot_sha256,'top_k':top_k,'graph_expand':True},
+            lambda:{'evidence':retrieve_evidence(statement,snapshot,graph,top_k=top_k)})
+        evidence=deepcopy(initial['evidence'])
     elif experiment_policy is not None:
         initial=stage_value('initial_retrieval',{'query_sha256':hashlib.sha256(statement.encode()).hexdigest(),
             'snapshot_sha256':snapshot.snapshot_sha256,'top_k':top_k,'graph_expand':experiment_policy['graph_expand']},
@@ -277,7 +305,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             **({"receipt": query_receipt} if query_verified else {})}})
     if tape is not None:
         validate_prepared_evidence(case,[row for row in evidence if row['kind']!='repository_context'],snapshot)
-    if experiment_policy is not None:
+    if experiment_policy is not None or product_study_policy is not None:
         from issueintel.retrieval.focused import _replay
         validate_prepared_evidence(case,[row for row in evidence if row['kind'] in {'issue','code'}],snapshot)
         for record in evidence:
@@ -313,6 +341,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 return answer
             experiment_complete.complete_json = experiment_json
         complete_json = experiment_complete
+    if product_study_policy is not None:
+        from .product_study import wrap_provider
+        complete_json=wrap_provider(complete_json,product_study_policy,case=case,snapshot=snapshot,graph=graph)
     if waiting_policy_hash is not None and complete_json is not None:
         original_complete=complete_json
         def policy_guard():
@@ -353,11 +384,17 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                   'retrieval_rounds':0,'generation_passes':0,'stop_reason':'not_started'}
     workflow_plan=None
     def generate(stage,**extra):
-        payload=stage_value(stage,{'case_sha256':digest(case),'evidence_sha256':digest(evidence)},
+        inputs={'case_sha256':digest(case),'evidence_sha256':digest(evidence)}
+        if product_study_policy is not None:inputs['native_metadata']=deepcopy(extra)
+        payload=stage_value(stage,inputs,
             lambda:{**extra,'annotation':generate_annotation(case,evidence,complete_json,
                 provider=provider,model=model,max_output_tokens=max_output_tokens).to_dict()})
         if set(payload)!={'annotation'}|set(extra) or any(payload[k]!=v for k,v in extra.items()):
             raise ValueError('Recovered generation stage fields changed')
+        if product_study_policy is not None:
+            from .product_study import _same
+            if not _same({key:payload[key] for key in extra},extra):
+                raise ValueError('Shared generation stage metadata changed its JSON types')
         value=Annotation.from_dict(payload['annotation']).validate_evidence(evidence)
         if (value.case_id!=case['case_id'] or value.provenance.kind!='llm' or value.provenance.provider!=provider
                 or value.provenance.model!=model or value.source_quality or value.judgment
@@ -369,7 +406,7 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             'excluded_query_sha256s':sorted(used_queries)},lambda:{**extra,**produce()})
         if set(payload)!={'search','added_evidence'}|set(extra) or any(payload[k]!=v for k,v in extra.items()):
             raise ValueError('Recovered retrieval stage fields changed')
-        if tape is not None or experiment_policy is not None:
+        if tape is not None or experiment_policy is not None or product_study_policy is not None:
             if any(row['kind']!='code' for row in payload['added_evidence']):
                 raise ValueError('Recovered retrieval must contain code excerpts only')
             validate_prepared_evidence(case,[row for row in evidence if row['kind']=='issue']+payload['added_evidence'],snapshot)
@@ -387,6 +424,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             'independent_critic':critic is not None},lambda:{'verification':verify_hypotheses(annotation,evidence,critic,max_output_tokens=max_output_tokens)})
         if set(payload)!={'verification'}:raise ValueError('Recovered verification stage fields changed')
         value=payload['verification']
+        if product_study_policy is not None:
+            from .product_study import validate_verification
+            validate_verification(value,annotation,evidence,critic_enabled=critic is not None)
         if tape is not None or experiment_policy is not None:
             structural=verify_hypotheses(annotation,evidence)
             if (value.get('reports')!=structural['reports'] or value.get('independent_human') is not False
@@ -395,7 +435,9 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
             if value.get('kind')=='llm_separate_pass':validate_critique({'reviews':value.get('reviews')},annotation,evidence)
             elif value.get('kind')!='structural':raise ValueError('Unknown recovered verification')
         return value
-    def finished(pack):return tape.finish(pack) if tape is not None else pack
+    def finished(pack):
+        if product_study_policy is not None:validate_study_context(product_study_policy,case,snapshot,graph)
+        return tape.finish(pack) if tape is not None else pack
     def assemble(stop_reason, verification):
         leakage = {"gold_in_inference": False, "snapshot_protocol": snapshot.protocol,
             "strict_issue_time_verified": query_verified and snapshot.protocol == "issue_time" and bool(snapshot.availability.get("historical_certified")),
@@ -480,10 +522,12 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 if waiting_enabled and not can_generate(workflow_plan):
                     planned_stop='generation_limit'
                     break
+                if product_study_policy is not None:validate_study_context(product_study_policy,case,snapshot,graph)
                 if hasattr(controller,'bind_context'):
                     controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
                     len(annotation['hypotheses']),intake['missing_information'],maximum-number+1)
+                if product_study_policy is not None:validate_study_context(product_study_policy,case,snapshot,graph)
                 step={'round':number,'input_annotation_sha256':digest(annotation),
                       'input_evidence_ids':[row['id'] for row in evidence],
                       'input_hypotheses':model_hypotheses(annotation['hypotheses']),
@@ -532,10 +576,12 @@ def investigate(case: dict, local_repo: Path | str, *, complete_json=None, provi
                 workflow_plan['provider_calls']+=1+annotation['provenance']['repair_count']
                 step.update(output_annotation_sha256=digest(annotation),output_annotation=deepcopy(annotation))
             if decision not in (Action.VERIFY,Action.STOP,Action.ASK):
+                if product_study_policy is not None:validate_study_context(product_study_policy,case,snapshot,graph)
                 if hasattr(controller,'bind_context'):
                     controller.bind_context(case,snapshot.to_dict(),evidence,annotation)
                 decision,decision_record=choose_action(controller,sum(e['kind']=='code' for e in evidence),
                     len(annotation['hypotheses']),intake['missing_information'],0,final=True)
+                if product_study_policy is not None:validate_study_context(product_study_policy,case,snapshot,graph)
             workflow_plan['final_decision']=decision_record
             trace.append({'stage':'decision','controller':decision_record['controller'],'action':decision.value})
             critic=complete_json if independent_critic and decision==Action.VERIFY else None

@@ -1327,6 +1327,19 @@ Scorer giữ denominator 25, aliases/case clusters, reviewed subset và shared t
 riêng với tổng unique units. [COMPONENT_GROUNDING.md](COMPONENT_GROUNDING.md)
 mô tả scope và giới hạn: automatic model assessment, không accuracy/human truth.
 
+## Product controller-study boundaries — chuẩn bị V03
+
+`investigation.product_study` thêm opt-in stage boundary cho đúng original
+GitHub product Planned v2; tách khỏi strict experiment và recovery gates.
+Policy khóa nguồn/recipe, deterministic retrieval replay, native annotation/
+verifier validation và guards quanh stage/call/decision. Shared full annotation
+giữ timestamp/repair count và native logical call limits.
+`runtime.study_budget` cung cấp atomic joint allowance, owned receipts và
+cost-only shared references với fsynced journal/SQLite index; provider wrappers
+phải reserve trước construction và truyền integrity stop ra ngoài fallback.
+[CONTROLLER_STUDY.md](CONTROLLER_STUDY.md) ghi phần runner/registration/scoring
+và quyền Typesafe còn thiếu. Đây chưa phải thí nghiệm controller đã nghiệm thu.
+
 ## Review usefulness offline — tooling V02
 
 `evaluation.usefulness` là module thuần cho selection/native source replay,
