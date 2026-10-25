@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 from issueintel.runtime.io import load_local_env, read_jsonl, write_json
@@ -58,6 +59,17 @@ def main(argv=None) -> int:
     component_score = commands.add_parser('component-score', help='Separately score a complete sealed Main Dev comparison after explicit gold authorization')
     component_score.add_argument('--experiment', required=True)
     component_score.add_argument('--authorization', type=Path, required=True)
+    continuation_preview = commands.add_parser('component-continuation-preview', help='Prepare an immutable transport-recovery plan against its unchanged inference checkout; no API')
+    continuation_preview.add_argument('--experiment', required=True)
+    continuation_run = commands.add_parser('component-continuation-run', help='Execute an explicitly authorized continuation; retain original failures and paid stages')
+    continuation_run.add_argument('--plan', required=True)
+    continuation_run.add_argument('--authorization', type=Path, required=True)
+    continuation_run.add_argument('--limit', type=int, choices=(1, 25), default=1)
+    continuation_inspect = commands.add_parser('component-continuation-inspect', help='Read saved continuation state without credentials or model calls')
+    continuation_inspect.add_argument('--plan', required=True)
+    continuation_score = commands.add_parser('component-continuation-score', help='Separately score a complete sealed continuation with matching Main Dev gold permission')
+    continuation_score.add_argument('--plan', required=True)
+    continuation_score.add_argument('--authorization', type=Path, required=True)
     memory_capture=commands.add_parser('memory-capture',help='Retain source-bound architecture or unverified prior hypotheses locally; no model')
     memory_capture.add_argument('--pack',type=Path,required=True)
     memory_capture.add_argument('--kind',choices=('architecture','lesson'),default='architecture')
@@ -203,6 +215,12 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('component-continuation-'):
+        try:
+            return _component_continuation(args)
+        except (ValueError, RuntimeError, OSError):
+            print('IssueIntel: continuation adapter or frozen runtime is unavailable', file=sys.stderr)
+            return 2
     if args.command.startswith('component-'):
         try:
             result = _component_experiment(args)
@@ -408,6 +426,36 @@ def main(argv=None) -> int:
     except (ValueError, RuntimeError, OSError, PermissionError) as error:
         print(f"IssueIntel: {error}", file=sys.stderr)
         return 2
+
+
+def _component_continuation(args):
+    """Load new orchestration separately from the experiment's frozen inference."""
+    driver = Path(__file__).resolve().parents[1] / 'benchmarks/component_continuation_run.py'
+    if not driver.is_file():
+        raise ValueError('Continuation adapter is unavailable')
+    mode = args.command.removeprefix('component-continuation-')
+    parameters = ['--root', str(args.root), '--mode', mode]
+    if mode == 'preview':
+        parameters += ['--experiment', args.experiment]
+    else:
+        parameters += ['--plan', args.plan]
+    if mode in {'run', 'score'}:
+        parameters += ['--authorization', str(args.authorization)]
+    if mode == 'run':
+        parameters += ['--limit', str(args.limit)]
+    # Arguments remain separate from constant bootstrap code. -I excludes caller
+    # PYTHONPATH/current-directory imports; only the frozen package root is added.
+    # The adapter loads exact sibling files without exposing their whole folder
+    # as an import search path for the frozen inference package.
+    bootstrap = (
+        'from pathlib import Path; import runpy,sys; '
+        'runtime=Path(sys.argv[1]).resolve(); driver=Path(sys.argv[2]).resolve(); '
+        'sys.path.insert(0,str(runtime/"src")); '
+        'sys.argv=[str(driver),*sys.argv[3:]]; '
+        'runpy.run_path(str(driver),run_name="__main__")'
+    )
+    return subprocess.run([sys.executable, '-I', '-c', bootstrap,
+                           str(args.root), str(driver), *parameters], check=False).returncode
 
 
 def _component_experiment(args):

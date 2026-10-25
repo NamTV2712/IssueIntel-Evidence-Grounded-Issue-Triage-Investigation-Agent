@@ -68,6 +68,12 @@ ca trước matrix; `component-score` chấm riêng sau inference seal đầy đ
 Xem [giao thức và giới hạn diễn giải](docs/COMPONENT_EVALUATION.md).
 Đây là công cụ V01; chưa phải bằng chứng chất lượng đã được nghiệm thu.
 
+Nếu pilot đã giữ bốn nhánh hoàn tất và nhánh counter-search lỗi transport,
+`component-continuation-preview/run/inspect/score` hỗ trợ một continuation riêng,
+khóa adapter mới và chạy inference từ checkout gốc còn nguyên. Các kết quả,
+receipt và chi phí lỗi cũ vẫn được giữ; không tự retry hoặc bỏ qua cổng pilot.
+Xem [điều kiện phục hồi và cách dùng](docs/COMPONENT_EVALUATION.md#continuation-riêng-cho-pilot-lỗi-transport).
+
 ## Review câu hỏi và bước kiểm tra ngoại tuyến
 
 Ba lệnh `usefulness-build`, `usefulness-import`, `usefulness-score` chuẩn bị và

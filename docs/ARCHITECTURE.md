@@ -1296,6 +1296,24 @@ local Origin/session guard, kiểm redaction, dedup qua receiver recreation và 
 installation. Bộ liên quan đạt 174 test local, không real provider/upstream write.
 Phần này chưa xác nhận App/HTTPS thật hoặc đổi publication token thành App auth.
 
+## Continuation của controlled component evaluation
+
+`benchmarks.component_continuation`, `component_continuation_run` và
+`component_continuation_score` là adapter riêng cho một pilot transport failure
+đã đóng. CLI spawn Python isolated: native inference imports từ checkout gốc
+đã đăng ký, adapter nạp theo exact file và pin ba source hashes. Không đổi
+fingerprint, runtime hay payload gốc để chấp nhận code mới. Admission/full seal
+replay nguồn và pack; mỗi stage/call kiểm lại source/config/inventory và context
+ca đang chạy. Preview/inspect không đọc credentials hoặc ledger.
+
+Plan giữ inventory gốc, target call/stage/arm và cận không đổi. Overlay journals
+giữ full native payload, namespace call attempt mới và original audit refs.
+Execution refs tách khỏi failed audit refs; accounting giữ cả hai, dedup receipt
+owner và giới hạn referenced/owned attempts. Raw response không đủ điều kiện
+khôi phục một native stage chưa commit. Full 125-cell effective seal và quyền
+gold riêng là điều kiện trước Main Dev scoring. Xem contract và phạm vi ở
+[COMPONENT_EVALUATION.md](COMPONENT_EVALUATION.md#continuation-riêng-cho-pilot-lỗi-transport).
+
 ## Review usefulness offline — tooling V02
 
 `evaluation.usefulness` là module thuần cho selection/native source replay,

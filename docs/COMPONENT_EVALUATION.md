@@ -142,3 +142,73 @@ và không tạo inference seal. Reservation giữ cận USD 0.002857 với usag
 GET danh sách model sau đó trả 200 không chứng minh POST đã thành công. Hồ sơ lỗi
 được giữ nguyên, không tự thử lại, thay ca hoặc báo kết quả chất lượng. Chẩn đoán
 transport mới chỉ áp dụng cho call sau, không bổ sung dữ kiện đoán vào receipt cũ.
+
+## Continuation riêng cho pilot lỗi transport
+
+Runner gốc giữ một arm lỗi ở trạng thái terminal, không tự gọi lại provider.
+Adapter continuation hỗ trợ trường hợp cụ thể: đúng pilot năm nhánh, bốn nhánh
+đã hoàn tất và một generation của counter-search lỗi ở pha request, có loại
+lỗi mạng được nhận diện, receipt `failed_bound` đã đóng và không có response
+trả về. Không nhận outcome unknown, response đã trả nhưng thiếu native stage,
+lỗi schema, lỗi đọc response hoặc lịch sử/source đã thay đổi.
+
+Adapter không thay code inference đang đăng ký. CLI mới chạy child Python cô
+lập, nhập toàn bộ `issueintel` inference từ `--root` của checkout gốc; ba file
+adapter được nạp riêng bằng đường dẫn và khóa hash. Preview replay nguồn và
+bốn pack hoàn tất, rồi lưu plan private bất biến. Plan khóa cả inventory gốc,
+request lỗi, runtime, adapter và cận sử dụng. Không sửa fingerprint hay receipt
+cũ để làm đăng ký hết stale; cần giữ checkout inference gốc nguyên vẹn.
+
+```powershell
+# Chạy CLI từ checkout có adapter mới; --root trỏ tới checkout inference đã khóa.
+python -m issueintel --root <frozen_checkout> component-continuation-preview --experiment <registration_sha256>
+python -m issueintel --root <frozen_checkout> component-continuation-inspect --plan <plan_sha256>
+python -m issueintel --root <frozen_checkout> component-continuation-run --plan <plan_sha256> --authorization artifacts/continuation-pilot.json --limit 1
+# Chỉ sau khi đủ năm nhánh effective và có quyền matrix khớp:
+python -m issueintel --root <frozen_checkout> component-continuation-run --plan <plan_sha256> --authorization artifacts/continuation-matrix.json --limit 25
+```
+
+Ủy quyền `component_continuation_run_authorization_v1` phải khớp toàn bộ plan,
+nguồn adapter, model/effort/output, ordered cases và phase; tham chiếu đúng bytes
+của ủy quyền native tương ứng. Kiểm plan/ủy quyền và cổng matrix diễn ra trước
+khi đọc `.env` hay mở ledger. Việc tự viết file khai không xác thực danh tính
+hoặc tạo quyền chi tiêu mới; cần căn cứ yêu cầu đã được tác giả cho phép.
+
+Continuation lưu dưới `artifacts/experiments/component_continuation/`, tách khỏi
+`cases/` gốc. Stage đã hoàn tất dùng lại nguyên payload và timestamp. Call mới
+có ID attempt riêng; request đầu dùng đúng request lỗi đã khóa. Native replay
+chỉ cho phép khác thứ tự key của JSON object trong user message, giữ nguyên
+mọi giá trị, thứ tự list, system prompt, schema và cấu hình. Request gửi đi vẫn
+là bản gốc. Schema repair chỉ đếm call của attempt mới; lỗi mạng cũ nằm trong
+audit/accounting, không biến thành schema repair.
+
+Cả referenced calls, owned calls và tổng thí nghiệm đều tính attempt lỗi cũ,
+call mới và shared references, giữ cận năm call/arm và 625 call toàn matrix.
+Receipt dùng chung chỉ có một owner và tính một lần trong tổng chi phí thực.
+Nếu attempt mới lại lỗi, trạng thái terminal giữ nguyên, không tự trả tiền thử
+lại. Crash sau khi chốt native stage cho phép reuse; crash khi chỉ có HTTP
+response hoặc intent chưa chốt thì dừng để audit, không tái dựng timestamp giả.
+
+Bốn nhánh gốc không được thay thế. Nhánh phục hồi có execution refs riêng và
+audit refs giữ arm/stage lỗi cũ. Mốc thời gian gốc giữ nguyên, thời gian chuẩn
+bị/pipeline phục hồi báo riêng; tổng active time không phải wall-clock hay
+phép đo cold-cache độc lập. Call timing của runner bao gồm wrapper, ghi journal
+và source guards quanh provider; không phải độ trễ mạng/API thuần. Năm pack
+effective phải hoàn tất và replay native
+trước matrix. Chỉ đủ 125 trạng thái terminal, toàn bộ stage/call/receipt có
+owner và native pack replay hợp lệ mới tạo effective inference seal v2.
+
+Chấm điểm là bước riêng, cần schema
+`component_continuation_score_authorization_v1` khớp plan, adapter, selection và
+effective seal, cho phép gold Main Dev và không cho call provider:
+
+```powershell
+python -m issueintel --root <frozen_checkout> component-continuation-score --plan <plan_sha256> --authorization artifacts/continuation-score.json
+```
+
+Scorer replay seal trước/sau gold boundary và dùng cùng định nghĩa localization
+gốc, giữ cả original failure và effective outcome. Báo riêng transport attempt,
+schema repairs, chi phí unknown, thời gian gốc và phục hồi. Không mở Holdout/Live
+hoặc xác nhận semantic quality. Kiểm thử tổng hợp bao phủ phục hồi, full matrix,
+crash boundaries, không retry, isolation và accounting; kết quả test cơ chế không
+thay kết quả thí nghiệm thực.
