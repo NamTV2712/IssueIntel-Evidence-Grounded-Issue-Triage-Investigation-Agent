@@ -729,5 +729,3 @@ def test_unhashable_reference_arm_cannot_hide_failed_repair_cost(tmp_path):
     with pytest.raises(StudyBudgetStop):
         ledger.reference(call, [], 'seed_generation:1', hashed('seed'))
     assert ledger.inspect()['owned_micro_usd_charged_or_reserved'] == 210
-
-
