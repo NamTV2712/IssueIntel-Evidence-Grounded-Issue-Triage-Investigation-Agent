@@ -103,11 +103,24 @@ def _record_path(root, directory, case_id, kind, identifier, native):
 
 def _overlay_records(root, directory, native):
     """Read all owned records, including unfinished intents, before admission."""
-    inventory = native._inventory(root, directory)
+    core = _core()
+    base = Path(directory) / 'cases'
+    files = core.inventory(root, base)
+    if len(files) > native.MAX_FILES:
+        raise native.UnsafeContinuation('Inference inventory exceeds its limit')
+    inventory, total = {}, 0
     calls, stages, arms = [], [], []
-    for name in inventory:
-        value = native._read(root, directory / name)
-        kind = Path(name).parts[2]
+    for name, raw_sha in files.items():
+        parts = Path(name).parts
+        if len(parts) != 3 or parts[1] not in {'arms', 'calls', 'stages'} or Path(name).suffix != '.json':
+            raise native.UnsafeContinuation('Unexpected inference inventory file')
+        path = core.safe_path(root, base / name)
+        total += path.lstat().st_size
+        if total > native.MAX_TOTAL_BYTES:
+            raise native.UnsafeContinuation('Inference inventory exceeds its limit')
+        value = core.read(root, path, max_bytes=native.MAX_FILE_BYTES)
+        inventory['cases/' + Path(name).as_posix()] = raw_sha
+        kind = parts[1]
         {'calls': calls, 'stages': stages, 'arms': arms}[kind].append(value)
     return inventory, arms, calls, stages
 
@@ -172,45 +185,8 @@ def _replay_completed(root, view, base_api):
     registration, native = base_api
     spec, base_directory = view['registration'], view['base_directory']
     registration.preflight_component_ablation(root, spec['sha256'])
-    sources = registration.load_history_sources(root, spec, base_directory)
-    by_stage = _execution_stage_map(view)
-    for row in spec['cases']:
-        outcomes = [arm for arm in view['results']
-                    if arm['case_id'] == row['case_id'] and arm['status'] == 'completed']
-        if not outcomes:
-            continue
-        case, snapshot, query_receipt, graph = native._replay_context(root, spec, row, sources[row['case_id']])
-        for arm in outcomes:
-            used = []
-            permitted = {ref['stage_key']: ref for ref in arm['stage_refs']}
-
-            def stage(kind, inputs, produce):
-                key = native.digest(native._stage_binding(spec, row, kind, inputs))
-                saved = by_stage.get(key)
-                if (key not in permitted or saved is None or saved['status'] != 'completed'
-                        or saved['sha256'] != permitted[key]['sha256']):
-                    raise native.UnsafeContinuation('Effective pack requires a missing native stage')
-                if kind in {'initial_retrieval', 'focused_retrieval'} and native.digest(produce()) != saved['payload_sha256']:
-                    raise native.UnsafeContinuation('Effective retrieval differs from native replay')
-                used.append(key)
-                return deepcopy(saved['payload'])
-
-            def deny(*args, **kwargs):
-                raise native.UnsafeContinuation('Effective pack replay cannot call a provider')
-
-            deny.complete_structured = deny
-            deny.complete_json = deny
-            policy = arm['policy']
-            pack = native.investigate(case, Path(snapshot.repository), complete_json=deny,
-                provider='groq', model=spec['runtime']['model'], protocol='issue_time',
-                snapshot=snapshot, graph=graph, query_receipt=query_receipt,
-                top_k=policy['top_k'], independent_critic=policy['independent_critic'],
-                max_output_tokens=policy['max_output_tokens'], refinement_rounds=int(policy['counter_search']),
-                experiment_policy=policy, historical_sources=sources[row['case_id']],
-                experiment_stage_executor=stage)
-            if native.digest(pack) != native.digest(arm['pack']) or used != [ref['stage_key'] for ref in arm['stage_refs']]:
-                raise native.UnsafeContinuation('Effective pack does not replay exactly from native stages')
-    return True
+    return _core()._replay_native_packs(root, spec, base_directory, view['results'],
+                                       _execution_stage_map(view), base_api=base_api)
 
 
 def _pilot(view, base_api):
@@ -531,12 +507,13 @@ def run_component_continuation(root, identifier, authorization_path, *, limit=1,
     plan, directory = core.load_plan(root, identifier, base_api=api)
     _adapter_origins(plan)
     authorization = core.verify_authorization(root, plan, authorization_path, requested_cases=limit, base_api=api)
-    core.validate_plan(root, plan, base_api=api)
     spec, base_directory = registration.load_registration(root, plan['registration_sha256'])
-    registration.preflight_component_ablation(root, spec['sha256'])
     stopped = None
     with native._lock(root, {'component_ablation': spec['sha256']}):
-        view = core.load_effective_view(root, plan, directory, base_api=api)
+        # load_plan just performed full native cohort/pack replay. Refresh the
+        # current source/config/record inventory under the lease, then keep the
+        # existing exact current-case proof guards before every stage/call.
+        view = core.load_effective_view(root, plan, directory, base_api=api, full_replay=False)
         if any(stage['status'] == 'intent' for stage in view['stages']):
             raise native.UnsafeContinuation('Interrupted native stage requires manual audit; no paid retry')
         if limit > 1:
@@ -656,8 +633,7 @@ def main(argv=None):
     if args.mode == 'preview':
         paths = [Path(__file__).with_name(name + '.py').resolve() for name in
                  ('component_continuation', 'component_continuation_run', 'component_continuation_score')]
-        plan = core.create_plan(root, args.experiment, adapter_paths=paths, base_api=api)
-        core.save_plan(root, plan)
+        plan = core.prepare_plan(root, args.experiment, adapter_paths=paths, base_api=api)
         result = {'continuation_plan_sha256': plan['sha256'], 'plan_path': str(core.plan_path(root, plan)),
                   'limits': plan['limits'], 'gold_read': False, 'execution_authorized': False}
     elif args.mode == 'run':

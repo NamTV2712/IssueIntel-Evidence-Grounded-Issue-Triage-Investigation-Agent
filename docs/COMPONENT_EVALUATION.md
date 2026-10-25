@@ -159,6 +159,33 @@ bốn pack hoàn tất, rồi lưu plan private bất biến. Plan khóa cả in
 request lỗi, runtime, adapter và cận sử dụng. Không sửa fingerprint hay receipt
 cũ để làm đăng ký hết stale; cần giữ checkout inference gốc nguyên vẹn.
 
+Admission kiểm native preflight trên đủ 25 nguồn một lần trong lượt preview
+hoặc đầu lượt run. Việc replay pack chỉ dựng thêm context cho ca có pack đã
+hoàn tất; ca chưa có pack vẫn phải qua cohort preflight. Preview gộp create/save
+trong cùng lượt kiểm, rồi kiểm lại source/config và inventory trước khi lưu.
+Run kiểm lại inventory dưới lease trước credentials; stage/provider guards vẫn
+replay nguyên current case và native graph trước/sau call. Final replay và seal
+giữ cổng full cohort/native packs, không dùng kết quả timing thay proof.
+
+Đọc journal dùng kích thước file đã kiểm cùng một byte sentinel, thay vì xin
+buffer bằng trần 16 MB cho mỗi record nhỏ. File đổi kích thước trong lúc đọc bị
+từ chối. Overlay vẫn đọc đủ calls/stages/arms, kiểm seal, namespace, symlink/
+reparse và cận file/count/total bytes như trước; không chỉ lọc calls để bỏ qua
+audit records. Đây là tối ưu buffer, không phải bỏ kiểm integrity hoặc chi phí.
+
+Mốc tối ưu đạt 147 test, một symlink test skip trên Windows; actual junction,
+full 125-cell seal/reopen, crash/no-retry và common grounding đều được kiểm.
+Trên 120 journal tổng hợp, ba lượt đo luân phiên cho median reader cũ 1,031s và
+reader mới 0,406s với exact inventory/records giống nhau. Đây chỉ là timing
+reader local, không phải quality hoặc tốc độ inference toàn bộ. Native preview
+dữ liệu thật vẫn replay đủ 25 nguồn và bốn pack gốc, không gọi provider/gold.
+
+Đổi adapter để bỏ lượt kiểm trùng làm thay hash và cần plan/authorization mới.
+Plan cũ giữ nguyên, không được rehash để trông hợp lệ với code mới. Một preview
+cũ chưa tạo execution intent không phải paid attempt hoặc kết quả inference;
+source adapter cũ có thể giữ riêng để đối chiếu. Frozen inference code và mọi
+arm/receipt gốc giữ nguyên.
+
 ```powershell
 # Chạy CLI từ checkout có adapter mới; --root trỏ tới checkout inference đã khóa.
 python -m issueintel --root <frozen_checkout> component-continuation-preview --experiment <registration_sha256>

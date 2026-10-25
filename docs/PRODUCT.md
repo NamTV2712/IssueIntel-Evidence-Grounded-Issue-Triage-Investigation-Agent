@@ -1033,6 +1033,11 @@ paired reviewed subsets, case aliases và unique cost/timing; nhãn vẫn tự �
 semantic accuracy/causal/human unverified. Tooling/test không thay phép đo thật;
 V01 quality gate vẫn mở.
 
+V01 admission đã bỏ replay cohort trùng trong cùng lượt preview/run, vẫn giữ
+native proof cho đủ 25 nguồn, bốn pack gốc và guards của current case quanh mỗi
+call. Đổi adapter cần plan/hash mới; không sửa plan hoặc failed receipt cũ.
+Chưa coi tối ưu cơ chế admission là kết quả chất lượng hoặc full matrix mới.
+
 ## Review usefulness ngoại tuyến — chuẩn bị V02
 
 `usefulness-build --selection ... --output ...` nhận JSON có đúng các trường

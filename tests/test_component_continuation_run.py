@@ -125,6 +125,45 @@ def test_matrix_cannot_expand_before_effective_pilot_and_denies_before_environme
     assert len(calls) == plan['limits']['total_calls_before']
 
 
+def test_run_keeps_full_admission_and_final_cohort_replay_without_duplicates(failed_pilot, monkeypatch):
+    _, spec, _, _, _, _, calls, _, _ = failed_pilot
+    observed = []
+    original = registration.preflight_component_ablation
+
+    def preflight(root, identifier):
+        observed.append(identifier)
+        return original(root, identifier)
+
+    monkeypatch.setattr(registration, 'preflight_component_ablation', preflight)
+    before = len(calls)
+    assert run(failed_pilot)['completed_arms'] == 5
+    assert observed == [spec['sha256'], spec['sha256']]
+    assert len(calls) == before + 2
+
+
+def test_source_inventory_is_refreshed_under_lease_before_environment(failed_pilot, monkeypatch):
+    root, _, base_directory, plan, auth, _, calls, provider, _ = failed_pilot
+    original = core.verify_authorization
+    changed = []
+
+    def authorization(*args, **kwargs):
+        value = original(*args, **kwargs)
+        if not changed:
+            path = next((base_directory / 'cases').rglob('*.json'))
+            path.write_bytes(path.read_bytes() + b'\n')
+            changed.append(path)
+        return value
+
+    monkeypatch.setattr(core, 'verify_authorization', authorization)
+    import issueintel.runtime.io as io
+    monkeypatch.setattr(io, 'load_local_env', lambda *a: pytest.fail('environment opened after inventory changed'))
+    before = len(calls)
+    with pytest.raises(ValueError):
+        continuation.run_component_continuation(root, plan['sha256'], auth,
+            provider_factory=provider, base_api=API, load_environment=True)
+    assert len(calls) == before
+
+
 def test_full125_native_effective_seal_and_readonly_reopen(failed_pilot):
     root, spec, base_directory, plan, _, _, calls, _, original_inventory = failed_pilot
     run(failed_pilot)

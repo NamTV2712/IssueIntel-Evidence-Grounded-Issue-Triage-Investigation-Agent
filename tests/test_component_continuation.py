@@ -78,6 +78,49 @@ def continuation_auth(fixture, *, count=1):
     return value, path
 
 
+def test_prepare_plan_replays_full_cohort_once_and_only_completed_pack_contexts(failed_pilot, monkeypatch):
+    root, spec, _, _, _, _, paths, plan = failed_pilot
+    preflights, bindings, contexts = [], [], []
+    original_preflight = registration.preflight_component_ablation
+    original_binding = registration._case_binding
+    original_context = native._replay_context
+
+    def preflight(*args, **kwargs):
+        preflights.append(args[1])
+        return original_preflight(*args, **kwargs)
+
+    def binding(root, row, sources):
+        bindings.append(row['case_id'])
+        return original_binding(root, row, sources)
+
+    def context(root, spec, row, sources):
+        contexts.append(row['case_id'])
+        return original_context(root, spec, row, sources)
+
+    monkeypatch.setattr(registration, 'preflight_component_ablation', preflight)
+    monkeypatch.setattr(registration, '_case_binding', binding)
+    monkeypatch.setattr(native, '_replay_context', context)
+    monkeypatch.setattr(native.RuntimeConfig, 'ledger', lambda *a: pytest.fail('preview opened ledger'))
+    actual = continuation.prepare_plan(root, spec['sha256'], adapter_paths=paths)
+    assert actual == plan
+    assert continuation.read(root, continuation.plan_path(root, actual)) == actual
+    assert preflights == [spec['sha256']]
+    assert contexts == [spec['cases'][0]['case_id']]
+    assert bindings[:25] == [row['case_id'] for row in spec['cases']]
+    assert len(bindings) == 26
+
+
+def test_no_pack_case_source_mutation_still_denies_preview(failed_pilot, runtime, monkeypatch):
+    root, spec, _, _, _, _, paths, _ = failed_pilot
+    contexts = runtime[1]
+    case_id = spec['cases'][-1]['case_id']
+    case, snapshot, receipt = contexts[case_id]
+    contexts[case_id] = ({**case, 'problem_statement': case['problem_statement'] + '\nchanged source'}, snapshot, receipt)
+    monkeypatch.setattr(native.RuntimeConfig, 'ledger', lambda *a: pytest.fail('preview opened ledger'))
+    with pytest.raises(ValueError):
+        continuation.prepare_plan(root, spec['sha256'], adapter_paths=paths)
+
+
 def test_preview_pins_original_failures_and_never_reads_environment_or_ledger(failed_pilot, monkeypatch):
     root, _, directory, _, _, _, paths, plan = failed_pilot
     before = native._inventory(root, directory)

@@ -103,9 +103,11 @@ def _raw(root, path, *, max_bytes=MAX_FILE_BYTES, private=True):
     if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
         raise ContinuationError('Continuation input is not a bounded regular file')
     with path.open('rb') as stream:
-        raw = stream.read(max_bytes + 1)
-    if len(raw) > max_bytes:
-        raise ContinuationError('Continuation file exceeds byte bound')
+        # The maximum is an admission cap, not an allocation request for every
+        # small journal. One extra byte also detects growth after lstat.
+        raw = stream.read(info.st_size + 1)
+    if len(raw) != info.st_size:
+        raise ContinuationError('Continuation file changed during bounded read')
     safe_path(root, path, private=private)
     return raw
 
@@ -244,6 +246,54 @@ def _transport_failure(value):
             and value.get('provider_code') == 'unknown')
 
 
+def _replay_native_packs(root, spec, directory, results, stages, *, base_api=None):
+    """Replay complete packs after the caller's full selected-cohort preflight.
+
+    Only cases with complete packs need an additional inference context. Every
+    selected source, including cases with no pack, is still checked by native
+    preflight; native case/graph replay and the frozen pipeline remain intact.
+    """
+    registration, native = _apis(base_api)
+    sources = registration.load_history_sources(root, spec, directory)
+    for row in spec['cases']:
+        outcomes = [arm for arm in results
+                    if arm['case_id'] == row['case_id'] and arm['status'] == 'completed']
+        if not outcomes:
+            continue
+        case, snapshot, receipt, graph = native._replay_context(root, spec, row, sources[row['case_id']])
+        for arm in outcomes:
+            used = []
+            permitted = {ref['stage_key']: ref for ref in arm['stage_refs']}
+
+            def replay(kind, inputs, produce):
+                key = native.digest(native._stage_binding(spec, row, kind, inputs))
+                saved = stages.get(key)
+                if (key not in permitted or saved is None or saved['status'] != 'completed'
+                        or saved['sha256'] != permitted[key]['sha256']):
+                    raise native.UnsafeContinuation('Saved pack requires a missing native stage')
+                if kind in {'initial_retrieval', 'focused_retrieval'} and native.digest(produce()) != saved['payload_sha256']:
+                    raise native.UnsafeContinuation('Saved retrieval differs from native replay')
+                used.append(key)
+                return deepcopy(saved['payload'])
+
+            def deny(*args, **kwargs):
+                raise native.UnsafeContinuation('Offline pack replay cannot call a provider')
+
+            deny.complete_structured = deny
+            deny.complete_json = deny
+            policy = arm['policy']
+            pack = native.investigate(case, Path(snapshot.repository), complete_json=deny,
+                provider='groq', model=spec['runtime']['model'], protocol='issue_time',
+                snapshot=snapshot, graph=graph, query_receipt=receipt,
+                top_k=policy['top_k'], independent_critic=policy['independent_critic'],
+                max_output_tokens=policy['max_output_tokens'], refinement_rounds=int(policy['counter_search']),
+                experiment_policy=policy, historical_sources=sources[row['case_id']],
+                experiment_stage_executor=replay)
+            if native.digest(pack) != native.digest(arm['pack']) or used != [ref['stage_key'] for ref in arm['stage_refs']]:
+                raise native.UnsafeContinuation('Saved pack does not replay exactly from native stages')
+    return True
+
+
 def _base_state(root, identifier, *, base_api=None, full_replay=True):
     registration, runner = _apis(base_api)
     spec, directory = registration.load_registration(root, identifier)
@@ -270,8 +320,8 @@ def _base_state(root, identifier, *, base_api=None, full_replay=True):
         raise ContinuationError('A returned or unknown paid response cannot authorize another attempt')
     # Native no-call replay proves the four complete packs and exact annotations.
     if full_replay:
-        runner._replay_completed_packs(root, spec, directory,
-                                       [arm for arm in arms if arm['status'] == 'completed'], stages)
+        _replay_native_packs(root, spec, directory, arms,
+                             {stage['stage_key']: stage for stage in stages}, base_api=base_api)
     return {'registration': spec, 'directory': directory, 'base_directory': directory,
             'inventory': files, 'arms': arms, 'calls': calls, 'stages': stages,
             'target_arm': failed[0], 'target_stage': bad[0], 'target_call': call}
@@ -280,6 +330,17 @@ def _base_state(root, identifier, *, base_api=None, full_replay=True):
 def create_plan(root, identifier, *, adapter_paths, base_api=None):
     state = _base_state(root, identifier, base_api=base_api)
     return _make_plan(root, state, adapter_paths)
+
+
+def prepare_plan(root, identifier, *, adapter_paths, base_api=None):
+    """Preview and persist with one full native replay, never execution authority."""
+    state = _base_state(root, identifier, base_api=base_api)
+    plan = _make_plan(root, state, adapter_paths)
+    # Refresh source/config/base-record hashes before writing. No paid action is
+    # authorized by a preview; execution independently performs full admission.
+    validate_plan(root, plan, base_api=base_api, full_replay=False)
+    write_new(root, plan_path(root, plan), plan)
+    return plan
 
 
 def _make_plan(root, state, adapter_paths):
