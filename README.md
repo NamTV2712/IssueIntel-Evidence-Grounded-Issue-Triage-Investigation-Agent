@@ -109,6 +109,13 @@ hạn diễn giải. Các lệnh v1 vẫn giữ nguyên contract; đây chưa ph
 
 ## Workbench chạy local
 
+So sánh controller riêng có `controller-study-register/inspect/run/score`:
+khóa năm captured original GitHub inputs, cùng Planned v2/Groq 120b low và
+allowance chung cho rules/Jev. Register/inspect/score không gọi model; run cần
+quyền Typesafe riêng và pilot một cặp trước matrix. [Giao thức V03](docs/CONTROLLER_STUDY.md)
+ghi cận chi phí, full stage replay, crash/no-retry và giới hạn metrics. Đây là
+harness kiểm chứng, chưa phải kết quả Jev tốt hơn rules.
+
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel serve
 # Mở http://127.0.0.1:8787

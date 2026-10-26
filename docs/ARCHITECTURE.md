@@ -1337,8 +1337,14 @@ giữ timestamp/repair count và native logical call limits.
 `runtime.study_budget` cung cấp atomic joint allowance, owned receipts và
 cost-only shared references với fsynced journal/SQLite index; provider wrappers
 phải reserve trước construction và truyền integrity stop ra ngoài fallback.
-[CONTROLLER_STUDY.md](CONTROLLER_STUDY.md) ghi phần runner/registration/scoring
-và quyền Typesafe còn thiếu. Đây chưa phải thí nghiệm controller đã nghiệm thu.
+[CONTROLLER_STUDY.md](CONTROLLER_STUDY.md) mô tả registration năm original
+product inputs, owned execution wrappers/journal, cache-only native full-pack
+replay, pilot gate, inference seal và descriptive scorer trong
+`evaluation.controller_study*`. CLI defer dotenv tới authorized run; toàn bộ
+source/config/prices/job authority được pin. Inspection-only không có execution
+capabilities; pending/unknown nhất quán có thể xem nhưng không tự chạy lại.
+Quyền Typesafe mới và actual comparison/common output-quality assessment còn
+thiếu; đây chưa phải V03 đã nghiệm thu.
 
 ## Review usefulness offline — tooling V02
 

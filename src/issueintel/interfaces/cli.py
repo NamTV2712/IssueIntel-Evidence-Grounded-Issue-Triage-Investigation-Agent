@@ -44,6 +44,16 @@ def main(argv=None) -> int:
     pair_score = commands.add_parser('usefulness-pair-score', help='Describe paired ratings and case clusters; not causal usefulness acceptance')
     pair_score.add_argument('--review', type=Path, required=True)
     pair_score.add_argument('--output', type=Path)
+    for study_mode in ('register', 'inspect', 'run', 'score'):
+        study = commands.add_parser('controller-study-' + study_mode,
+            help='Registered finite original-product rules/Jev comparison; no benchmark or implicit Typesafe consent')
+        if study_mode == 'register':
+            study.add_argument('--selection', type=Path, required=True)
+        else:
+            study.add_argument('--study', required=True)
+        if study_mode == 'run':
+            study.add_argument('--authorization', type=Path, required=True)
+            study.add_argument('--limit', type=int, choices=(1, 5), default=1)
     component_register = commands.add_parser('component-register', help='Pin a proposed accepted Main Dev component comparison; no provider calls or gold')
     component_register.add_argument('--protocol', type=Path)
     component_register.add_argument('--history', type=Path)
@@ -225,6 +235,29 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('controller-study-'):
+        try:
+            from issueintel.evaluation.controller_study import register_study
+            from issueintel.evaluation.controller_study_run import inspect_run, run_study, score_study
+            mode = args.command.removeprefix('controller-study-')
+            if mode == 'register':
+                result = register_study(args.root, args.selection)
+                # Do not print the frozen private source rows or model requests.
+                result = {'schema': result['schema'], 'study_id': result['study_id'],
+                    'sha256': result['sha256'], 'selected_cases': len(result['cases']),
+                    'provider_constructed': False, 'gold_read': False}
+            elif mode == 'inspect':
+                result = inspect_run(args.root, args.study)
+            elif mode == 'score':
+                result = score_study(args.root, args.study)
+            else:
+                result = run_study(args.root, args.study, args.authorization,
+                    limit=args.limit, load_environment=True)
+            print(json.dumps(result, ensure_ascii=True, allow_nan=False, indent=2))
+            return 0
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError, BudgetDenied):
+            print('IssueIntel: controller study source, separate provider authority or native journal is invalid; no automatic retry', file=sys.stderr)
+            return 2
     if args.command.startswith('component-grounding-'):
         try:
             return _component_grounding(args)
