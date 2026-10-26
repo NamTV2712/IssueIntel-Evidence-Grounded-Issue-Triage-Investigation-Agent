@@ -390,20 +390,27 @@ function renderTab(savedPlanStep=null) {
     const button=node('button',t("Tạo bản nháp comment để duyệt"));
     content.append(node('p',t("Bản nháp chứa snapshot, code links và kết quả điều tra. Chỉ đăng sau khi bạn xem nội dung và xác nhận đúng issue."),'notice'),button);
     button.onclick=async()=>{
+      if(button.disabled)return;button.disabled=true;
+      const reviewedJob=currentJob,reviewedGeneration=viewGeneration;
+      const isCurrent=()=>currentJob===reviewedJob&&viewGeneration===reviewedGeneration&&activeTab==='github';
       try {
-        const reviewedJob=currentJob;const draft=await api('/api/jobs/'+reviewedJob+'/github-preview',{});
+        const draft=await api('/api/jobs/'+reviewedJob+'/github-preview',{});
+        if(!isCurrent())return;
         const target=node('p',t("Issue đích: ")+draft.issue_url,'notice');const preview=node('pre',draft.body);
+        const actor=node('p',draft.authentication?.kind==='github_app'
+          ?t('Đăng bằng GitHub App #{app_id} · installation #{installation_id}',draft.authentication)
+          :t('Đăng bằng tài khoản của token GitHub local.'),'notice');
         const label=node('label',undefined,'checkbox');const check=node('input');check.type='checkbox';
         label.append(check,node('span',t("Tôi đã duyệt nội dung này và đồng ý đăng lên issue đích.")));
         const publish=node('button',t("Đăng comment đã duyệt"));publish.disabled=true;
         check.onchange=()=>publish.disabled=!check.checked;
         publish.onclick=async()=>{
-          if(!check.checked)return;publish.disabled=true;
-          try {const receipt=await api('/api/jobs/'+reviewedJob+'/github-publish',{approved_sha256:draft.body_sha256,confirmation:'publish_reviewed_comment'});content.append(node('p',t("Đã đăng: ")+receipt.comment_url,'notice'));}
-          catch(error){message(error.message,true);}
+          if(!check.checked||!isCurrent())return;publish.disabled=true;
+          try {const receipt=await api('/api/jobs/'+reviewedJob+'/github-publish',{approved_sha256:draft.body_sha256,approved_context_sha256:draft.approval_context_sha256,confirmation:'publish_reviewed_comment'});if(isCurrent())content.append(node('p',t("Đã đăng: ")+receipt.comment_url,'notice'));}
+          catch(error){if(isCurrent())message(error.message,true);}
         };
-        content.replaceChildren(target,preview,label,publish);
-      }catch(error){message(t("Cần một lần điều tra bằng GitHub issue URL đã hoàn tất để tạo bản nháp."),true);}
+        content.replaceChildren(target,actor,preview,label,publish);
+      }catch(error){if(isCurrent()){button.disabled=false;message(t("Cần một lần điều tra bằng GitHub issue URL đã hoàn tất để tạo bản nháp."),true);}}
     };
   }
 }

@@ -1116,6 +1116,14 @@ window.IssueIntelMessages = {
     "vi": "Issue đích: ",
     "en": "Target issue: "
   },
+  "Đăng bằng GitHub App #{app_id} · installation #{installation_id}": {
+    "vi": "Đăng bằng GitHub App #{app_id} · installation #{installation_id}",
+    "en": "Publish with GitHub App #{app_id} · installation #{installation_id}"
+  },
+  "Đăng bằng tài khoản của token GitHub local.": {
+    "vi": "Đăng bằng tài khoản của token GitHub local.",
+    "en": "Publish as the account associated with the local GitHub token."
+  },
   "Tôi đã duyệt nội dung này và đồng ý đăng lên issue đích.": {
     "vi": "Tôi đã duyệt nội dung này và đồng ý đăng lên issue đích.",
     "en": "I reviewed this content and agree to publish it to the target issue."

@@ -687,6 +687,11 @@ def _investigate(args):
     output_base = (args.root / args.output).resolve()
     if not output_base.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
+    github_sync = None
+    github_binding = None
+    def check_github_authority():
+        if github_sync is not None and github_sync.authority_binding(github_repository) != github_binding:
+            raise ValueError('GitHub investigation connection changed')
     if args.case_id:
         matches = [case for case in load_dev_cases(args.root) if case["case_id"] == args.case_id]
         if not matches:
@@ -698,12 +703,20 @@ def _investigate(args):
         case = {"case_id": "local", "problem_statement": args.issue_file.read_text(encoding="utf-8"), "revision": args.revision,
                 "repository": args.repo, "issue_created_at": None}
     else:
-        issue = fetch_github_issue(args.repo)
+        from issueintel.integrations.github_sync import GitHubSync
+        from issueintel.integrations.github import github_input
+        github_repository = github_input(args.repo).repository
+        github_sync = GitHubSync(args.root)
+        github_binding = github_sync.authority_binding(github_repository)
+        credential = github_sync.authorize_repository(github_repository, fresh_grant=True)
+        issue = fetch_github_issue(args.repo, **({'token': credential.token} if credential is not None else {}))
+        check_github_authority()
         if not args.revision:
             raise ValueError("--revision is required; latest HEAD is not assumed to be historical")
         case = {"case_id": issue["url"], "problem_statement": issue["problem_statement"], "revision": args.revision,
                 "repository": issue["repository"], "issue_url": issue["url"], "issue_created_at": issue["created_at"]}
     local = Path(args.repo)
+    check_github_authority()
     local = local if local.is_dir() else acquire_repository(case.get("repository", args.repo), case["revision"], args.root / "data/repos").path
     context=None
     if not args.case_id and case.get('issue_url'):
@@ -721,11 +734,33 @@ def _investigate(args):
         def capture_controller_receipt(receipt):
             write_json(output_base/'controller_receipts'/controller_id/(receipt['reservation_id']+'.json'),receipt)
         controller=TypesafePlannedController(TypesafeClient(typesafe_config,on_receipt=capture_controller_receipt),controller_id)
+        original_decide = controller.decide
+        def decide(state, allowed):
+            check_github_authority()
+            answer = original_decide(state, allowed)
+            check_github_authority()
+            return answer
+        controller.decide = decide
+    check_github_authority()
     provider = GroqProvider(RuntimeConfig.load(args.root)) if args.provider == "groq" else None
+    def complete(messages, max_output_tokens=2048):
+        check_github_authority()
+        answer = provider(messages, max_output_tokens=max_output_tokens)
+        check_github_authority()
+        return answer
+    if provider and hasattr(provider, 'complete_structured'):
+        def structured(messages, *, max_output_tokens, schema):
+            check_github_authority()
+            answer = provider.complete_structured(messages, max_output_tokens=max_output_tokens, schema=schema)
+            check_github_authority()
+            return answer
+        complete.complete_structured = structured
+    if provider and hasattr(provider, 'complete_json'):
+        complete.complete_json = complete
     from issueintel.investigation.stages import StageCheckpoints
     stages=StageCheckpoints(args.root,output_base/'stages'/uuid.uuid4().hex)
     try:
-        pack = investigate(case, local, complete_json=provider if provider else None,
+        pack = investigate(case, local, complete_json=complete if provider else None,
             provider="groq" if provider else "none", model=provider.model if provider else "none", independent_critic=not args.no_critic,
             max_output_tokens=provider.config.max_output_tokens if provider else 2048,
             refinement_rounds=args.refinement_rounds,on_stage=stages,repository_context=context,
@@ -736,6 +771,7 @@ def _investigate(args):
             print(json.dumps({'completed_stage_checkpoints':stages.receipts,'automatic_retry':False}),file=sys.stderr)
         raise
     directory = (output_base / (pack["run_id"]+('-'+controller_id if jev else ''))).resolve()
+    check_github_authority()
     if not directory.is_relative_to(args.root / "artifacts"):
         raise ValueError("Investigation outputs must stay inside artifacts/")
     print(export_pack(pack, directory))

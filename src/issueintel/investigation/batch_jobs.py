@@ -127,7 +127,9 @@ class BatchJobs:
             from issueintel.repository.acquire import parse_github_reference, open_github_request
             source = parse_github_reference(reference)
             headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'IssueIntel-readonly'}
-            token = os.environ.get('GITHUB_TOKEN', '')
+            binding = self.host.github_sync.authority_binding(source.repository)
+            credential = self.host.github_sync.authorize_repository(source.repository, fresh_grant=True)
+            token = credential.token if credential is not None else os.environ.get('GITHUB_TOKEN', '')
             if any(ord(char) < 32 for char in token):
                 raise ValueError('Invalid GitHub credential header')
             if token:
@@ -135,6 +137,8 @@ class BatchJobs:
             url = 'https://api.github.com/repos/'+source.repository+'/commits/'+quote(revision, safe='')
             with open_github_request(Request(url, headers=headers, method='GET'), timeout=30) as response:
                 raw = response.read(2_000_001)
+            if self.host.github_sync.authority_binding(source.repository) != binding:
+                raise ValueError('GitHub connection changed during revision resolution')
             if len(raw) > 2_000_000:
                 raise ValueError('GitHub commit response exceeds the size bound')
             result = json.loads(raw)['sha']
@@ -154,7 +158,7 @@ class BatchJobs:
             resolved = deepcopy(request)
         else:
             if mode == 'github':
-                issue = (self.issue_fetcher or workbench.fetch_github_issue)(request['issue_url'])
+                issue = self.host.fetch_issue(request['issue_url'], fetcher=self.issue_fetcher or workbench.fetch_github_issue)
                 repository = issue['repository']
                 provenance = deepcopy(issue['provenance'])
                 # The canonical manifest has lower-case GitHub identity.

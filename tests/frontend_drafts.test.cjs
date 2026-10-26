@@ -107,3 +107,24 @@ test('opening a saved report names the selected source while another task keeps 
   vm.runInContext(code.slice(start,end),context);await context.openJob(id('a'));
   assert.match(logs.at(-1),new RegExp(id('a')));assert.equal(context.currentJob,id('a'));assert.equal(context.activeJob,id('c'));
 });
+
+test('GitHub review shows the App actor and sends the exact source/target/auth approval context',async()=>{
+  const app=boot(),calls=[];app.select();app.tab('github');
+  app.context.api=async(route,body)=>{calls.push({route,body});return route.endsWith('github-preview')?
+    {issue_url:'https://github.com/synthetic/example/issues/5',body:'Reviewed report',body_sha256:hash('d'),
+     approval_context_sha256:hash('e'),authentication:{kind:'github_app',app_id:123,installation_id:77}}:{comment_url:'https://github.com/synthetic/example/issues/5#issuecomment-7'};};
+  const content=app.get('tab-content');await content.children.find(x=>x.tag==='button').onclick();
+  assert.match(content.children[1].textContent,/GitHub App/);
+  const label=content.children.find(x=>x.tag==='label'),publish=content.children.find(x=>x.tag==='button');
+  assert.equal(publish.disabled,true);const check=label.children[0];check.checked=true;check.onchange();await publish.onclick();
+  assert.equal(calls[1].route,'/api/jobs/'+id('a')+'/github-publish');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)),{approved_sha256:hash('d'),approved_context_sha256:hash('e'),confirmation:'publish_reviewed_comment'});
+});
+
+test('late GitHub preview cannot replace a different selected investigation',async()=>{
+  const app=boot();let resolve;app.context.api=()=>new Promise(done=>resolve=done);
+  app.select();app.tab('github');const pending=app.get('tab-content').children.find(x=>x.tag==='button').onclick();
+  app.select('c','d');app.tab('overview');const current=[...app.get('tab-content').children];
+  resolve({issue_url:'https://github.com/synthetic/example/issues/5',body:'Stale draft'});await pending;
+  assert.deepEqual(app.get('tab-content').children,current);
+});

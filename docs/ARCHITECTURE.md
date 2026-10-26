@@ -1294,7 +1294,36 @@ intent để cách viết hoa/thường không tạo hai job. Inventory tối đ
 giữ nguyên receipt tên cũ; nhiều case aliases bị từ chối để đối soát. Native HTTP integration giữ
 local Origin/session guard, kiểm redaction, dedup qua receiver recreation và gỡ
 installation. Bộ liên quan đạt 174 test local, không real provider/upstream write.
-Phần này chưa xác nhận App/HTTPS thật hoặc đổi publication token thành App auth.
+Phần ingress này chưa xác nhận App/HTTPS thật. App-native auth được bổ sung bên dưới.
+
+### Installation auth và duyệt đúng App/repo
+
+`integrations.github_app` nạp cấu hình khi cần và ký JWT RS256 qua extra
+`github-app` tùy chọn. Khóa PEM bị giới hạn 64 KiB, regular file không link;
+JWT/token/private key không ghi ra disk hoặc public diagnostics. Broker kiểm
+installation grant bằng App JWT, mint token với đúng global repository ID và
+quyền tối thiểu, rồi dùng token kiểm lại canonical identity/public visibility.
+Token đọc ở memory tối đa 128 binding, refresh trước hết hạn 60 giây; comment
+luôn fresh grant/mint. Lỗi kiểm grant mới hủy cả token đọc cache của binding.
+Không redirect, tự retry hoặc PAT fallback; optional import giữ clean clone lõi.
+
+`GitHubSync.authority_binding` là admission local ngoại tuyến. Mọi App-bound
+operation yêu cầu complete IDs, active connection và grant epoch còn khớp;
+broker identity/config được replay sau authorization. `GitHubReader` lấy token
+qua callable trước mỗi GET, dùng chung cho direct index và updates; source issue
+và commit resolution của interactive/CLI/batch kiểm local binding trước/sau GET.
+Webhook selection change chỉ invalidate/mark pending; worker đối soát fresh grant.
+Pauses/uninstall và grant epoch thắng response/error muộn, không tự bật lại.
+
+Workbench preview được dựng lại từ immutable pack và local public auth binding,
+không gọi broker. `approval_context_sha256` giữ job/pack/body/target và App/
+installation/epoch; App write yêu cầu context cùng exact body approval. Publisher
+replay preview từ pack thật, lấy fresh comment token ngoài global lock, rồi
+recheck source/authority và ghi one-attempt intent trước POST. Saved preview bị
+retarget rồi rehash vẫn bị từ chối. Failure giữ outcome unknown và không retry.
+UI hiển thị actor, bỏ stale responses và gửi exact context; không hiển thị token.
+Authority checks chặn các bước kế tiếp, không rút lại request đã phát đi.
+Chữ ký bằng khóa tạm và synthetic transport không thay App/HTTPS acceptance.
 
 ## Continuation của controlled component evaluation
 

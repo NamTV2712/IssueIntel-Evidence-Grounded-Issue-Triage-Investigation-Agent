@@ -99,11 +99,19 @@ class GitHubReadError(ValueError):
 
 class GitHubReader:
     """GET-only transport with bounded bytes and credential-safe diagnostics."""
-    def __init__(self, repository, token=None, *, opener=None):
+    def __init__(self, repository, token=None, *, opener=None, token_provider=None, check_authority=None):
         self.repository = parse_github_reference(repository).repository
         self.base = 'https://api.github.com/repos/' + self.repository
         self.repository_id = None
-        self.token = os.environ.get('GITHUB_TOKEN', '') if token is None else token
+        if token_provider is not None and (not callable(token_provider) or token is not None):
+            raise ValueError('Choose one GitHub credential source')
+        if check_authority is not None and not callable(check_authority):
+            raise ValueError('Invalid GitHub authority callback')
+        self.check_authority = check_authority or (lambda: None)
+        self.token_provider = token_provider
+        # An installation provider must never inherit a PAT, including when it
+        # fails to refresh. Refresh occurs at each GET, not just the first page.
+        self.token = '' if token_provider is not None else os.environ.get('GITHUB_TOKEN', '') if token is None else token
         if not isinstance(self.token, str) or any(ord(c) < 32 or ord(c) > 126 for c in self.token):
             raise ValueError('Invalid GitHub credential header')
         self.opener = opener or build_opener(_NoRedirect()).open
@@ -124,10 +132,16 @@ class GitHubReader:
 
     def get(self, url):
         self.validate_url(url)
+        self.check_authority()
         headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'IssueIntel-index',
                    'X-GitHub-Api-Version': API_VERSION}
-        if self.token:
-            headers['Authorization'] = 'Bearer ' + self.token
+        token = self.token_provider() if self.token_provider is not None else self.token
+        if (not isinstance(token, str) or len(token) > 16384
+                or any(ord(c) < 33 or ord(c) > 126 for c in token)
+                or self.token_provider is not None and not token):
+            raise ValueError('Invalid GitHub credential header')
+        if token:
+            headers['Authorization'] = 'Bearer ' + token
         try:
             with self.opener(Request(url, headers=headers, method='GET'), timeout=30) as response:
                 if response.geturl() != url:
@@ -151,6 +165,7 @@ class GitHubReader:
             raise GitHubReadError(0, 60) from None
         if len(raw) > 10_000_000:
             raise ValueError('GitHub page exceeds 10 MB; checkpoint retained')
+        self.check_authority()
         value = json.loads(raw)
         next_url = None
         for part in link.split(',') if link else []:
@@ -161,6 +176,7 @@ class GitHubReader:
                 if next_url is not None:
                     raise ValueError('Repeated next-page link')
                 next_url = self.validate_url(match[1])
+        self.check_authority()
         return value, next_url, sha256(raw).hexdigest()
 
 
@@ -379,7 +395,13 @@ class RepositoryIndex:
         if any(callback is not None and not callable(callback) for callback in (on_progress, check_cancelled)):
             raise ValueError('Invalid repository sync callbacks')
         check_cancelled = check_cancelled or (lambda: None)
-        reader = reader or GitHubReader(self.repository)
+        if reader is None:
+            from .github_sync import GitHubSync
+            reader = GitHubSync(self.root).reader(self.repository, fresh_grant=True)
+        def check_source():
+            check_cancelled()
+            if isinstance(reader, GitHubReader):
+                reader.check_authority()
         with _writer_lock(self.directory/'writer.lock'), self.connect() as db:
             run_id = self._meta(db, 'active_run')
             run = json.loads(db.execute('SELECT value FROM runs WHERE id=?', (run_id,)).fetchone()[0]) if run_id else None
@@ -400,7 +422,7 @@ class RepositoryIndex:
                 self._set(db, 'active_run', run_id)
                 db.commit()
             requests = 0
-            check_cancelled()
+            check_source()
             # Revalidate public repository/global identity on every resumed invocation.
             metadata, next_url, response_sha = reader.get(self._url(''))
             requests += 1
@@ -415,15 +437,17 @@ class RepositoryIndex:
                 raise ValueError('GitHub global repository ID changed; refusing mixed histories')
             if isinstance(reader, GitHubReader):
                 reader.repository_id = identity
+            check_source()
             self._set(db, 'github_repository_id', identity)
             if isinstance(metadata.get('default_branch'), str):
                 self._set(db, 'default_branch', metadata['default_branch'])
             self._set(db, 'metadata_receipt', {'source_url': self._url(''), 'response_sha256': response_sha,
                                              'fetched_at': now(), 'repository_id': identity})
             db.commit()
-            check_cancelled()
+            check_source()
             if run['snapshot'] is None:
                 run['snapshot'] = (snapshot_builder or self._build_snapshot)(revision)
+                check_source()
                 self._set(db, 'current_snapshot', run['snapshot'])
                 db.execute('UPDATE runs SET value=? WHERE id=?', (canonical_json(run), run_id))
                 db.commit()
@@ -440,7 +464,7 @@ class RepositoryIndex:
             if on_progress:
                 on_progress(self.status())
             while requests < max_requests:
-                check_cancelled()
+                check_source()
                 task = db.execute('SELECT * FROM tasks WHERE run=? AND done=0 ORDER BY rowid LIMIT 1', (run_id,)).fetchone()
                 if task is None:
                     break
@@ -457,6 +481,7 @@ class RepositoryIndex:
                            'response_sha256': response_sha, 'fetched_at': now(), 'next_url': next_url,
                            'records': {r['key']: digest(r) for r in records}, 'repository_id': identity}
                 receipt_sha = digest(receipt)
+                check_source()
                 with db:
                     db.execute('INSERT OR IGNORE INTO receipts VALUES (?,?)', (receipt_sha, canonical_json(receipt)))
                     for record in records:

@@ -20,7 +20,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Lõi dùng thư viện chuẩn Python. `data` để nhập Parquet; `dev` để kiểm thử; `llm` thêm tokenizer gốc cho các input lớn trên Groq. Không cần PostgreSQL, Docker, Torch hoặc GPU để chạy lõi.
+Lõi dùng thư viện chuẩn Python. `data` để nhập Parquet; `dev` để kiểm thử; `llm` thêm tokenizer gốc cho các input lớn trên Groq. Extra `github-app` tùy chọn bổ sung PyJWT/cryptography cho xác thực installation bằng khóa ký local; điều tra local và chế độ đọc public thủ công không cần extra này. Không cần PostgreSQL, Docker, Torch hoặc GPU để chạy lõi.
 
 ### Trạng thái hệ thống và dung lượng
 
@@ -454,7 +454,11 @@ danh sách mọi release hoặc chứng nhận tính đúng đắn của bản s
 Nguồn **GitHub issue URL** nhận issue thật và revision rõ ràng. Tab **GitHub**
 cho xem bản nháp comment với code links và duyệt trước khi đăng. Adapter webhook
 nhận lệnh `/issueintel investigate`; việc cài GitHub App và endpoint HTTPS được
-ghi riêng trong [docs/PRODUCT.md](docs/PRODUCT.md), chưa triển khai tự động.
+mô tả phạm vi trong [docs/PRODUCT.md](docs/PRODUCT.md), chưa triển khai tự động.
+Connection thuộc App dùng installation token giới hạn đúng repo/quyền, refresh
+khi gần hết hạn; không chuyển sang PAT khi cấu hình thiếu hoặc quyền bị thu hồi.
+Bản duyệt giữ source, issue đích, App/installation và phiên quyền trước một lần
+POST. Khóa ký và token chỉ ở máy local. Luồng App/HTTPS thật vẫn chưa nghiệm thu.
 
 Khởi tạo bộ nhớ repository public (code, issue/PR, bình luận, commit và file của
 PR) trong bảng **Bộ nhớ repository GitHub** của workbench, hoặc qua CLI, không

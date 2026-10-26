@@ -112,9 +112,15 @@ def process_updates(index, *, revision='HEAD', max_requests=20, reader=None, sna
     if type(max_requests) is not int or not 2 <= max_requests <= 500:
         raise ValueError('Invalid incremental sync request budget')
     check_cancelled = check_cancelled or (lambda: None)
-    reader = reader or GitHubReader(index.repository)
-    with _writer_lock(index.directory/'writer.lock'), index.connect() as db:
+    if reader is None:
+        from .github_sync import GitHubSync
+        reader = GitHubSync(index.root).reader(index.repository, fresh_grant=True)
+    def check_source():
         check_cancelled()
+        if isinstance(reader, GitHubReader):
+            reader.check_authority()
+    with _writer_lock(index.directory/'writer.lock'), index.connect() as db:
+        check_source()
         metadata, _, _ = reader.get(index._url(''))
         identity = repository_identity(metadata)
         expected = index._meta(db, 'github_repository_id')
@@ -122,6 +128,7 @@ def process_updates(index, *, revision='HEAD', max_requests=20, reader=None, sna
             raise ValueError('Repository identity changed before incremental update')
         if isinstance(reader, GitHubReader):
             reader.repository_id = expected
+        check_source()
         if revision == 'HEAD':
             branch = metadata.get('default_branch')
             tracked_ref = 'refs/heads/' + branch if isinstance(branch, str) else None
@@ -131,7 +138,7 @@ def process_updates(index, *, revision='HEAD', max_requests=20, reader=None, sna
             tracked_ref = revision if revision.startswith('refs/heads/') else 'refs/heads/' + revision
         requests, operations = 1, 0
         while requests < max_requests and operations < 50:
-            check_cancelled()
+            check_source()
             row = db.execute('SELECT * FROM updates WHERE done=0 ORDER BY rowid LIMIT 1').fetchone()
             if row is None:
                 break
@@ -190,6 +197,7 @@ def process_updates(index, *, revision='HEAD', max_requests=20, reader=None, sna
             receipt['records'] = {r['key']: digest(r) for r in records}
             receipt['next_url'] = next_url
             receipt_sha = digest(receipt)
+            check_source()
             with db:
                 db.execute('INSERT OR IGNORE INTO receipts VALUES (?,?)', (receipt_sha, canonical_json(receipt)))
                 run = index._meta(db, 'active_run')

@@ -11,6 +11,7 @@ from issueintel.repository.acquire import parse_github_reference, _validate_revi
 from issueintel.runtime.io import canonical_json
 from .github_index import RepositoryIndex, GitHubReadError, _positive, _writer_lock
 from .repository_updates import authenticate, repository_identity, event_update, enqueue_update, process_updates, EVENTS
+from .github_app import GitHubAppAuth, GitHubAppConfig, GitHubAppError
 
 
 class SyncServerStopping(Exception):
@@ -20,6 +21,7 @@ class SyncServerStopping(Exception):
 class GitHubSync:
     def __init__(self, root):
         self.root = Path(root).resolve()
+        self._app_auth = None
         self.directory = (self.root/'data/github_sync').resolve()
         if not self.directory.is_relative_to(self.root/'data'):
             raise ValueError('Automatic sync storage escaped private data')
@@ -46,6 +48,136 @@ class GitHubSync:
         with self.db() as db:
             row = db.execute('SELECT value FROM connections WHERE repo=?', (name,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    @staticmethod
+    def _app_bound(connection):
+        return connection is not None and any(connection.get(key) is not None
+                                               for key in ('app_id', 'installation_id'))
+
+    @staticmethod
+    def _binding(connection):
+        return tuple(connection.get(key) for key in ('repository', 'repository_id',
+            'app_id', 'installation_id')) + (connection.get('grant_epoch', 0),)
+
+    def _active_connection(self, repository, *, allow_pending=False):
+        name = parse_github_reference(repository).repository.lower()
+        connection = self.connection(name)
+        if not self._app_bound(connection):
+            return None
+        if (connection.get('repository') != name or connection.get('paused') is not False
+                or connection.get('phase') not in {'initial', 'updates', 'ready'}
+                or connection.get('grant_pending', False) and not allow_pending
+                or type(connection.get('grant_epoch', 0)) is not int
+                or connection.get('grant_epoch', 0) < 0):
+            raise ValueError('GitHub App repository grant is inactive or awaiting reconciliation')
+        for key in ('repository_id', 'installation_id', 'app_id'):
+            _positive(connection.get(key))
+        return connection
+
+    def authority_binding(self, repository):
+        """Offline, immutable admission binding; None denotes manual mode.
+
+        This only reads local metadata. It never reads keys/configuration, signs
+        a JWT, refreshes a token or calls GitHub. A caller can compare this tuple
+        around remote work without treating that comparison as a fresh grant.
+        """
+        connection = self._active_connection(repository)
+        return self._binding(connection) if connection is not None else None
+
+    def _broker(self, connection):
+        config = GitHubAppConfig.load(self.root, required=True)
+        if (config.app_id != connection['app_id'] or config.installation_id is not None
+                and config.installation_id != connection['installation_id']):
+            raise ValueError('GitHub App signing identity differs from the connected installation')
+        if self._app_auth is None or self._app_auth.config != config:
+            self._app_auth = GitHubAppAuth(config)
+        return self._app_auth
+
+    def _authorize(self, repository, *, purpose='read', fresh_grant=False, allow_pending=False):
+        if purpose not in {'read', 'comment'} or type(fresh_grant) is not bool:
+            raise ValueError('Invalid GitHub App authorization purpose')
+        connection = self._active_connection(repository, allow_pending=allow_pending)
+        if connection is None:
+            return None
+        broker = self._broker(connection)
+        credential = broker.authorize(connection['repository'], connection['repository_id'],
+            connection['installation_id'], purpose=purpose, fresh_grant=fresh_grant)
+        current = self._active_connection(repository, allow_pending=allow_pending)
+        if (current is None or self._binding(current) != self._binding(connection)
+                or GitHubAppConfig.load(self.root, required=True) != broker.config):
+            broker.invalidate(installation_id=connection['installation_id'], repository=connection['repository'])
+            raise ValueError('GitHub App repository grant changed during authorization')
+        return credential
+
+    def authorize_repository(self, repository, *, purpose='read', fresh_grant=False):
+        """Return None only for a manual connection, never as App fallback."""
+        return self._authorize(repository, purpose=purpose, fresh_grant=fresh_grant)
+
+    def read_token_provider(self, repository, *, fresh_grant=False):
+        connection = self._active_connection(repository)
+        if connection is None:
+            return None
+        binding = self._binding(connection)
+        if fresh_grant:
+            self.authorize_repository(repository, fresh_grant=True)
+        def token():
+            current = self._active_connection(repository)
+            if current is None or self._binding(current) != binding:
+                raise ValueError('GitHub App reader no longer matches the connected grant')
+            return self.authorize_repository(repository).token
+        return token
+
+    def reader(self, repository, *, fresh_grant=False):
+        # Import through the module so synthetic transport replacements remain
+        # shared by direct indexing and the automatic scheduler.
+        from .github_index import GitHubReader
+        binding = self.authority_binding(repository)
+        provider = self.read_token_provider(repository, fresh_grant=fresh_grant)
+        def check():
+            if self.authority_binding(repository) != binding:
+                raise ValueError('GitHub App reader no longer matches the connected grant')
+        return (GitHubReader(repository, token_provider=provider, check_authority=check) if provider is not None
+                else GitHubReader(repository, check_authority=check))
+
+    def _invalidate(self, installation_id):
+        if self._app_auth is not None:
+            self._app_auth.invalidate(installation_id=installation_id)
+
+    def _pending(self, connection):
+        return self._grant_changed(connection['repository'], pending=True)
+
+    def _grant_changed(self, repository, *, pending=False):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT value FROM connections WHERE repo=?', (repository,)).fetchone()
+            if row is None:
+                raise ValueError('Repository has not been connected')
+            current = json.loads(row[0])
+            if pending and current['paused']:
+                return current  # A selection change never undoes a manual pause.
+            current.update(grant_epoch=current.get('grant_epoch', 0) + 1,
+                           next_attempt=0, updated_at=time.time())
+            if pending:
+                current.update(grant_pending=True, error='installation_grant_reconciliation_pending')
+            else:
+                current.update(paused=True, error='installation_removed')
+            db.execute('UPDATE connections SET value=? WHERE repo=?', (canonical_json(current), repository))
+        return current
+
+    def _batch_failure(self, repository, connection, **changes):
+        """Never let a late worker error erase a concurrent pause/revocation."""
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT value FROM connections WHERE repo=?', (repository,)).fetchone()
+            if row is None:
+                return None
+            current = json.loads(row[0])
+            if (current['paused'] or self._binding(current) != self._binding(connection)
+                    or current.get('grant_pending') is True and connection.get('grant_pending') is not True):
+                return current
+            current.update(changes, updated_at=time.time())
+            db.execute('UPDATE connections SET value=? WHERE repo=?', (canonical_json(current), repository))
+        return current
 
     def change(self, repository, **changes):
         with self.db() as db:
@@ -82,6 +214,8 @@ class GitHubSync:
                 value.update(paused=False, next_attempt=0, error=None)
                 if json.loads(row[0])['paused']:
                     value.update(phase='initial', initial_started=False)
+                    if self._app_bound(value):
+                        value['grant_epoch'] = value.get('grant_epoch', 0) + 1
                 if repository_id is not None:
                     value['repository_id'] = repository_id
                 if installation_id is not None:
@@ -104,7 +238,8 @@ class GitHubSync:
 
     def due(self):
         return sorted([c for c in self.connections() if not c['paused'] and c['next_attempt'] <= time.time()
-                and c['phase'] in {'initial','updates'}], key=lambda c:c.get('scheduled_at',0))
+                and (c['phase'] in {'initial','updates'} or c.get('grant_pending') is True)],
+                key=lambda c:c.get('scheduled_at',0))
 
     def admit_command(self, payload):
         """Keep signed App commands inside the active installation grant.
@@ -140,6 +275,7 @@ class GitHubSync:
                 identities[key] = _positive(int(value))
         if (connection is None or connection.get('repository') != name
                 or connection.get('paused') is not False
+                or connection.get('grant_pending') is True
                 or connection.get('phase') not in {'initial', 'updates', 'ready'}):
             raise ValueError('GitHub App command repository is not actively connected')
         identity = repository_identity(repository)
@@ -177,21 +313,36 @@ class GitHubSync:
                 return json.loads(old['value'])
         repositories = []
         if event in {'installation', 'installation_repositories'}:
-            install_id = _positive(payload.get('installation', {}).get('id'))
+            installation = payload.get('installation')
+            if not isinstance(installation, dict):
+                raise ValueError('GitHub App installation identity is missing')
+            install_id = _positive(installation.get('id'))
             configured = os.environ.get('GITHUB_INSTALLATION_ID', '')
             app = os.environ.get('GITHUB_APP_ID', '')
-            payload_app = payload['installation'].get('app_id')
+            payload_app = installation.get('app_id')
+            if payload_app is not None:
+                _positive(payload_app)
             known_app = next((c.get('app_id') for c in self.connections() if c['installation_id']==install_id and c.get('app_id')), None)
-            allowed = (configured.isdigit() and int(configured) == install_id
-                       or app.isdigit() and int(app)>0 and (payload_app if payload_app is not None else known_app) == int(app))
+            for value in (configured, app):
+                if value and (not value.isascii() or not value.isdigit() or len(value) > 19 or int(value) <= 0):
+                    raise ValueError('GitHub App installation is not configured locally')
+            allowed = (bool(configured or app)
+                       and (not configured or int(configured) == install_id)
+                       and (not app or (payload_app if payload_app is not None else known_app) == int(app))
+                       and (known_app is None or payload_app in {None, known_app}))
             if not allowed:
                 raise ValueError('GitHub App installation is not configured locally')
             action = payload.get('action')
+            revoke_installation = event == 'installation' and action in {'deleted', 'suspend'}
             added = payload.get('repositories', []) if event == 'installation' and action == 'created' else payload.get('repositories_added', []) if action == 'added' else []
-            removed = payload.get('repositories', []) if event == 'installation' and action in {'deleted','suspend'} else payload.get('repositories_removed', []) if action == 'removed' else []
+            # Installation revocation is authoritative for every saved binding;
+            # it never depends on completeness or shape of a repository array.
+            removed = payload.get('repositories_removed', []) if action == 'removed' else []
             if not isinstance(added, list) or not isinstance(removed, list) or len(added)+len(removed) > 100:
                 raise ValueError('Installation repository list exceeds bounds')
             for item in added:
+                if not isinstance(item, dict):
+                    raise ValueError('Invalid installation repository identity')
                 if item.get('private') is True:
                     continue
                 identity = repository_identity(item)
@@ -199,16 +350,31 @@ class GitHubSync:
                 self.connect(identity['repository'], revision=existing['revision'] if existing else 'HEAD',
                              repository_id=identity['repository_id'], installation_id=install_id,
                              app_id=payload_app or known_app)
+                if existing and existing.get('paused') and existing.get('error') != 'installation_removed':
+                    self.change(identity['repository'], paused=True, error=existing.get('error'), phase=existing['phase'],
+                                initial_started=existing.get('initial_started', False))
                 repositories.append(identity['repository'])
             for item in removed:
-                identity = repository_identity(item)
+                if not isinstance(item, dict):
+                    raise ValueError('Invalid installation repository identity')
+                # Revocation remains meaningful if a previously public repo was
+                # made private. No private contents are ever acquired here.
+                identity = repository_identity({**item, 'private': False})
                 existing = self.connection(identity['repository'])
                 if existing and existing['installation_id'] == install_id and existing['repository_id'] == identity['repository_id']:
-                    self.change(identity['repository'], paused=True, error='installation_removed')
-            if event == 'installation' and action in {'deleted','suspend'}:
+                    self._grant_changed(identity['repository'])
+            self._invalidate(install_id)
+            if revoke_installation:
                 for connection in self.connections():
                     if connection['installation_id'] == install_id:
-                        self.change(connection['repository'], paused=True, error='installation_removed')
+                        self._grant_changed(connection['repository'])
+            elif event == 'installation_repositories':
+                # GitHub can report all -> selected with an empty removed list.
+                # Never infer retained access from omission: close admission now,
+                # reconcile every known connection on the shared worker later.
+                for connection in self.connections():
+                    if connection['installation_id'] == install_id and not connection['paused']:
+                        self._pending(connection)
         elif event in EVENTS:
             identity = repository_identity(payload.get('repository'))
             connection = self.connection(identity['repository'])
@@ -245,19 +411,39 @@ class GitHubSync:
                 if check_cancelled:
                     check_cancelled()
                 current = self.connection(repository)
-                if current['paused']:
+                if not current or current['paused'] or current.get('grant_pending') is True:
                     raise InterruptedError('Automatic sync paused')
             try:
+                reconciled = False
+                if connection.get('grant_pending') is True:
+                    self._authorize(repository, fresh_grant=True, allow_pending=True)
+                    # Reconcile only the exact grant generation we checked. A
+                    # newer delivery stays pending instead of being cleared.
+                    with self.db() as db:
+                        db.execute('BEGIN IMMEDIATE')
+                        current = json.loads(db.execute('SELECT value FROM connections WHERE repo=?', (repository,)).fetchone()[0])
+                        if current['paused'] or self._binding(current) != self._binding(connection):
+                            raise ValueError('GitHub App grant changed during reconciliation')
+                        current.update(grant_pending=False, error=None, updated_at=time.time())
+                        db.execute('UPDATE connections SET value=? WHERE repo=?', (canonical_json(current), repository))
+                    connection = current
+                    reconciled = True
+                reader = self.reader(repository, fresh_grant=not reconciled)
                 check()
                 if connection['phase'] == 'initial':
                     refresh = index.status()['scan_complete'] and not connection.get('initial_started')
                     status = index.sync(revision=connection['revision'], max_requests=20, refresh=refresh,
-                                        expected_repository_id=connection['repository_id'], check_cancelled=check)
+                                        expected_repository_id=connection['repository_id'], check_cancelled=check,
+                                        reader=reader)
                     phase = 'updates' if status['scan_complete'] and status['pending_updates'] else 'ready' if status['scan_complete'] else 'initial'
-                else:
+                elif connection['phase'] == 'updates':
                     if index.status()['github_repository_id'] != connection['repository_id']:
                         raise ValueError('Connected repository identity changed')
-                    status = process_updates(index, revision=connection['revision'], max_requests=20, check_cancelled=check)
+                    status = process_updates(index, revision=connection['revision'], max_requests=20, check_cancelled=check,
+                                             reader=reader)
+                    phase = 'updates' if status['pending_updates'] else 'ready'
+                else:
+                    status = index.status()
                     phase = 'updates' if status['pending_updates'] else 'ready'
                 # A delivery can arrive while the batch finishes. Check its inbox under registry lock.
                 with self.db() as db:
@@ -265,25 +451,32 @@ class GitHubSync:
                     if phase == 'ready' and index.status()['pending_updates']:
                         phase = 'updates'
                     current = json.loads(db.execute('SELECT value FROM connections WHERE repo=?', (repository,)).fetchone()[0])
+                    if current['paused'] or current.get('grant_pending') is True:
+                        return status  # Preserve a revocation/pending event racing the batch.
                     current.update(phase=phase, repository_id=status['github_repository_id'], initial_started=True,
                                    failures=0, next_attempt=0, error=None, progress={k:v for k,v in status.items() if k != 'tasks'})
                     db.execute('UPDATE connections SET value=? WHERE repo=?', (canonical_json(current),repository))
                 return status
             except InterruptedError:
-                self.change(repository, paused=True, error='paused')
+                self._batch_failure(repository, connection, paused=True, error='paused')
                 raise
             except SyncServerStopping:
                 raise
+            except GitHubAppError as error:
+                transient = error.http_status in {429, 500, 502, 503, 504}
+                self._batch_failure(repository, connection, error='github_app_' + error.code, paused=not transient,
+                            next_attempt=time.time()+60, failures=connection['failures']+1)
+                return None
             except GitHubReadError as error:
                 transient = error.retryable
-                self.change(repository, error=f'github_http_{error.status}', paused=not transient,
+                self._batch_failure(repository, connection, error=f'github_http_{error.status}', paused=not transient,
                             next_attempt=time.time()+max(error.retry_after,60*2**min(connection['failures'],6)),
                             failures=connection['failures']+1)
                 return None
             except (OSError, TimeoutError):
-                self.change(repository, error='network_or_local_io', next_attempt=time.time()+60,
+                self._batch_failure(repository, connection, error='network_or_local_io', next_attempt=time.time()+60,
                             failures=connection['failures']+1)
                 return None
             except Exception:
-                self.change(repository, error='identity_or_integrity_check_failed', paused=True)
+                self._batch_failure(repository, connection, error='identity_or_integrity_check_failed', paused=True)
                 raise

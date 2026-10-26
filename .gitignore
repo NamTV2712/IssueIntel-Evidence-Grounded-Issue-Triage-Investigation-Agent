@@ -19,3 +19,6 @@ dist/
 
 *.zip
 .playwright/
+# Local GitHub App signing keys.
+*.pem
+*.key

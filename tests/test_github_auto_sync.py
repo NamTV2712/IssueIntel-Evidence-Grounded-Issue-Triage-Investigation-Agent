@@ -145,14 +145,18 @@ def test_rate_limit_retries_durably_without_tight_loop_and_integrity_failure_pau
 
 
 def test_installation_event_connects_selected_public_repos_and_removal_pauses(automatic,monkeypatch):
-    index,_=automatic;sync=GitHubSync(index.root)
+    index,reader=automatic;sync=GitHubSync(index.root)
     payload={'installation':{'id':99},'action':'created','repositories':[IDENTITY]}
     with pytest.raises(ValueError,match='not configured'):
         deliver(sync,'installation',payload)
     monkeypatch.setenv('GITHUB_INSTALLATION_ID','99')
     deliver(sync,'installation',payload)
     assert sync.connection(REPO)['installation_id']==99
-    sync.batch(REPO)
+    # A webhook-only installation ID does not authorize a PAT fallback. The
+    # worker waits for a complete App signing/repository binding.
+    with pytest.raises(ValueError,match='identity'):
+        sync.batch(REPO)
+    assert sync.connection(REPO)['paused'] and reader.calls==[]
     removed={'installation':{'id':99},'action':'removed','repositories_removed':[IDENTITY]}
     deliver(sync,'installation_repositories',removed,delivery=DELIVERY[:-1]+'d')
     assert sync.connection(REPO)['paused']

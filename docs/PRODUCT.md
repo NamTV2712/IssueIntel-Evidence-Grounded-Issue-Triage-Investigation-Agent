@@ -592,8 +592,10 @@ nhận; gửi lặp/restart trả cùng child ID và không retry một attempt 
 Chọn **GitHub issue URL**, nhập URL và revision. `HEAD` lấy snapshot hiện tại;
 không biến mô tả REST hiện tại thành opening-query strict. Tab **GitHub** tạo bản
 nháp có code links theo commit đã đọc. Sau khi xem đúng issue đích và nội dung,
-người dùng đánh dấu duyệt và bấm đăng. Token local cần quyền comment trên issue
-đích. Thay nội dung/hash/target bị từ chối; một intent đã bắt đầu không retry ngầm
+người dùng đánh dấu duyệt và bấm đăng. Connection thủ công dùng token local có
+quyền comment; connection thuộc App dùng installation token riêng cho đúng repo,
+quyền `issues:write`, sau kiểm grant mới. Thay nội dung/hash/target hoặc App/
+installation/phiên quyền bị từ chối; một intent đã bắt đầu không retry ngầm
 khi lỗi hoặc restart. Không có comment thật nào được đăng trong kiểm thử phát triển.
 
 Adapter webhook hỗ trợ `/issueintel investigate [revision]` từ OWNER, MEMBER hoặc
@@ -615,8 +617,38 @@ không công khai cổng Workbench. Command App yêu cầu connection đang ho�
 global repo ID/installation/configured App khớp, kể cả delivery cũ sau gỡ quyền.
 GUID được chuẩn hóa trước durable intent; receipt tên cũ được giữ nguyên và
 case aliases mâu thuẫn bị từ chối (inventory có cận 10.000 entries). Legacy manual signed webhook vẫn dùng
-được khi không có App binding. Đây là chuẩn bị ingress, chưa nghiệm thu App thật;
-adapter đăng comment hiện dùng token local, chưa phải installation-token auth.
+được khi không có App binding. Đây là chuẩn bị ingress, chưa nghiệm thu App thật.
+
+`integrations.github_app` đã bổ sung App-native authentication. Extra tùy chọn
+`github-app` ký RS256 bằng khóa PEM local có cận, không theo symlink/junction.
+App/installation/global repo ID phải khớp; token đọc và token comment được mint
+riêng với quyền tối thiểu. Token chỉ cache trong RAM, đọc refresh trước hết hạn,
+comment luôn kiểm grant và mint mới. Đọc issue/metadata, index và incremental
+updates đều dùng grant của connection; không fallback sang `GITHUB_TOKEN` khi
+connection đã thuộc App. Chế độ public thủ công vẫn hoạt động riêng.
+
+`installation_repositories` đổi all→selected có thể thiếu danh sách repo bị gỡ;
+mọi connection của installation được đánh dấu cần đối soát, chặn command/read/
+publish cho tới khi worker kiểm lại grant. Handler webhook không gọi GitHub.
+Suspend/delete giữ cache cũ nhưng dừng remote work mới; response muộn không được
+ghi đè trạng thái gỡ quyền. Đây là chặn theo ranh giới thao tác, không hủy được
+request đã tới GitHub/provider trước sự kiện thu hồi quyền.
+
+Preview comment vẫn ngoại tuyến: dựng lại body/target từ pack thật, giữ hash
+approval context gồm job, source, issue và App/installation/phiên quyền. UI hiển
+thị tài khoản token thủ công hoặc App identity và gửi context cùng duyệt nội dung.
+Trước POST, kiểm grant ngoài Workbench lock rồi replay bản duyệt/connection, ghi
+intent duy nhất; không lưu JWT/token/PEM trong preview/intent/receipt. Preview
+manual cũ chỉ được tương thích khi body/target/source còn khớp nguyên vẹn.
+Các kiểm tra là transport tổng hợp, có kiểm chữ ký RS256 bằng khóa tạm; chưa xác
+nhận cài App, HTTPS, delivery hoặc comment thật. Nguồn API đối chiếu 26/10/2026:
+[JWT](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app),
+[installation token](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app),
+[installation events](https://docs.github.com/en/webhooks/webhook-events-and-payloads#installation_repositories).
+Validation local ngày 26/10: 542 test liên quan đạt, hai ca symlink skip do quyền
+Windows; bộ App-sync mới nhất 50 test đạt, gồm revoke giữa lúc tải page/Git và
+chuyển all→selected. Frontend 366 test đạt, gồm actor/context approval và stale
+preview. CI cài extra tùy chọn để kiểm chữ ký RS256; các test dùng fixture tổng hợp.
 
 Write adapter pin API version `2026-03-10`, kiểm HTTP 201, exact body và comment
 URL/ID từ response. Nguồn đã đối chiếu ngày 14/10/2026:
@@ -1006,7 +1038,7 @@ GitHub issue tương ứng lần lượt với mục 1–13; chúng không phả
 | 1 | P0 | Hồ sơ issue, timeline, reported-versus-predicted delta, source-bound hypothesis links và correction. Backend/HTTP/browser phải giữ hashes, provenance và dữ kiện gốc. | Đã triển khai; `test_dossier.py`, `frontend_dossier.test.cjs`, GUI tổng hợp Việt/Anh/sáng/tối; source/request/hash/lineage, correction và không gọi API/Git đã kiểm |
 | 2 | P0 | Preview nội dung/dung lượng, export bundle có manifest/hash, đọc/kiểm offline trên máy khác, không token/Git/model/full repo. | Đã triển khai: selection + required ancestry, deterministic ZIP, offline HTML/verifier và CLI; synthetic HTTP/isolated process/hash/tamper/unsafe ZIP/stale UI checks; không model/Git |
 | 3 | P0 | Claim-level source spans, assumptions/counter-evidence, sufficiency rubric và gaps; semantic quality tách schema checks. | Đã triển khai claim-review sidecar product, exact Unicode spans, `claim_sufficiency_v1`, unreviewed fragments, API/UI Việt/Anh, owned receipts/intents và dossier/handoff; synthetic checks, chưa đánh giá semantic accuracy |
-| 4 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chưa nghiệm thu thật. Relay/HMAC và command admission đã có; comment chỉ `created` mới dispatch, `edited/deleted` đi vào sync inbox, giữ dedup/restart/installation guards. 180 kiểm GitHub/sync/relay local đạt, không API thật. Reader/publisher còn PAT-backed; cần App-native installation auth/live grant reconciliation cùng App/HTTPS và repo tác giả quản lý. Thử đọc repo public không thay nghiệm thu này |
+| 4 | P0 | Nghiệm thu App/HTTPS thật trên repo thử: install/sync/command/approved comment/dedup/restart/revoke/uninstall, giữ receipts. | Chưa nghiệm thu thật. Đã có relay/HMAC, command admission và App-native installation auth cho đọc/index/sync/comment; quyền scoped, token refresh, grant reconciliation kể cả all→selected, preview context và một POST sau duyệt. Có kiểm synthetic/RS256 local; còn App/HTTPS và repo tác giả quản lý để nghiệm thu thực tế. Thử đọc repo public không thay nghiệm thu này |
 | 5 | P1 | Planner phân biệt support/counter/caller/docs/history, gap-bound actions, waiting-for-user và explicit continuation trong cùng bounds. | Đã triển khai: typed retrieval `56de029`, Web rules v3 waiting/continuation `2773a8c`; synthetic integration/UI/handoff và review nguồn/budget/idempotency đã đạt, CI toàn bộ thành công; issue #5 đã đóng |
 | 6 | P1 | Architecture/history facts có nguồn/revision, dependency invalidation và historical availability gate. | Đã triển khai/nghiệm thu tại `8bada45`, CI toàn bộ thành công: immutable store/CLI, owned UI/API, explicit bounded inference với intent/guards và saved provenance/dossier/handoff. Source thay đổi không sửa bản cũ; historical admission cần full proof trước cutoff, prior hypotheses chưa xác minh. Không có quality evaluation mới |
 | 7 | P1 | Related/possible_duplicate/insufficient với mechanism/version và nguồn hỗ trợ/phản bác; không auto close/comment. | Đã triển khai/nghiệm thu tại `396fcc9`: sidecar bốn chiều, exact side-scoped refs, sufficiency tái tính, frozen pair/intent/receipts, API/UI và dossier/standalone handoff. Core 66, service 33, handoff 18, neighbor 76, legacy 145 và frontend 293 test đạt; browser QA/ZIP độc lập và CI toàn repo đạt; issue #7 đã đóng |

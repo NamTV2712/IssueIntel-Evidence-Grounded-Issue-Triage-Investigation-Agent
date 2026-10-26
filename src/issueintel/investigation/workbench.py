@@ -1055,8 +1055,12 @@ class Workbench:
                 if recovery_lease is None:recovery_lease=self.stage_recoveries.lease(row['id'],create=True)
                 capture_policy=job_policy_sha256()
             extra = {}
+            github_source_binding = (self._github_binding(github_input(request['issue_url']).repository)
+                                     if request['mode'] == 'github' else None)
             fork_projection = None
             if row.get('batch') is not None:
+                if request['mode'] == 'github':
+                    self.github_sync.authorize_repository(github_input(request['issue_url']).repository, fresh_grant=True)
                 case,local=self.batch_jobs.input(row)
                 if request['mode']=='github':
                     connection=self.github_sync.connection(case['repository'])
@@ -1082,7 +1086,7 @@ class Workbench:
             elif request['mode'] == 'example':
                 case, local = self._example()
             elif request['mode'] == 'github':
-                issue = fetch_github_issue(request['issue_url'])
+                issue = self.fetch_issue(request['issue_url'])
                 case = {'case_id':issue['url'], 'issue_url':issue['url'], 'repository':issue['repository'],
                         'revision':request['revision'], 'problem_statement':issue['problem_statement'],
                         'issue_created_at':issue['created_at']}
@@ -1102,6 +1106,8 @@ class Workbench:
                 if not local.is_dir():
                     local = acquire_repository(repository, case['revision'], self.root/'data/repos').path
             def check_observation_source():
+                if github_source_binding is not None and self._github_binding(case['repository']) != github_source_binding:
+                    raise ValueError('GitHub investigation connection changed')
                 if capture_policy is not None:
                     from .stage_jobs import job_policy_sha256
                     saved=json.loads(self._job_path(row['id']).read_bytes())
@@ -1643,7 +1649,33 @@ class Workbench:
                              for side, value in zip(('before', 'after'), raw)}
         return result
 
-    def preview_comment(self, identifier):
+    def _github_binding(self, repository):
+        """Public local authority only; previews never sign or call GitHub."""
+        connection = self.github_sync.connection(repository)
+        if not connection or all(connection.get(key) is None for key in ('app_id', 'installation_id')):
+            return {'kind': 'manual_token'}
+        from issueintel.integrations.github_index import _positive
+        name = github_input('https://github.com/'+repository+'/issues/1').repository.lower()
+        if (connection.get('repository') != name or connection.get('paused') is not False
+                or connection.get('grant_pending') or connection.get('phase') not in {'initial', 'updates', 'ready'}
+                or type(connection.get('grant_epoch', 0)) is not int or connection.get('grant_epoch', 0) < 0):
+            raise ValueError('GitHub App repository is not actively authorized')
+        return {'kind': 'github_app', 'repository': name,
+                **{key: _positive(connection.get(key)) for key in ('repository_id', 'installation_id', 'app_id')},
+                'grant_epoch': connection.get('grant_epoch', 0), 'purpose': 'comment'}
+
+    def fetch_issue(self, reference, *, fetcher=None):
+        """Share App admission with interactive and batch source acquisition."""
+        source = github_input(reference)
+        binding = self._github_binding(source.repository)
+        credential = self.github_sync.authorize_repository(source.repository, fresh_grant=True)
+        fetch = fetcher or fetch_github_issue
+        issue = fetch(reference, **({'token': credential.token} if credential is not None else {}))
+        if self._github_binding(source.repository) != binding:
+            raise ValueError('GitHub connection changed during issue acquisition')
+        return issue
+
+    def _comment_draft(self, identifier):
         if self.job(identifier)['mode'] != 'github':
             raise ValueError('Only an explicit GitHub investigation can prepare a comment')
         raw=self.result_bytes(identifier)
@@ -1651,38 +1683,85 @@ class Workbench:
         sha=hashlib.sha256(raw).hexdigest()
         preview = dict(comment_preview(pack,source_pack_sha256=sha,job_id=identifier), job_id=identifier,
                        pack_sha256=sha)
+        preview['authentication'] = self._github_binding(preview['repository'])
+        preview['approval_context_sha256'] = digest({key: value for key, value in preview.items() if key != 'body'})
+        return preview
+
+    def preview_comment(self, identifier):
+        preview = self._comment_draft(identifier)
         path = self.directory/'runs'/identifier/'github_preview.json'
         with self.lock:
             write_json(path, preview)
         return preview
 
+    def _reviewed_comment(self, identifier, approval):
+        path = self.directory/'runs'/identifier/'github_preview.json'
+        if path.is_symlink() or path.stat().st_size > 256000:
+            raise ValueError('Unsafe or excessive reviewed comment')
+        preview = json.loads(path.read_bytes())
+        # Rebuild target and body from the actual immutable pack, rather than
+        # trusting a consistent but retargeted saved preview and its hashes.
+        expected = self._comment_draft(identifier)
+        legacy = {key: value for key, value in expected.items()
+                  if key not in {'authentication', 'approval_context_sha256'}}
+        if preview != expected and not (expected['authentication']['kind'] == 'manual_token' and preview == legacy):
+            raise ValueError('Reviewed source, comment, target or GitHub authentication changed')
+        if approval['approved_sha256'] != expected['body_sha256']:
+            raise ValueError('Reviewed comment changed')
+        context = approval.get('approved_context_sha256')
+        if (context is not None and context != expected['approval_context_sha256']
+                or expected['authentication']['kind'] == 'github_app' and context != expected['approval_context_sha256']):
+            raise ValueError('Exact reviewed GitHub authentication and target approval is required')
+        return expected
+
     def publish_comment(self, identifier, approval):
-        if not isinstance(approval, dict) or set(approval) != {'approved_sha256', 'confirmation'} or approval['confirmation'] != 'publish_reviewed_comment':
+        if (not isinstance(approval, dict) or set(approval) not in (
+                {'approved_sha256', 'confirmation'}, {'approved_sha256', 'approved_context_sha256', 'confirmation'})
+                or approval['confirmation'] != 'publish_reviewed_comment'):
             raise ValueError('Exact reviewed comment approval is required')
         if self.job(identifier)['mode'] != 'github':
             raise ValueError('Only an explicit GitHub investigation can publish')
-        key = os.environ.get('GITHUB_TOKEN', '')
-        if not key or any(ord(c) < 32 for c in key):
-            raise ValueError('A local GitHub token is required')
         directory = self.directory/'runs'/identifier
         with self.lock:
-            preview = json.loads((directory/'github_preview.json').read_bytes())
-            if preview.get('job_id') != identifier or preview.get('pack_sha256') != hashlib.sha256(self.result_bytes(identifier)).hexdigest():
-                raise ValueError('Reviewed source pack changed')
-            actual = hashlib.sha256(preview['body'].encode()).hexdigest()
-            if actual != approval['approved_sha256'] or actual != preview['body_sha256']:
-                raise ValueError('Reviewed comment changed')
+            preview = self._reviewed_comment(identifier, approval)
             intent_path = directory/'github_publish_intent.json'
             if intent_path.exists():
                 raise ValueError('Publication already attempted; inspect the receipt before any retry')
-            write_json(intent_path, {'job_id':identifier, 'body_sha256':actual, 'issue_url':preview['issue_url'],
+
+        # Grant checking and token minting are read/admission work outside the
+        # global workbench lock. A denied grant never creates a POST intent.
+        credential = self.github_sync.authorize_repository(preview['repository'], purpose='comment', fresh_grant=True)
+        app_bound = preview['authentication']['kind'] == 'github_app'
+        if (credential is None) == app_bound:
+            raise ValueError('GitHub authentication changed after review')
+        if credential is not None:
+            binding = preview['authentication']
+            if any(getattr(credential, key) != binding[key] for key in ('repository_id', 'installation_id', 'app_id', 'purpose')) or credential.repository.lower() != binding['repository']:
+                raise ValueError('GitHub App grant differs from the reviewed authentication')
+        else:
+            key = os.environ.get('GITHUB_TOKEN', '')
+            if not key or any(ord(c) < 32 for c in key):
+                raise ValueError('A local GitHub token is required')
+        with self.lock:
+            if self._reviewed_comment(identifier, approval) != preview:
+                raise ValueError('Reviewed comment changed during GitHub grant check')
+            if intent_path.exists():
+                raise ValueError('Publication already attempted; inspect the receipt before any retry')
+            write_json(intent_path, {'job_id':identifier, 'body_sha256':preview['body_sha256'], 'issue_url':preview['issue_url'],
+                                     'approval_context_sha256':preview['approval_context_sha256'],
+                                     'authentication':preview['authentication'],
                                      'started_at':now(), 'automatic_retry':False})
         try:
-            receipt = post_reviewed_comment(preview, approved_sha256=approval['approved_sha256'])
+            if self._github_binding(preview['repository']) != preview['authentication']:
+                raise ValueError('GitHub connection changed before publication')
+            receipt = post_reviewed_comment(preview, approved_sha256=approval['approved_sha256'],
+                                            **({'token':credential.token} if credential is not None else {}))
         except Exception as error:
             write_json(directory/'github_publish_failure.json', {'error_type':type(error).__name__,
                 'recorded_at':now(), 'publication_outcome':'unknown', 'automatic_retry':False})
             raise ValueError('Publication did not complete; inspect GitHub and the intent before retrying') from None
+        receipt = dict(receipt, authentication=preview['authentication'],
+                       approval_context_sha256=preview['approval_context_sha256'])
         write_json(directory/'github_publish_receipt.json', receipt)
         return receipt
 
