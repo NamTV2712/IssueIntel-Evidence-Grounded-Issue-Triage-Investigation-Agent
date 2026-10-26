@@ -114,5 +114,6 @@ Kiểm cục bộ: 139 helper/adapter/CLI và shared dispatch checks đạt, g�
 native receipt/breach/unknown usage, single owner, crash/no-retry, authority
 lineage/gate, source drift và SQLite WAL rejection. Read-only smoke trên parent
 thật replay đủ mười ô/29 calls, tám pack completed và bốn unique judge inputs
-mà không tạo child plan, gọi provider hoặc sửa parent. Đây là nghiệm thu tooling;
-fresh model assessment thật sẽ được báo riêng.
+mà không tạo child plan, gọi provider hoặc sửa parent. Tooling và model labels
+là hai phạm vi riêng. [Kết quả chạy thật](VALIDATION_V03_COMMON.md) có bốn fresh
+calls, giữ source failure trong coverage và không kết luận Jev tốt hơn rules.

@@ -1344,8 +1344,9 @@ replay, pilot gate, inference seal và descriptive scorer trong
 source/config/prices/job authority được pin. Inspection-only không có execution
 capabilities; pending/unknown nhất quán có thể xem nhưng không tự chạy lại.
 Matrix đã chạy sau quyền Typesafe riêng và có
-[báo cáo cùng failed/unavailable](VALIDATION_V03_MATRIX.md); fresh common
-output-quality assessment còn thiếu, chưa chứng minh Jev tốt hơn rules.
+[báo cáo cùng failed/unavailable](VALIDATION_V03_MATRIX.md) và
+[fresh common assessment](VALIDATION_V03_COMMON.md) trong scope bốn completed
+pairs; chưa chứng minh Jev tốt hơn rules.
 
 `evaluation.common_grounding` giữ pure native critic projection/dedup/scoring;
 `evaluation.controller_grounding` là adapter mới cho full sealed product study.

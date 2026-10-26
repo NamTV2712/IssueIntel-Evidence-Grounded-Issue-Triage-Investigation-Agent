@@ -206,13 +206,14 @@ matrix và common output-quality assessment trước khi nghiệm thu V03; tooli
 tổng hợp không thay các phép đo đó. [Pilot thật một cặp](VALIDATION_V03_PILOT.md)
 đã hoàn tất với sáu receipt settled; bốn lựa chọn Jev trùng rules. Sau quyền riêng,
 [matrix năm case](VALIDATION_V03_MATRIX.md) đã sealed/chấm, giữ cả failed và
-unavailable; fresh common quality assessment còn thiếu. V01 giữ checkout/adapters đã khóa riêng;
+unavailable; [fresh common assessment](VALIDATION_V03_COMMON.md) đã đo trên
+bốn completed pairs, không cho thấy chênh lệch nhãn. V01 giữ checkout/adapters đã khóa riêng;
 Holdout/Live tiếp tục đóng.
 
 [Common grounding harness](CONTROLLER_GROUNDING.md) đã có adapter riêng sau full
 seal, dùng fresh canonical native critic, một paid owner/input và child allowance
 trừ parent spend. Tooling không thay actual assessment; kết quả chấm chung thật
-cần báo riêng với in-treatment critic ở trên.
+được báo riêng với in-treatment critic ở trên.
 
 Kiểm cục bộ cho harness: 37 registration/CLI checks, 33 runner checks gồm
 full native synthetic five-case matrix/seal/repeated scoring, 21 replay checks,
