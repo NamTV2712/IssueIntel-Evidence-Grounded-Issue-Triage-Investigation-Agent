@@ -203,7 +203,9 @@ critic là một phần treatment, không phải common independent output judge
 Structural grounding và critic labels không chứng minh semantic truth,
 developer benefit, kiểm người hay Jev vượt rules. Cần actual authorized pilot/
 matrix và common output-quality assessment trước khi nghiệm thu V03; tooling
-tổng hợp không thay các phép đo đó. V01 giữ checkout/adapters đã khóa riêng;
+tổng hợp không thay các phép đo đó. [Pilot thật một cặp](VALIDATION_V03_PILOT.md)
+đã hoàn tất với sáu receipt settled; bốn lựa chọn Jev trùng rules. Chưa có quyền
+matrix hoặc common quality assessment. V01 giữ checkout/adapters đã khóa riêng;
 Holdout/Live tiếp tục đóng.
 
 Kiểm cục bộ cho harness: 37 registration/CLI checks, 33 runner checks gồm
