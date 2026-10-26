@@ -40,7 +40,8 @@ def configured(root, *, typesafe=True):
 
 @pytest.fixture(autouse=True)
 def isolated_metadata(monkeypatch):
-    for key in ('GROQ_API_KEY', 'TYPESAFE_API_KEY', 'GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID', 'GITHUB_WEBHOOK_SECRET'):
+    for key in ('GROQ_API_KEY', 'TYPESAFE_API_KEY', 'GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID',
+                'GITHUB_APP_PRIVATE_KEY_PATH', 'GITHUB_APP_CLIENT_ID', 'GITHUB_WEBHOOK_SECRET'):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(readiness.shutil, 'which', lambda _: 'synthetic-git')
     monkeypatch.setattr(readiness.subprocess, 'run', lambda *a, **k: SimpleNamespace(returncode=0))
@@ -222,8 +223,148 @@ def test_cache_presence_and_app_are_conditional_metadata(tmp_path, monkeypatch):
     assert all(row['status'] == 'present' for row in report['cache'])
     assert capability(report, 'saved_reports')['status'] == 'conditional'
     assert capability(report, 'repository_history')['status'] == 'conditional'
-    assert capability(report, 'github_app') == {'id': 'github_app', 'status': 'unknown', 'reason': 'app_https_permissions_not_verified'}
+    assert capability(report, 'github_app') == {'id': 'github_app', 'status': 'blocked', 'reason': 'app_private_key_missing'}
     assert 'webhook-synthetic-secret' not in json.dumps(report)
+
+
+def app_configuration(root, monkeypatch, *, key=None):
+    key = key or root / 'synthetic-app-key.pem'
+    key.write_bytes(b'SYNTHETIC_METADATA_ONLY_NOT_A_VALID_PEM')
+    monkeypatch.setenv('GITHUB_APP_ID', '123')
+    monkeypatch.setenv('GITHUB_APP_PRIVATE_KEY_PATH', str(key))
+    monkeypatch.setenv('GITHUB_WEBHOOK_SECRET', 'synthetic-webhook-do-not-display')
+    monkeypatch.setattr(readiness, '_app_dependencies_present', lambda: True)
+    return key
+
+
+def test_configured_app_metadata_can_be_external_but_never_claims_authentication(tmp_path, monkeypatch):
+    from tempfile import TemporaryDirectory
+    with TemporaryDirectory() as outside:
+        key = app_configuration(tmp_path, monkeypatch, key=Path(outside) / 'private-name.pem')
+        def denied(*a, **k):
+            pytest.fail('App readiness must not read key bytes, sign or mint')
+        for method in ('open', 'read_bytes', 'read_text'):
+            monkeypatch.setattr(Path, method, denied)
+        from issueintel.integrations import github_app
+        monkeypatch.setattr(github_app.GitHubAppAuth, '__init__', denied)
+        assert readiness._github_app(tmp_path) == ('unknown', 'app_https_permissions_not_verified')
+        # A deliberately invalid PEM is indistinguishable at metadata-only scope.
+        assert str(key) not in json.dumps(readiness._github_app(tmp_path))
+
+
+@pytest.mark.parametrize('field,value,reason', [
+    ('GITHUB_APP_ID', '', 'app_id_missing'),
+    ('GITHUB_APP_ID', '0', 'app_configuration_invalid'),
+    ('GITHUB_APP_ID', '9223372036854775808', 'app_configuration_invalid'),
+    ('GITHUB_APP_ID', 'private-malformed-app', 'app_configuration_invalid'),
+    ('GITHUB_INSTALLATION_ID', 'false', 'app_configuration_invalid'),
+    ('GITHUB_INSTALLATION_ID', '0', 'app_configuration_invalid'),
+    ('GITHUB_APP_CLIENT_ID', 'invalid client', 'app_configuration_invalid'),
+    ('GITHUB_APP_PRIVATE_KEY_PATH', '', 'app_private_key_missing'),
+    ('GITHUB_APP_PRIVATE_KEY_PATH', 'secret\npath', 'app_configuration_invalid'),
+    ('GITHUB_WEBHOOK_SECRET', '', 'app_webhook_secret_missing'),
+])
+def test_known_app_configuration_blockers_are_local_and_sanitized(tmp_path, monkeypatch, field, value, reason):
+    key = app_configuration(tmp_path, monkeypatch)
+    monkeypatch.setenv(field, value)
+    status = readiness._github_app(tmp_path)
+    assert status == ('blocked', reason)
+    serialized = json.dumps(status)
+    assert str(key) not in serialized and 'private-malformed-app' not in serialized
+    assert 'synthetic-webhook-do-not-display' not in serialized and 'secret\\npath' not in serialized
+
+
+def test_optional_client_and_installation_are_not_required_for_app_signing_metadata(tmp_path, monkeypatch):
+    app_configuration(tmp_path, monkeypatch)
+    assert readiness._github_app(tmp_path) == ('unknown', 'app_https_permissions_not_verified')
+    monkeypatch.setenv('GITHUB_INSTALLATION_ID', '77')
+    monkeypatch.setenv('GITHUB_APP_CLIENT_ID', 'Iv1.synthetic')
+    assert readiness._github_app(tmp_path) == ('unknown', 'app_https_permissions_not_verified')
+
+
+@pytest.mark.parametrize('kind,reason', [
+    ('missing', 'app_private_key_missing'), ('directory', 'app_private_key_unavailable'),
+    ('empty', 'app_private_key_unavailable'), ('oversized', 'app_private_key_unavailable'),
+    ('hardlink', 'app_private_key_unsafe'),
+])
+def test_app_key_metadata_shape_blocks_without_reading_contents(tmp_path, monkeypatch, kind, reason):
+    key = app_configuration(tmp_path, monkeypatch)
+    if kind == 'hardlink':
+        import os
+        os.link(key, key.with_name('alias.pem'))
+    else:
+        key.unlink()
+        if kind == 'directory': key.mkdir()
+        elif kind == 'empty': key.write_bytes(b'')
+        elif kind == 'oversized': key.write_bytes(b'x'*65537)
+    monkeypatch.setattr(Path, 'open', lambda *a, **k: pytest.fail('Key contents were opened'))
+    assert readiness._github_app(tmp_path) == ('blocked', reason)
+
+
+def test_app_key_reparse_ancestor_is_rejected_before_descending(tmp_path, monkeypatch):
+    key = app_configuration(tmp_path, monkeypatch)
+    native = Path.lstat
+    visited = []
+    def marked(path):
+        visited.append(path)
+        value = native(path)
+        if path == key.parent:
+            return SimpleNamespace(st_mode=value.st_mode, st_file_attributes=0x400)
+        return value
+    monkeypatch.setattr(Path, 'lstat', marked)
+    assert readiness._github_app(tmp_path) == ('blocked', 'app_private_key_unsafe')
+    assert key not in visited
+
+
+def test_relative_app_key_is_resolved_against_project_root(tmp_path, monkeypatch):
+    key = app_configuration(tmp_path, monkeypatch)
+    monkeypatch.setenv('GITHUB_APP_PRIVATE_KEY_PATH', key.name)
+    assert readiness._github_app(tmp_path) == ('unknown', 'app_https_permissions_not_verified')
+
+
+def test_unc_app_key_is_blocked_without_network_filesystem_lookup(tmp_path, monkeypatch):
+    app_configuration(tmp_path, monkeypatch)
+    monkeypatch.setenv('GITHUB_APP_PRIVATE_KEY_PATH', '//issueintel-synthetic.invalid/share/private.pem')
+    monkeypatch.setattr(Path, 'lstat', lambda *a: pytest.fail('UNC filesystem lookup attempted'))
+    assert readiness._github_app(tmp_path) == ('blocked', 'app_private_key_unsafe')
+
+
+def test_app_metadata_access_error_does_not_expose_path_or_exception(tmp_path, monkeypatch):
+    key = app_configuration(tmp_path, monkeypatch)
+    def denied(*a):
+        raise PermissionError('synthetic-secret-and-path-'+str(key))
+    monkeypatch.setattr(Path, 'lstat', denied)
+    result = readiness._github_app(tmp_path)
+    assert result == ('blocked', 'app_private_key_unavailable')
+    assert 'synthetic-secret' not in json.dumps(result) and str(key) not in json.dumps(result)
+
+
+@pytest.mark.parametrize('missing', ['jwt', 'cryptography'])
+def test_missing_app_signing_dependency_has_actionable_blocker_without_import(tmp_path, monkeypatch, missing):
+    import importlib.util
+    # Restore the real metadata-only checker after creating synthetic key config.
+    check = readiness._app_dependencies_present
+    app_configuration(tmp_path, monkeypatch)
+    monkeypatch.setattr(readiness, '_app_dependencies_present', check)
+    seen = []
+    def spec(name):
+        seen.append(name)
+        assert name in {'jwt', 'cryptography'}
+        return None if name == missing else SimpleNamespace()
+    monkeypatch.setattr(importlib.util, 'find_spec', spec)
+    assert readiness._github_app(tmp_path) == ('blocked', 'app_signing_dependencies_missing')
+    assert missing in seen
+
+
+def test_dependency_discovery_failure_is_a_safe_blocker(tmp_path, monkeypatch):
+    import importlib.util
+    check = readiness._app_dependencies_present
+    app_configuration(tmp_path, monkeypatch)
+    monkeypatch.setattr(readiness, '_app_dependencies_present', check)
+    def failed(name):
+        raise RuntimeError('synthetic-private-import-hook-detail')
+    monkeypatch.setattr(importlib.util, 'find_spec', failed)
+    assert readiness._github_app(tmp_path) == ('blocked', 'app_signing_dependencies_missing')
 
 
 def test_sync_existing_regular_database_is_read_only(tmp_path):

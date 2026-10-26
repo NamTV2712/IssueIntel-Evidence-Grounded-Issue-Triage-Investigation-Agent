@@ -197,6 +197,77 @@ def _typesafe(root):
     return result
 
 
+def _app_key_status(root, raw):
+    """Local metadata only; an explicitly configured PEM may be outside root."""
+    try:
+        path = Path(raw)
+        path = _root(path if path.is_absolute() else root / path)
+        # Do not turn a local status refresh into a UNC/network-file lookup.
+        if path.anchor.startswith(('\\\\', '//')):
+            return 'unsafe'
+        cursor = Path(path.anchor)
+        for part in path.parts[1:]:
+            cursor = cursor / part
+            value = cursor.lstat()
+            if (stat.S_ISLNK(value.st_mode) or getattr(value, 'st_file_attributes', 0) & _REPARSE
+                    or stat.S_ISREG(value.st_mode) and value.st_nlink != 1):
+                return 'unsafe'
+            if cursor != path and not stat.S_ISDIR(value.st_mode):
+                return 'unavailable'
+        value = path.lstat()
+        return ('present' if stat.S_ISREG(value.st_mode) and 0 < value.st_size <= 65_536
+                else 'unavailable')
+    except FileNotFoundError:
+        return 'missing'
+    except (OSError, TypeError, ValueError):
+        return 'unavailable'
+
+
+def _app_dependencies_present():
+    # Top-level find_spec inspects availability without importing either package
+    # or cryptography backends. The stdlib-only launcher does not call this.
+    from importlib.util import find_spec
+    try:
+        return all(find_spec(name) is not None for name in ('jwt', 'cryptography'))
+    except Exception:
+        return False
+
+
+def _github_app(root):
+    """Inspect known local blockers, never load PEM bytes, sign or mint a token."""
+    names = ('GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID', 'GITHUB_APP_CLIENT_ID',
+             'GITHUB_APP_PRIVATE_KEY_PATH', 'GITHUB_WEBHOOK_SECRET')
+    raw = {name: os.environ.get(name, '') for name in names}
+    if any(not isinstance(value, str) or len(value) > (32768 if name == 'GITHUB_APP_PRIVATE_KEY_PATH' else 4096)
+           or any(ord(char) < 32 for char in value) for name, value in raw.items()):
+        return 'blocked', 'app_configuration_invalid'
+    values = {name: value.strip() for name, value in raw.items()}
+    if not any(values.values()):
+        return 'blocked', 'app_not_configured'
+    for name in ('GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID'):
+        value = values[name]
+        if value and (not re.fullmatch(r'[1-9][0-9]{0,18}', value) or int(value) > (1 << 63) - 1):
+            return 'blocked', 'app_configuration_invalid'
+    client = values['GITHUB_APP_CLIENT_ID']
+    if client and not re.fullmatch(r'[A-Za-z0-9_.-]{1,200}', client):
+        return 'blocked', 'app_configuration_invalid'
+    if not values['GITHUB_APP_ID']:
+        return 'blocked', 'app_id_missing'
+    if not values['GITHUB_APP_PRIVATE_KEY_PATH']:
+        return 'blocked', 'app_private_key_missing'
+    key = _app_key_status(root, values['GITHUB_APP_PRIVATE_KEY_PATH'])
+    if key != 'present':
+        return 'blocked', {'missing': 'app_private_key_missing', 'unsafe': 'app_private_key_unsafe',
+                           'unavailable': 'app_private_key_unavailable'}[key]
+    if not values['GITHUB_WEBHOOK_SECRET']:
+        return 'blocked', 'app_webhook_secret_missing'
+    if not _app_dependencies_present():
+        return 'blocked', 'app_signing_dependencies_missing'
+    # Metadata presence cannot prove valid PEM contents, signatures, credentials,
+    # installation grants or HTTPS delivery. Actual operations still authorize.
+    return 'unknown', 'app_https_permissions_not_verified'
+
+
 def _readonly(root, path, deadline):
     """No CREATE, initialization, immutable mode or new database on a read."""
     statuses = []
@@ -326,10 +397,8 @@ def readiness_report(root, sync_running=False):
         state = states[cache_id]
         capabilities.append(capability(identifier, 'conditional' if state == 'present' else 'blocked' if state == 'missing' else 'unknown',
                                        available_reason if state == 'present' else missing_reason if state == 'missing' else 'unsafe_local_path' if state == 'unsafe' else 'local_state_unavailable'))
-    app_configured = (bool(os.environ.get('GITHUB_WEBHOOK_SECRET', '').strip()) and
-                      any(re.fullmatch(r'[1-9][0-9]{0,19}', os.environ.get(key, '')) for key in ('GITHUB_APP_ID', 'GITHUB_INSTALLATION_ID')))
-    capabilities.append(capability('github_app', 'unknown' if app_configured else 'blocked',
-                                   'app_https_permissions_not_verified' if app_configured else 'app_not_configured'))
+    app_status, app_reason = _github_app(root)
+    capabilities.append(capability('github_app', app_status, app_reason))
     capabilities.append(capability('batch', 'available' if runtime['ready'] else 'blocked',
                                    'offline_batch_available' if runtime['ready'] else 'runtime_not_ready'))
     # Source/job eligibility is deliberately not inspected by this global view.

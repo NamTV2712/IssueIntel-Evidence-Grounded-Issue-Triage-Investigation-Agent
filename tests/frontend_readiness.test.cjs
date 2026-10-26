@@ -53,6 +53,18 @@ test('configured provider keys never imply budget or live GitHub acceptance',asy
   assert.match(value,/GitHub App và webhook HTTPS chưa được xác minh/);assert.match(value,/Chưa nghiệm thu App, HTTPS/);
   assert.match(value,/Verifier nhận định/);assert.match(value,/Gói bàn giao/);assert.match(value,/Phục hồi stage/);
 });
+test('known GitHub App signing blockers are actionable in both languages without showing secrets',async()=>{
+  const reasons={app_configuration_invalid:/configuration is invalid/,app_id_missing:/App ID is missing/,
+    app_private_key_missing:/private-key file is missing/,app_private_key_unsafe:/reparse point/,
+    app_private_key_unavailable:/metadata is unavailable/,app_webhook_secret_missing:/webhook secret is missing/,
+    app_signing_dependencies_missing:/install the github-app extra/};
+  for(const [reason,english] of Object.entries(reasons)){
+    const report=readiness();report.capabilities.find(c=>c.id==='github_app').status='blocked';report.capabilities.find(c=>c.id==='github_app').reason=reason;
+    const app=boot(()=>report);await app.open(true);assert.match(app.text(app.get('readiness-content')),/Bị chặn/);
+    app.locale('en');const output=app.text(app.get('readiness-content'));assert.match(output,english);assert.match(output,/Blocked/);
+    assert.doesNotMatch(output,/Xem mã trạng thái|synthetic-webhook|private-name\.pem/);
+  }
+});
 test('repository text stays inert and malformed readiness clears prior success',async()=>{
   let valid=true;const app=boot(()=>valid?readiness():{...readiness(),providers:{}});await app.open(true);
   assert.match(app.text(app.get('readiness-content')),/<img src=x onerror=bad>/);valid=false;

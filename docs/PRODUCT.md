@@ -117,6 +117,10 @@ localhost; server không cung cấp CORS hay duyệt filesystem. Source excerpts
 render bằng `textContent`, không thực thi HTML/Markdown từ repository hoặc issue.
 
 - `GET /api/readiness`: local runtime/configuration/prices/sync/cache và 17 nhóm chức năng; key chỉ có cờ hiện diện, không đọc `.env` hoặc gọi provider/benchmark/ledger. Không xác minh live auth, ngân sách call tiếp theo, App/HTTPS hoặc source/job đang chọn.
+  GitHub App phân biệt thiếu/sai App ID, file khóa chưa có/không an toàn, thiếu
+  webhook secret hoặc thư viện ký. Chỉ kiểm metadata khóa local, kể cả đường dẫn
+  ngoài checkout; không đọc PEM, ký JWT, mint token hoặc mở đường dẫn UNC. Đủ
+  metadata vẫn giữ trạng thái chưa xác minh quyền và HTTPS. Các lý do có Việt/Anh.
 - `POST /api/storage/preview`: body đúng `{}`; metadata-only bounded scan dưới workspace cố định, không nhận root/path/limit/delete override. Partial measurement và protected/candidate scope được báo rõ; không có endpoint xóa.
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `GET /api/jobs/{id}/check-journal.json` hoặc `.md`: journal source-bound hoặc toàn report kèm journal; hai header `X-IssueIntel-Report-SHA256` và `X-IssueIntel-Journal-SHA256` bind đúng body. Chỉ product ngoài benchmark và lineage đã replay; không network/model.
