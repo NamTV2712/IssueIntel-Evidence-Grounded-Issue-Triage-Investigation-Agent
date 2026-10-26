@@ -121,6 +121,8 @@ render bằng `textContent`, không thực thi HTML/Markdown từ repository ho�
   webhook secret hoặc thư viện ký. Chỉ kiểm metadata khóa local, kể cả đường dẫn
   ngoài checkout; không đọc PEM, ký JWT, mint token hoặc mở đường dẫn UNC. Đủ
   metadata vẫn giữ trạng thái chưa xác minh quyền và HTTPS. Các lý do có Việt/Anh.
+  Nhãn dataset đã tải không bị bước dịch giao diện lúc khởi động ghi đè thành
+  “đang đọc”; không có benchmark local được báo đúng và vẫn chuyển ngôn ngữ được.
 - `POST /api/storage/preview`: body đúng `{}`; metadata-only bounded scan dưới workspace cố định, không nhận root/path/limit/delete override. Partial measurement và protected/candidate scope được báo rõ; không có endpoint xóa.
 - `GET /api/catalog`: metadata accepted Main Dev; không chứa gold.
 - `GET /api/jobs/{id}/check-journal.json` hoặc `.md`: journal source-bound hoặc toàn report kèm journal; hai header `X-IssueIntel-Report-SHA256` và `X-IssueIntel-Journal-SHA256` bind đúng body. Chỉ product ngoài benchmark và lineage đã replay; không network/model.

@@ -5,22 +5,32 @@ const vm = require('node:vm');
 const path = require('node:path');
 const base = path.join(__dirname, '../src/issueintel/interfaces/static');
 
-function boot({stored=null, blocked=false, dark=false}={}) {
+function boot({stored=null, blocked=false, dark=false, loadedCatalog=null}={}) {
   const events = new Map(), controls = new Map(), writes = [];
   const label = {dataset:{i18n:'Bằng chứng'},textContent:''};
   const source = {textContent:'Bằng chứng'}; // Source text has no i18n marker.
+  const catalogStatus={dataset:{i18n:'Đang đọc dữ liệu cục bộ…'},textContent:'Đang đọc dữ liệu cục bộ…'};
+  const acceptedCount={textContent:'—'};
+  controls.set('data-status',catalogStatus);controls.set('accepted-count',acceptedCount);
   for(const id of ['language','theme'])controls.set(id,{value:'',addEventListener:(event,fn)=>events.set(id,fn)});
   const media={matches:dark,addEventListener:(event,fn)=>events.set('media',fn)};
   const document={documentElement:{dataset:{}},
-    querySelectorAll:selector=>selector==='[data-i18n]'?[label]:[],
+    querySelectorAll:selector=>selector==='[data-i18n]'?[label,catalogStatus].filter(el=>el.dataset.i18n):[],
     getElementById:id=>controls.get(id),addEventListener:(event,fn)=>events.set(event,fn),
     dispatchEvent:event=>events.get(event.type)?.()};
   const context=vm.createContext({window:{matchMedia:()=>media},document,navigator:{language:'vi-VN'},
     localStorage:{getItem:()=>{if(blocked)throw Error('disabled');return stored;},
       setItem:(key,value)=>{if(blocked)throw Error('disabled');writes.push([key,value]);}},Event:class {constructor(type){this.type=type;}}});
   for(const file of ['locales.js','preferences.js'])vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context);
+  if(loadedCatalog){
+    const app=fs.readFileSync(path.join(base,'app.js'),'utf8'),start=app.indexOf('function renderCatalog() {');
+    context.catalogInfo=loadedCatalog;context.$=id=>controls.get(id);context.t=context.window.IssueIntelUI.t;
+    vm.runInContext(app.slice(start,app.indexOf("document.addEventListener('issueintel:languagechange'",start)),context);
+    context.renderCatalog();
+    document.addEventListener('issueintel:languagechange',context.renderCatalog);
+  }
   events.get('DOMContentLoaded')();
-  return {context,document,label,source,media,writes,
+  return {context,document,label,source,media,writes,catalogStatus,acceptedCount,
     change:(id,value)=>events.get(id)({target:{value}}),mediaChange:()=>events.get('media')()};
 }
 
@@ -33,6 +43,18 @@ test('language updates authored UI only and saves no source data or token',()=>{
   assert.equal(changes,1);
   assert.deepEqual(JSON.parse(app.writes[0][1]),{language:'en',theme:'system'});
   assert.equal(app.context.window.IssueIntelUI.t('{count} nguồn',{count:12}),'12 sources');
+});
+
+test('language bootstrap cannot replace an already loaded catalog status with the loading placeholder',()=>{
+  for(const loadedCatalog of [{accepted:0,original_total:0,pending:0},{accepted:384,original_total:400,pending:16}]){
+    const app=boot({loadedCatalog});
+    const expected=loadedCatalog.original_total?'16 pending · Holdout giữ riêng':'Chưa có dataset cục bộ';
+    assert.equal(app.catalogStatus.textContent,expected);
+    assert.equal(app.acceptedCount.textContent,loadedCatalog.accepted);
+    app.change('language','en');
+    assert.equal(app.catalogStatus.textContent,app.context.window.IssueIntelUI.t(
+      loadedCatalog.original_total?'{count} pending · Holdout giữ riêng':'Chưa có dataset cục bộ',{count:loadedCatalog.pending}));
+  }
 });
 test('saved explicit theme beats the OS, system theme follows changes',()=>{
   const app=boot({stored:JSON.stringify({language:'en',theme:'light'}),dark:true});

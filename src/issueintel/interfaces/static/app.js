@@ -618,11 +618,13 @@ document.addEventListener('issueintel:batchchildopen',async event=>{
   }catch(error){if(generation===viewGeneration)message(error.message,true);}
 });
 loadTypesafeStatus();
-(async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();
+(async()=>{try{catalogInfo=await api('/api/catalog');catalog=catalogInfo.cases;renderCatalog();filterCases();if(!catalog.length){$('mode').value='example';switchMode();}}catch(error){$('data-status').dataset.i18n='Không đọc được dữ liệu';$('data-status').textContent=t("Không đọc được dữ liệu");message(error.message,true);$('mode').value='example';switchMode();}await history();})();
 
 function renderCatalog() {
   if(!catalogInfo)return;
   $('accepted-count').textContent=catalogInfo.accepted;
+  // The catalog can finish before DOMContentLoaded applies static translations.
+  delete $('data-status').dataset.i18n;
   $('data-status').textContent=catalogInfo.original_total?t('{count} pending · Holdout giữ riêng',{count:catalogInfo.pending}):t('Chưa có dataset cục bộ');
 }
 document.addEventListener('issueintel:languagechange',()=>{
