@@ -116,6 +116,12 @@ quyền Typesafe riêng và pilot một cặp trước matrix. [Giao thức V03]
 ghi cận chi phí, full stage replay, crash/no-retry và giới hạn metrics. Đây là
 harness kiểm chứng, chưa phải kết quả Jev tốt hơn rules.
 
+Sau full controller inference seal, `controller-grounding-preview/run/inspect/score`
+chạy fresh common critic từ adapter riêng, giữ native checkout frozen. Phép chấm
+dedup exact public inputs, giữ failed/unavailable trong coverage và giới hạn tổng
+chi phí gồm parent. [Giao thức common grounding V03](docs/CONTROLLER_GROUNDING.md)
+phân biệt automatic model labels với accuracy/kiểm người; không mở Holdout/Live.
+
 ```powershell
 .\.venv\Scripts\python.exe -m issueintel serve
 # Mở http://127.0.0.1:8787

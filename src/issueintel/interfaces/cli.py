@@ -54,6 +54,16 @@ def main(argv=None) -> int:
         if study_mode == 'run':
             study.add_argument('--authorization', type=Path, required=True)
             study.add_argument('--limit', type=int, choices=(1, 5), default=1)
+    for quality_mode in ('preview', 'run', 'inspect', 'score'):
+        quality = commands.add_parser('controller-grounding-' + quality_mode,
+            help='Fresh common automatic grounding on a sealed product controller comparison')
+        if quality_mode == 'preview':
+            quality.add_argument('--parent-study', required=True)
+        else:
+            quality.add_argument('--study', required=True)
+        if quality_mode == 'run':
+            quality.add_argument('--authorization', type=Path, required=True)
+            quality.add_argument('--limit', type=int, choices=(1, 5), default=1)
     component_register = commands.add_parser('component-register', help='Pin a proposed accepted Main Dev component comparison; no provider calls or gold')
     component_register.add_argument('--protocol', type=Path)
     component_register.add_argument('--history', type=Path)
@@ -235,6 +245,12 @@ def main(argv=None) -> int:
     agreement.add_argument("right", type=Path)
     args = parser.parse_args(argv)
     args.root = args.root.resolve()
+    if args.command.startswith('controller-grounding-'):
+        try:
+            return _controller_grounding(args)
+        except (ValueError, RuntimeError, OSError, ImportError):
+            print('IssueIntel: controller common judge adapter or frozen runtime is unavailable; no automatic retry', file=sys.stderr)
+            return 2
     if args.command.startswith('controller-study-'):
         try:
             from issueintel.evaluation.controller_study import register_study
@@ -499,6 +515,37 @@ def _component_grounding(args):
     if mode == 'run':
         parameters += ['--authorization', str(args.authorization), '--limit', str(args.limit)]
     return _run_component_adapter(args.root, 'component_grounding.py', parameters)
+
+
+def _controller_grounding(args):
+    mode = args.command.removeprefix('controller-grounding-')
+    directory = Path(__file__).resolve().parents[1] / 'evaluation'
+    helper, driver = directory / 'common_grounding.py', directory / 'controller_grounding.py'
+    if not helper.is_file() or not driver.is_file():
+        raise ValueError('Controller common judge adapters are unavailable')
+    parameters = ['--root', str(args.root), '--mode', mode]
+    parameters += ['--parent-study', args.parent_study] if mode == 'preview' else ['--study', args.study]
+    if mode == 'run':
+        parameters += ['--authorization', str(args.authorization), '--limit', str(args.limit)]
+    # Only the admitted native package is on the import path. The two external
+    # modules are loaded by exact filename; their neighbors cannot shadow stdlib
+    # or alter the frozen inference code. The driver pins both files in its plan.
+    bootstrap = (
+        'from pathlib import Path\n'
+        'import importlib.util,sys\n'
+        'runtime=Path(sys.argv[1]).resolve()\n'
+        'sys.path.insert(0,str(runtime/"src"))\n'
+        'import issueintel.evaluation\n'
+        'assert Path(sys.modules["issueintel"].__file__).resolve()==runtime/"src/issueintel/__init__.py"\n'
+        'for name,path in zip(("common_grounding","controller_grounding"),sys.argv[2:4]):\n'
+        '    spec=importlib.util.spec_from_file_location("issueintel.evaluation."+name,path)\n'
+        '    module=importlib.util.module_from_spec(spec)\n'
+        '    sys.modules[spec.name]=module\n'
+        '    spec.loader.exec_module(module)\n'
+        'raise SystemExit(module.main(sys.argv[4:]))\n'
+    )
+    return subprocess.run([sys.executable, '-I', '-c', bootstrap, str(args.root),
+                           str(helper), str(driver), *parameters], check=False).returncode
 
 
 def _run_component_adapter(root, filename, parameters):

@@ -1343,8 +1343,18 @@ replay, pilot gate, inference seal và descriptive scorer trong
 `evaluation.controller_study*`. CLI defer dotenv tới authorized run; toàn bộ
 source/config/prices/job authority được pin. Inspection-only không có execution
 capabilities; pending/unknown nhất quán có thể xem nhưng không tự chạy lại.
-Quyền Typesafe mới và actual comparison/common output-quality assessment còn
-thiếu; đây chưa phải V03 đã nghiệm thu.
+Matrix đã chạy sau quyền Typesafe riêng và có
+[báo cáo cùng failed/unavailable](VALIDATION_V03_MATRIX.md); fresh common
+output-quality assessment còn thiếu, chưa chứng minh Jev tốt hơn rules.
+
+`evaluation.common_grounding` giữ pure native critic projection/dedup/scoring;
+`evaluation.controller_grounding` là adapter mới cho full sealed product study.
+CLI isolate frozen native root và nạp exact hai adapter files, không đặt source
+checkout mới vào native import path. Parent event/index/provider DB được đọc
+immutable/query-only cùng full pack replay, không construct writable parent
+stores. Child có single owner theo parent seal và budget trừ parent usage;
+paid stage khóa phase authority SHA. Xem [CONTROLLER_GROUNDING.md](CONTROLLER_GROUNDING.md)
+cho namespace, pilot gate, source guards và giới hạn automatic assessment.
 
 ## Review usefulness offline — tooling V02
 

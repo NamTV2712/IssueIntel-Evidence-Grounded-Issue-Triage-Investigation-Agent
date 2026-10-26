@@ -209,6 +209,11 @@ tổng hợp không thay các phép đo đó. [Pilot thật một cặp](VALIDAT
 unavailable; fresh common quality assessment còn thiếu. V01 giữ checkout/adapters đã khóa riêng;
 Holdout/Live tiếp tục đóng.
 
+[Common grounding harness](CONTROLLER_GROUNDING.md) đã có adapter riêng sau full
+seal, dùng fresh canonical native critic, một paid owner/input và child allowance
+trừ parent spend. Tooling không thay actual assessment; kết quả chấm chung thật
+cần báo riêng với in-treatment critic ở trên.
+
 Kiểm cục bộ cho harness: 37 registration/CLI checks, 33 runner checks gồm
 full native synthetic five-case matrix/seal/repeated scoring, 21 replay checks,
 và 201 shared execution/budget/product-study/scorer checks đã đạt. Sau các sửa
