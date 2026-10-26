@@ -674,6 +674,34 @@ Pagination `21fd8d4` cũng thành công cả hai job tại run `40035496626`.
 Smoke chỉ đọc này không đóng mục 4: installation/HTTPS/events/approved comment
 thật, restart và mất quyền trên dịch vụ thật vẫn cần nghiệm thu riêng.
 
+Ngày 26/10/2026, theo yêu cầu chọn repo công khai nổi tiếng, đã chạy native
+product smoke trên [pallets/flask](https://github.com/pallets/flask) và
+[issue #6172](https://github.com/pallets/flask/issues/6172), source `82e5f08`.
+Snapshot khóa commit `d086db856be187255b8ec61ef409357393020f32`: 231 file admitted,
+5 skipped; static graph có 1.853 node/5.737 cạnh, không lỗi parse. Hai sync job
+dùng đúng checkpoint/run/cursor, mỗi lượt 8 GET; tổng 767 issue và 633 PR record
+lấy từ issues endpoint. Đây là backfill một phần: comments/reviews, PR files/
+commits và các trang lịch sử còn lại chưa hoàn tất; không coi 633 record này là
+633 PR đã thu thập đầy đủ. `scan_complete=false`, giữ bốn task pending để resume.
+
+Quick investigation `354e46c771c54098b806cce9` hoàn tất evidence-only: 13 evidence
+(1 issue, 8 code, 4 repository-context), report và comment preview; không POST.
+Local search riêng theo tên hai method tìm thấy `update_template_context` tại
+`src/flask/app.py:586–624`, `__init_subclass__` tại `src/flask/app.py:226–265`
+và `src/flask/views.py:136–175`. Excerpt khớp source không tự chứng minh nguyên nhân
+lỗi. Lần này chủ động dùng `provider=none`: không sinh hypothesis hoặc chấm
+grounding/chất lượng chẩn đoán, stop reason native là `provider_not_configured`.
+
+Tổng 17 GET (16 sync + 1 issue), không model/provider constructor, không ghi lên
+repo đích, không mở benchmark/Holdout/Live. Audit ngoại tuyến dựng lại graph và
+kiểm 14 page receipts, toàn bộ 1.400 document→receipt/hash binding; mở lại pack/
+report/preview khớp nguyên vẹn, SQLite index không đổi. Pack SHA-256
+`99693946a56e5bea908c30323baaad138e7c3934e7d59ab515e3ea4180bdaf0d`;
+audit seal `3e769ab9e15adb356997aa6f56b6d6a2cca29f78516d6c08d4bf6dd2bfb81939`.
+Native cache `data/` thêm 11.005.978 logical byte; raw content, graph, packs và
+receipts chỉ giữ local/ignored. Thử đọc repo của người khác không cấp quyền cài
+App hoặc đăng comment và không thay nghiệm thu App/HTTPS thật ở mục 4.
+
 ## Hồ sơ xuyên suốt issue (D01 — F05/F07/F14)
 
 `GET /api/jobs/<id>/dossier` và `.../dossier.json` dựng hồ sơ từ những product
