@@ -1691,7 +1691,8 @@ class Workbench:
         payload = authenticate(raw, signature, delivery, secret)
         delivery = delivery.lower()
         comment = payload.get('comment', {})
-        if not (event == 'issue_comment' and isinstance(comment.get('body'), str)
+        if not (event == 'issue_comment' and payload.get('action') == 'created'
+                and isinstance(comment.get('body'), str)
                 and comment['body'].startswith('/issueintel investigate')):
             return self.github_sync.receive(raw, signature=signature, event=event, delivery=delivery, secret=secret)
         request = signed_command(raw, signature=signature, event=event, delivery=delivery, secret=secret)
