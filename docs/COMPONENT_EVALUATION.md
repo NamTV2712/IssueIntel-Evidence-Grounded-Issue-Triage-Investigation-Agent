@@ -270,3 +270,37 @@ giữ `candidate_not_admitted_to_inference`, zero provider call, parent không �
 và timing chưa biết. Audit trước phục hồi ghi 61/125 terminal (58 completed,
 2 failed, 1 unavailable), 69 call vật lý và 0,152488 USD charged/bounded;
 candidate này chưa thay đổi các số đó. Raw pack/response/audit chỉ giữ local.
+
+### Kế thừa kết quả đã phục hồi, giữ nguyên journal gốc
+
+`benchmarks.component_successor` nhận candidate bằng replay native, rồi tạo
+`component_successor_plan_v1` ở thư mục riêng. View kế thừa giữ mọi kết quả và
+call cũ; thêm đúng một arm hoàn tất với pack phục hồi và một stage có identity
+riêng. Intent bị ngắt vẫn nằm trong lịch sử audit. Execution reference dùng
+stage phục hồi; receipt vẫn thuộc call gốc, không có provider call mới hoặc
+khoản phí thứ hai. Thời gian stage/pipeline/preparation bị mất giữ `null` và
+`not_recorded_before_interruption`; không dùng thời gian replay làm latency gốc.
+
+Có thể chạy adapter từ checkout mới, với toàn bộ native imports từ checkout
+đã khóa, không chép code vào nguồn thực nghiệm:
+
+```powershell
+<frozen_python> -I <adapter_checkout>/src/issueintel/benchmarks/component_successor.py --root <frozen_checkout> --recovery <recovery_sha256>
+<frozen_python> -I <adapter_checkout>/src/issueintel/benchmarks/component_successor.py --root <frozen_checkout> --inspect <successor_sha256>
+```
+
+Prepare/save/reopen đều replay candidate, kiểm inventory và adapter; thay nguồn,
+ẩn receipt/audit reference, sửa pack hoặc bịa thời gian rồi rehash bị từ chối.
+Parent tăng thêm journal sau candidate cũng bị từ chối, tránh đè công việc mới.
+Publication dùng native experiment lease và kiểm lại inventory trước khi ghi.
+
+Đây là admission kết quả vào **view kế thừa riêng**, chưa phải runner/scorer mới.
+Runner cũ vẫn từ chối intent của parent; view không cấp quyền gọi API, mở gold
+hoặc tạo full inference seal. Cần nối runner và scorer hiểu recovery identity
+cùng timing chưa biết trước khi chạy/chấm các arm còn lại. Số terminal của
+parent và của successor phải được báo riêng, không sửa số lịch sử.
+
+11 test tổng hợp đạt cho admission/reopen/idempotence, giữ nguyên journal và
+receipt, thời gian chưa biết, source/inventory đổi, các bản ghi giả rồi rehash,
+và runner cũ tiếp tục từ chối paid retry. Kiểm thử này không thay nghiệm thu
+matrix thực hoặc phép đo chất lượng.
