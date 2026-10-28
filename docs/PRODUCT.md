@@ -708,6 +708,15 @@ Native cache `data/` thêm 11.005.978 logical byte; raw content, graph, packs v�
 receipts chỉ giữ local/ignored. Thử đọc repo của người khác không cấp quyền cài
 App hoặc đăng comment và không thay nghiệm thu App/HTTPS thật ở mục 4.
 
+Ngày 28/10/2026, preflight cho lượt thử Groq trên cùng issue phát hiện constructor
+index ghi lại metadata repository dù không đổi, làm thay bytes SQLite khi mở để
+đọc. Lượt này dừng trước credentials, native job và API (zero call/zero cost);
+giữ nguyên candidate và hồ sơ lỗi. Constructor nay chỉ khởi tạo identity ở index
+rỗng, không ghi lại identity hợp lệ; thiếu/sai identity trên dữ liệu có sẵn bị
+từ chối. Kiểm hồi quy so nguyên bytes qua reopen, đọc/search/context và reconnect;
+11 ca mới cùng bộ GitHub/index/context liên quan đạt tổng 188 test. Đây là sửa
+tính bất biến khi đọc, chưa phải kết quả sinh giả thuyết hoặc đánh giá chất lượng.
+
 ## Hồ sơ xuyên suốt issue (D01 — F05/F07/F14)
 
 `GET /api/jobs/<id>/dossier` và `.../dossier.json` dựng hồ sơ từ những product

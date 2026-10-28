@@ -100,6 +100,67 @@ def test_failure_preserves_cursor_records_and_restart_search(connected):
     assert not any('/issues?' in url for url in reader.calls)
 
 
+def test_open_and_public_reads_preserve_existing_index_bytes(connected):
+    from issueintel.integrations.github_sync import GitHubSync
+    from issueintel.retrieval.repository_context import collect_context
+
+    index, builder = connected
+    index.sync(reader=Reader({'/issues?': ([issue(1)], None, digest('page'))}),
+               snapshot_builder=builder)
+    expected = index.path.read_bytes()
+    reopened = RepositoryIndex(index.root, REPO)
+    assert reopened.path.read_bytes() == expected
+    assert reopened.status()['counts'] == {'issue': 1}
+    assert reopened.search('Unicode parser')['results']
+    assert reopened.search_code('parse_unicode')['results']
+    assert reopened.item('issue:1')['record']['number'] == 1
+    collect_context(reopened, f'https://github.com/{REPO}/issues/1', 'Unicode parser')
+    assert reopened.path.read_bytes() == expected
+
+    # Reconnect updates the sync registry, but merely opens the existing index.
+    sync = GitHubSync(index.root)
+    sync.connect(REPO, revision=SHA)
+    sync.change(REPO, paused=True)
+    sync.connect(REPO, revision=SHA)
+    assert RepositoryIndex(index.root, REPO).path.read_bytes() == expected
+
+
+def test_missing_identity_can_initialize_an_empty_index_once(tmp_path):
+    index = RepositoryIndex(tmp_path, REPO)
+    with index.connect() as db:
+        db.execute("DELETE FROM meta WHERE key='repository'")
+    reopened = RepositoryIndex(tmp_path, REPO)
+    with reopened.connect() as db:
+        assert reopened._meta(db, 'repository') == REPO
+    expected = reopened.path.read_bytes()
+    assert RepositoryIndex(tmp_path, REPO).path.read_bytes() == expected
+
+
+def test_missing_identity_cannot_claim_existing_index_data(connected):
+    index, builder = connected
+    index.sync(reader=Reader({'/issues?': ([issue(1)], None, digest('page'))}),
+               snapshot_builder=builder)
+    with index.connect() as db:
+        db.execute("DELETE FROM meta WHERE key='repository'")
+    expected = index.path.read_bytes()
+    with pytest.raises(ValueError, match='identity'):
+        RepositoryIndex(index.root, REPO)
+    assert index.path.read_bytes() == expected
+
+
+@pytest.mark.parametrize('raw_identity', [
+    '"other/project"', 'null', 'false', '0', '""', '{}', '[]', 'invalid json',
+])
+def test_invalid_identity_is_not_silently_rewritten(tmp_path, raw_identity):
+    index = RepositoryIndex(tmp_path, REPO)
+    with index.connect() as db:
+        db.execute("UPDATE meta SET value=? WHERE key='repository'", (raw_identity,))
+    expected = index.path.read_bytes()
+    with pytest.raises(ValueError, match='identity'):
+        RepositoryIndex(tmp_path, REPO)
+    assert index.path.read_bytes() == expected
+
+
 def test_pr_comments_review_files_commits_and_mentions_are_separate(connected):
     index, builder = connected
     pull = issue(2, pull=True, body='Might relate to #1; this is not a confirmed fix')

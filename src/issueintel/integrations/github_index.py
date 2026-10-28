@@ -248,10 +248,27 @@ class RepositoryIndex:
                 CREATE INDEX IF NOT EXISTS links_target ON links(target);
                 CREATE INDEX IF NOT EXISTS links_source ON links(source);
             ''')
-            identity = self._meta(db, 'repository')
-            if identity and identity != self.repository:
+            identity = db.execute("SELECT value FROM meta WHERE key='repository'").fetchone()
+            if identity is None:
+                # Serialize first initialization without rewriting an existing
+                # identity on every read. Missing identity cannot claim data
+                # left by a damaged or unrelated index.
+                db.execute('BEGIN IMMEDIATE')
+                identity = db.execute("SELECT value FROM meta WHERE key='repository'").fetchone()
+                if identity is None:
+                    tables = ('meta', 'runs', 'tasks', 'receipts', 'versions', 'documents',
+                              'search', 'unavailable', 'updates', 'update_seen', 'links')
+                    if any(db.execute(f'SELECT 1 FROM {table} LIMIT 1').fetchone()
+                           for table in tables):
+                        raise ValueError('Repository index identity is missing from existing data')
+                    self._set(db, 'repository', self.repository)
+                    identity = db.execute("SELECT value FROM meta WHERE key='repository'").fetchone()
+            try:
+                identity = json.loads(identity[0])
+            except (TypeError, ValueError):
+                raise ValueError('Repository index identity is invalid') from None
+            if identity != self.repository:
                 raise ValueError('Repository index identity mismatch')
-            self._set(db, 'repository', self.repository)
 
     @contextmanager
     def connect(self):
