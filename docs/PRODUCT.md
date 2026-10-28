@@ -717,6 +717,23 @@ từ chối. Kiểm hồi quy so nguyên bytes qua reopen, đọc/search/context
 11 ca mới cùng bộ GitHub/index/context liên quan đạt tổng 188 test. Đây là sửa
 tính bất biến khi đọc, chưa phải kết quả sinh giả thuyết hoặc đánh giá chất lượng.
 
+Lượt Groq cùng issue ngày 28/10 đã hoàn tất trên source `4546645`: 13 evidence,
+3 giả thuyết, whole-hypothesis critique và 2 bước kiểm tra đề xuất. Năm call đều
+settled, tổng 0,009779 USD và 49.269 token ghi nhận (receipt không giữ riêng chiều
+vào/ra); một GET issue, không GitHub write/Typesafe/gold/Holdout. Audit độc lập
+replay native pack, report, hai sidecar và đối chiếu đúng owner/receipt với ledger;
+seal `86a42cd2c0163df44aef67f1305ee2ff209b712c774467d2f9482f218b367d4e`.
+
+Giới hạn quan trọng: claim review dùng hai call gồm một output repair, nhưng cả
+ba review đều có **0 claim**, toàn bộ câu gốc còn chưa được kiểm. Model nêu khó
+đếm Unicode offsets; không tính trạng thái job completed là thành công kiểm
+nhận định. UI đã hiển thị uncertain và phần chưa kiểm; các check chưa được chạy.
+Prompt mới bổ sung `span_hints_v1`: code tính sẵn ranh giới câu gốc/dòng nguồn,
+tối đa 32 span mỗi nguồn, báo partial khi thiếu. Quote/offset vẫn phải khớp chính
+xác, không tự sửa citation. Validator nhận đúng hash của prompt cũ hoặc mới dựng
+từ cùng nguồn, nên bundle cũ vẫn mở nguyên vẹn. 48 test claim/recovery jobs đạt;
+chưa chạy phép đo model mới để khẳng định cải thiện coverage hay chất lượng.
+
 ## Hồ sơ xuyên suốt issue (D01 — F05/F07/F14)
 
 `GET /api/jobs/<id>/dossier` và `.../dossier.json` dựng hồ sơ từ những product

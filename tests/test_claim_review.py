@@ -37,6 +37,34 @@ def produce(source,transform=lambda r:r):
 def reseal(value):return dict(value,sha256=digest({k:v for k,v in value.items() if k!='sha256'}))
 
 
+def test_span_hints_preserve_unicode_crlf_and_bound_output():
+    from issueintel.investigation.claim_review import _span_hints
+    text='😀 tiếng Việt\r\nsecond e\u0301 line\nlast'
+    hints=_span_hints(text,2000)
+    assert hints['spans'][0]=={'start':0,'end':len(text)}
+    assert [text[s['start']:s['end']] for s in hints['spans'][1:]]==['😀 tiếng Việt','second e\u0301 line','last']
+    long=_span_hints(('line\n'*1000),2000)
+    assert len(long['spans'])==32 and long['partial'] is True
+    assert _span_hints('x'*2001,2000)['spans']==[]
+
+
+def test_prompt_hints_are_source_bound_and_legacy_bundles_still_replay(source):
+    from issueintel.investigation.claim_review import _messages,_legacy_messages
+    payload=json.loads(_messages(source)[1]['content'])
+    assert payload['hypotheses']==source['hypotheses'] and payload['evidence']==source['evidence']
+    for row,hypothesis in zip(payload['span_hints_v1']['hypotheses'],source['hypotheses']):
+        assert row['hypothesis_id']==hypothesis['id']
+        assert row['spans'][0]=={'start':0,'end':len(hypothesis['statement'])}
+    bundle=produce(source)
+    assert bundle['prompt_sha256']==digest(_messages(source))
+    legacy=reseal(dict(bundle,prompt_sha256=digest(_legacy_messages(source))))
+    assert validate(legacy,source)==legacy
+    unknown=reseal(dict(bundle,prompt_sha256='a'*64))
+    with pytest.raises(ValueError):validate(unknown,source)
+    bad=deepcopy(bundle);bad['reviews'][0]['claims'][0]['start']=1
+    with pytest.raises(ValueError):validate(reseal(bad),source)
+
+
 def test_valid_quotes_with_missing_mechanism_and_assumptions_cannot_imply_support(source):
     bundle=produce(source)
     for row in bundle['assessment']:
