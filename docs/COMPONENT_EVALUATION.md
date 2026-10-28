@@ -261,3 +261,12 @@ không được chép payload hoặc thời gian giả vào journal gốc để 
 reopen/idempotent save, từ chối source/request đổi, kết quả/thời gian bịa rồi
 rehash, receipt chưa settled và nhiều intent. Đây là kiểm cơ chế phục hồi;
 không tăng số nhánh inference đã nghiệm thu hoặc thay phép đo chất lượng.
+
+Replay thực tế ngày 28/10/2026 với adapter `559515e` đã dựng lại pack
+`379dcdbb64496b39d727eddf7bac8442a6e7aadc55c79383e443baa3f8817b86`
+cho verifier bị gián đoạn của `verified:astropy__astropy-13033`. Candidate
+`f24ecbf98116565096a670d03422851314b0006fb2221c5ee0bb2b83dd4415f2`
+giữ `candidate_not_admitted_to_inference`, zero provider call, parent không đổi
+và timing chưa biết. Audit trước phục hồi ghi 61/125 terminal (58 completed,
+2 failed, 1 unavailable), 69 call vật lý và 0,152488 USD charged/bounded;
+candidate này chưa thay đổi các số đó. Raw pack/response/audit chỉ giữ local.
