@@ -239,3 +239,25 @@ schema repairs, chi phí unknown, thời gian gốc và phục hồi. Không m�
 hoặc xác nhận semantic quality. Kiểm thử tổng hợp bao phủ phục hồi, full matrix,
 crash boundaries, không retry, isolation và accounting; kết quả test cơ chế không
 thay kết quả thí nghiệm thực.
+
+### Phản hồi verifier đã lưu nhưng stage chưa chốt
+
+`benchmarks.component_response_recovery` cung cấp bước chuẩn bị/replay ngoại
+tuyến cho đúng một verification stage còn intent, có một response returned và
+receipt settled thuộc stage đó. Nó replay source strict, retrieval và annotation
+đã hoàn tất, rồi đưa nguyên response qua verifier/pipeline native. Request phải
+khớp system/schema/roles, giá trị và thứ tự list; chỉ cho khác cách sắp key/spacing
+của JSON object. Generation mới, thiếu response, usage chưa rõ hoặc nhiều intent
+đều bị từ chối. Candidate khóa inventory gốc và mới, giữ thời gian stage/arm chưa
+ghi là null; không mở ledger, credentials, gold hay provider và không sửa parent.
+
+Các hàm `prepare_response_recovery`, `save_response_recovery` và
+`load_response_recovery` chỉ tạo/kiểm một candidate riêng. Đây chưa phải adapter
+tiếp tục inference: runner cũ vẫn từ chối intent, số terminal và seal không đổi.
+Để chạy tiếp cần tích hợp recovery refs vào một successor được kiểm riêng;
+không được chép payload hoặc thời gian giả vào journal gốc để vượt admission.
+
+14 test tổng hợp đạt: crash sau response/before publication, replay không call,
+reopen/idempotent save, từ chối source/request đổi, kết quả/thời gian bịa rồi
+rehash, receipt chưa settled và nhiều intent. Đây là kiểm cơ chế phục hồi;
+không tăng số nhánh inference đã nghiệm thu hoặc thay phép đo chất lượng.
